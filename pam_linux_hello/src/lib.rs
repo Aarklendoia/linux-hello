@@ -9,9 +9,9 @@
 //! auth include system-login
 //! ```
 
-use std::ffi::{CStr, CString};
+use std::ffi::CStr;
 use std::os::raw::{c_char, c_int, c_void};
-use tracing::{debug, info, warn, error};
+use tracing::{debug, info, warn};
 use serde::{Serialize, Deserialize};
 
 // Bindings C basiques
@@ -349,9 +349,9 @@ enum PamHelperResponse {
 
 /// Appeler le helper PAM via socket Unix OU directement via subprocess
 fn call_pam_helper_sync(req: &PamHelperRequest) -> Result<PamHelperResponse, String> {
-    use std::os::unix::net::UnixStream;
-    use std::io::{Read, Write};
-    use std::time::Duration;
+    
+    
+    
 
     let uid = unsafe { libc::getuid() };
     
