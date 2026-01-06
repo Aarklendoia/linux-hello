@@ -159,67 +159,79 @@ pub type SharedCamera = Arc<parking_lot::Mutex<Box<dyn CameraBackend>>>;
 #[cfg(feature = "v4l2")]
 pub mod v4l2_backend {
     use super::*;
-    use std::fs;
     use std::time::Instant;
 
-    /// Backend V4L2 simplifié (implémentation stub pour démarrage)
+    /// Backend V4L2 simplifié - stub pour compatibilité
     pub struct V4L2Camera {
         config: CameraConfig,
-        device_file: Option<fs::File>,
         is_open: bool,
+        start_time: Instant,
     }
 
     impl V4L2Camera {
         pub fn new(config: CameraConfig) -> Self {
             Self {
                 config,
-                device_file: None,
                 is_open: false,
+                start_time: Instant::now(),
             }
         }
     }
 
     impl CameraBackend for V4L2Camera {
         fn open(&mut self) -> Result<(), CameraError> {
-            match fs::OpenOptions::new()
-                .read(true)
-                .open(&self.config.device_path)
-            {
-                Ok(file) => {
-                    self.device_file = Some(file);
-                    self.is_open = true;
-                    Ok(())
-                }
-                Err(e) => Err(CameraError::OpenFailed(format!(
-                    "Failed to open {}: {}",
+            // Vérifier que le device existe
+            std::fs::metadata(&self.config.device_path).map_err(|e| {
+                CameraError::OpenFailed(format!(
+                    "Failed to access {}: {}",
                     self.config.device_path, e
-                ))),
-            }
+                ))
+            })?;
+
+            tracing::info!(
+                "V4L2 camera opened: {}x{} at {}",
+                self.config.width,
+                self.config.height,
+                self.config.device_path
+            );
+
+            self.is_open = true;
+            self.start_time = Instant::now();
+            Ok(())
         }
 
         fn close(&mut self) -> Result<(), CameraError> {
-            self.device_file = None;
             self.is_open = false;
             Ok(())
         }
 
         fn capture(&mut self, _timeout_ms: u64) -> Result<Frame, CameraError> {
             if !self.is_open {
-                return Err(CameraError::CaptureFailed(
-                    "Caméra non ouverte".to_string(),
-                ));
+                return Err(CameraError::CaptureFailed("Caméra non ouverte".to_string()));
             }
 
-            // Stub: retourner une frame de test
+            // Stub: retourner une frame de test colorée
             let frame_size = (self.config.width * self.config.height * 3) as usize;
-            let data = vec![0u8; frame_size];
+            let mut data = vec![0u8; frame_size];
+
+            // Créer une image de test avec des dégradés (simule une vraie caméra)
+            for y in 0..self.config.height {
+                for x in 0..self.config.width {
+                    let idx = ((y * self.config.width + x) * 3) as usize;
+                    data[idx] = ((x * 255) / self.config.width) as u8; // R
+                    data[idx + 1] = ((y * 255) / self.config.height) as u8; // G
+                    data[idx + 2] = 128; // B
+                }
+            }
+
+            let timestamp_ms = self.start_time.elapsed().as_millis() as u64;
 
             Ok(Frame {
                 data,
                 width: self.config.width,
                 height: self.config.height,
                 format: FrameFormat::Rgb8,
-                timestamp_ms: Instant::now().elapsed().as_millis() as u64,
+                timestamp_ms,
             })
         }
 
@@ -236,7 +248,7 @@ pub mod v4l2_backend {
         }
 
         fn backend_name(&self) -> &str {
-            "V4L2"
+            "V4L2-Stub"
         }
     }
 }
