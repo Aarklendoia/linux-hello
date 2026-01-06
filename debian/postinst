@@ -1,0 +1,123 @@
+#!/bin/bash
+# Postinstallation script for linux-hello
+
+set -e
+
+. /usr/share/debconf/confmodule
+
+echo "Linux Hello - Postinstallation Configuration"
+echo "=============================================="
+echo ""
+
+# Create storage directory
+STORAGE_DIR="${HOME}/.local/share/linux-hello"
+mkdir -p "$STORAGE_DIR"
+chmod 700 "$STORAGE_DIR"
+
+echo "✓ Created storage directory: $STORAGE_DIR"
+
+# Offer to configure PAM
+echo ""
+echo "PAM Configuration Options:"
+echo ""
+echo "1. Sudo authentication (RECOMMENDED FOR TESTING)"
+echo "2. KDE Screenlock"
+echo "3. Both"
+echo "4. None (manual configuration)"
+echo ""
+
+read -p "Select option (1-4) [1]: " pam_option
+pam_option=${pam_option:-1}
+
+case "$pam_option" in
+    1)
+        # Configure sudo
+        if [ -f /etc/pam.d/sudo ]; then
+            # Backup existing
+            cp /etc/pam.d/sudo /etc/pam.d/sudo.backup.$(date +%s)
+            
+            # Add linux-hello at the beginning if not already present
+            if ! grep -q "pam_linux_hello" /etc/pam.d/sudo; then
+                echo "auth sufficient /lib/x86_64-linux-gnu/security/pam_linux_hello.so context=sudo timeout_ms=3000" | \
+                    cat - /etc/pam.d/sudo > /tmp/sudo.new && \
+                    mv /tmp/sudo.new /etc/pam.d/sudo
+                echo "✓ Configured /etc/pam.d/sudo"
+            else
+                echo "✓ /etc/pam.d/sudo already configured"
+            fi
+        fi
+        ;;
+    2)
+        # Configure screenlock
+        if [ -f /etc/pam.d/kde ]; then
+            cp /etc/pam.d/kde /etc/pam.d/kde.backup.$(date +%s)
+            
+            if ! grep -q "pam_linux_hello" /etc/pam.d/kde; then
+                echo "auth sufficient /lib/x86_64-linux-gnu/security/pam_linux_hello.so context=screenlock timeout_ms=3000" | \
+                    cat - /etc/pam.d/kde > /tmp/kde.new && \
+                    mv /tmp/kde.new /etc/pam.d/kde
+                echo "✓ Configured /etc/pam.d/kde"
+            fi
+        fi
+        ;;
+    3)
+        # Both
+        if [ -f /etc/pam.d/sudo ]; then
+            cp /etc/pam.d/sudo /etc/pam.d/sudo.backup.$(date +%s)
+            if ! grep -q "pam_linux_hello" /etc/pam.d/sudo; then
+                echo "auth sufficient /lib/x86_64-linux-gnu/security/pam_linux_hello.so context=sudo timeout_ms=3000" | \
+                    cat - /etc/pam.d/sudo > /tmp/sudo.new && \
+                    mv /tmp/sudo.new /etc/pam.d/sudo
+            fi
+        fi
+        
+        if [ -f /etc/pam.d/kde ]; then
+            cp /etc/pam.d/kde /etc/pam.d/kde.backup.$(date +%s)
+            if ! grep -q "pam_linux_hello" /etc/pam.d/kde; then
+                echo "auth sufficient /lib/x86_64-linux-gnu/security/pam_linux_hello.so context=screenlock timeout_ms=3000" | \
+                    cat - /etc/pam.d/kde > /tmp/kde.new && \
+                    mv /tmp/kde.new /etc/pam.d/kde
+            fi
+        fi
+        
+        echo "✓ Configured sudo and screenlock"
+        ;;
+    *)
+        echo "✓ PAM configuration skipped (manual configuration needed)"
+        ;;
+esac
+
+echo ""
+echo "Setup Options:"
+echo ""
+echo "1. Enable daemon autostart (systemd user service)"
+echo "2. Manual daemon startup only"
+echo ""
+
+read -p "Select option (1-2) [1]: " daemon_option
+daemon_option=${daemon_option:-1}
+
+if [ "$daemon_option" = "1" ]; then
+    mkdir -p ~/.config/systemd/user
+    systemctl --user daemon-reload
+    systemctl --user enable hello-daemon.service 2>/dev/null || true
+    systemctl --user start hello-daemon.service 2>/dev/null || true
+    echo "✓ Daemon autostart enabled"
+else
+    echo "✓ Manual startup only"
+    echo "  Start with: hello-daemon"
+fi
+
+echo ""
+echo "Installation Complete!"
+echo ""
+echo "Next steps:"
+echo "1. Register a face: hello-daemon (in one terminal) then use:"
+echo "   dbus-send --session --print-reply ..."
+echo "2. Test with sudo: sudo -v"
+echo "3. Or test with screenlock: lock your screen"
+echo ""
+echo "For help: man linux-hello"
+echo ""
+
+exit 0

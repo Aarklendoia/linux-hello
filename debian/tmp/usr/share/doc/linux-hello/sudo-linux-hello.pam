@@ -1,0 +1,15 @@
+#%PAM-1.0
+# Configuration PAM pour sudo avec Linux Hello
+# Permet authentification faciale au lieu de mot de passe pour sudo
+
+# Authentification faciale en premier (sufficient = si succès, stop ici)
+auth sufficient /home/edtech/Documents/linux-hello-rust/target/debug/libpam_linux_hello.so context=sudo timeout_ms=3000 debug
+
+# Si authentification faciale échoue ou le module retourne IGNORE, essayer mot de passe
+@include common-auth
+
+# Validations de compte (pas impacted par linux-hello)
+account required pam_unix.so
+
+# Sessions
+session required pam_unix.so

@@ -1,0 +1,25 @@
+# Installation file mappings
+# Format: source destination
+
+# Main daemon binary
+target/release/hello-daemon usr/bin
+
+# PAM module  
+target/release/libpam_linux_hello.so lib/x86_64-linux-gnu/security
+
+# CLI tool
+target/release/linux-hello usr/bin
+
+# Documentation
+README.md usr/share/doc/linux-hello
+QUICKSTART.md usr/share/doc/linux-hello
+INTEGRATION_GUIDE.md usr/share/doc/linux-hello
+PAM_MODULE.md usr/share/doc/linux-hello
+sudo-linux-hello.pam usr/share/doc/linux-hello
+kde-screenlock-linux-hello.pam usr/share/doc/linux-hello
+
+# Example configuration
+linux-hello.config.toml.example etc/linux-hello
+
+# Systemd service
+hello-daemon.service usr/lib/systemd/user

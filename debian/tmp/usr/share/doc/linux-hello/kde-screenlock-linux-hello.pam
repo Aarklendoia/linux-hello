@@ -1,0 +1,15 @@
+#%PAM-1.0
+# Configuration PAM pour KDE Plasma Screenlock avec Linux Hello
+# Permet déverrouillage d'écran par authentification faciale
+
+# Authentification faciale en premier
+auth sufficient /home/edtech/Documents/linux-hello-rust/target/debug/libpam_linux_hello.so context=screenlock timeout_ms=3000 debug
+
+# Si authentification faciale échoue, utiliser mot de passe
+auth required pam_unix.so nullok try_first_pass
+
+# Validation de compte
+account required pam_permit.so
+
+# Session
+session required pam_permit.so

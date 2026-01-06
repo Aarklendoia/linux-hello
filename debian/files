@@ -1,0 +1,5 @@
+libpam-linux-hello_1.0.0-1_amd64.deb system optional architecture=amd64
+linux-hello-daemon_1.0.0-1_amd64.deb system optional architecture=amd64
+linux-hello-tools_1.0.0-1_amd64.deb system optional architecture=amd64
+linux-hello_1.0.0-1_amd64.buildinfo system optional
+linux-hello_1.0.0-1_amd64.deb system optional architecture=amd64

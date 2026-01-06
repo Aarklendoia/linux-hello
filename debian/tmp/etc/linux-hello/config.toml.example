@@ -1,0 +1,72 @@
+# Example Linux Hello User Configuration
+# Location: ~/.config/linux-hello/config.toml
+# Created by the KDE configuration module or manually
+
+[authentication]
+# Enable face authentication for specific contexts
+enable_for_login = true
+enable_for_sudo = true
+enable_for_screenlock = true
+enable_for_sddm = false          # Requires daemon root mode
+enable_for_polkit = false        # Future
+
+[detection]
+# Camera configuration
+camera_device = "/dev/video0"    # Or /dev/video1 for fallback
+preferred_format = "RGB8"         # RGB8, Gray8, or MJPEG
+width = 640
+height = 480
+fps = 30
+
+[recognition]
+# Face recognition thresholds
+# Higher = stricter matching (fewer false positives, more false negatives)
+confidence_threshold = 0.95       # For face detection (0.0-1.0)
+similarity_threshold = 0.60       # For face recognition (0.0-1.0)
+allow_multiple_faces = false      # For verification (require exactly one face)
+
+# Advanced: context-specific thresholds
+[recognition.contexts]
+login = { similarity_threshold = 0.60 }
+sudo = { similarity_threshold = 0.70, require_confirmation = true }
+screenlock = { similarity_threshold = 0.65 }
+
+[capture]
+# Capture and enrollment settings
+default_timeout_ms = 5000         # Max wait for face detection
+enrollment_samples = 3             # Number of samples to capture/average
+enrollment_quality_threshold = 0.85 # Minimum quality for enrollment
+
+[behavior]
+# User behavior preferences
+auto_enroll_improvements = true    # Allow system to improve embedding over time
+logging_level = "info"             # debug, info, warn, error
+allow_fallback_to_password = true  # If face verification fails, allow password
+
+[advanced]
+# Advanced options (usually don't change)
+daemon_socket = "system"           # system (D-Bus) or unix socket path
+daemon_call_timeout_ms = 10000    # Timeout for daemon calls
+pam_conversation_timeout_ms = 8000 # Timeout for user input prompts
+max_retries = 3                    # Retries before falling back to password
+
+# Feature flags (disabled until implemented)
+[features]
+kdesu_integration = false
+polkit_integration = false
+sddm_ui_plugin = false
+audit_logging = false
+
+# Migration and backup (future)
+[backup]
+# auto_backup = true
+# backup_path = "~/.local/share/linux-hello/backups"
+# backup_frequency_days = 30
+
+# DEBUG: Only in development
+[debug]
+# Uncomment to enable debug mode
+# debug = true
+# dump_frames = false
+# dump_embeddings = false
+# mock_daemon = false

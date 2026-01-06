@@ -1,0 +1,13 @@
+Package: linux-hello-daemon
+Source: linux-hello
+Version: 1.0.0-1
+Architecture: amd64
+Maintainer: Linux Hello Team <dev@linuxhello.local>
+Installed-Size: 9
+Depends: dbus
+Section: system
+Priority: optional
+Homepage: https://github.com/linuxhello/face-auth
+Description: Face Authentication Daemon
+ The D-Bus service daemon for Linux Hello facial recognition.
+ Provides the com.linuxhello.FaceAuth interface.

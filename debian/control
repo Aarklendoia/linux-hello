@@ -1,0 +1,60 @@
+Source: linux-hello
+Section: system
+Priority: optional
+Maintainer: Linux Hello Team <dev@linuxhello.local>
+Build-Depends: 
+  debhelper-compat (= 13),
+  rustc (>= 1.70),
+  cargo,
+  libdbus-1-dev,
+  libpam0g-dev
+Standards-Version: 4.6.1
+Homepage: https://github.com/linuxhello/face-auth
+Vcs-Git: https://github.com/linuxhello/face-auth.git
+Rules-Requires-Root: no
+
+Package: linux-hello
+Architecture: any
+Depends: 
+  ${shlibs:Depends},
+  ${misc:Depends},
+  dbus,
+  systemd
+Conflicts: linux-hello-gui
+Description: Face Authentication System for Linux
+ Linux Hello provides facial recognition authentication for:
+ .
+  * sudo authentication
+  * screenlock unlock (KDE/GNOME)
+  * login screen (future)
+ .
+ This package includes the daemon and PAM module.
+
+Package: linux-hello-daemon
+Architecture: any
+Depends:
+  ${shlibs:Depends},
+  ${misc:Depends},
+  dbus
+Description: Face Authentication Daemon
+ The D-Bus service daemon for Linux Hello facial recognition.
+ Provides the com.linuxhello.FaceAuth interface.
+
+Package: libpam-linux-hello
+Architecture: any
+Depends:
+  ${shlibs:Depends},
+  ${misc:Depends},
+  linux-hello-daemon,
+  libpam-runtime
+Description: PAM module for Linux Hello
+ This PAM module integrates Linux Hello facial recognition
+ with system authentication (sudo, screenlock, etc).
+
+Package: linux-hello-tools
+Architecture: any
+Depends:
+  ${shlibs:Depends},
+  ${misc:Depends}
+Description: Command-line tools for Linux Hello
+ Includes the linux-hello CLI for managing faces and testing.

@@ -1,0 +1,59 @@
+#!/usr/bin/make -f
+# -*- makefile -*-
+
+export DH_VERBOSE=1
+export CARGO_HOME=$(CURDIR)/target/cargo
+export RUSTUP_TOOLCHAIN=stable
+
+%:
+	dh $@
+
+override_dh_auto_clean:
+	# Don't use make distclean, let cargo clean handle it
+	cargo clean
+
+override_dh_auto_build:
+	cargo build --release --verbose
+
+override_dh_auto_test:
+	# Skip tests (they require specific hardware/D-Bus setup)
+	echo "Skipping automated tests (hardware requirements)"
+
+override_dh_auto_install:
+	# Install binaries
+	mkdir -p $(CURDIR)/debian/tmp/usr/bin
+	cp $(CURDIR)/target/release/hello-daemon $(CURDIR)/debian/tmp/usr/bin/
+	cp $(CURDIR)/target/release/linux-hello $(CURDIR)/debian/tmp/usr/bin/
+	
+	# Install PAM module
+	mkdir -p $(CURDIR)/debian/tmp/lib/x86_64-linux-gnu/security
+	cp $(CURDIR)/target/release/libpam_linux_hello.so \
+	   $(CURDIR)/debian/tmp/lib/x86_64-linux-gnu/security/pam_linux_hello.so
+	
+	# Install systemd user service
+	mkdir -p $(CURDIR)/debian/tmp/usr/lib/systemd/user
+	cp $(CURDIR)/hello-daemon.service $(CURDIR)/debian/tmp/usr/lib/systemd/user/
+	
+	# Install documentation
+	mkdir -p $(CURDIR)/debian/tmp/usr/share/doc/linux-hello
+	cp $(CURDIR)/README.md $(CURDIR)/debian/tmp/usr/share/doc/linux-hello/
+	cp $(CURDIR)/QUICKSTART.md $(CURDIR)/debian/tmp/usr/share/doc/linux-hello/
+	cp $(CURDIR)/INTEGRATION_GUIDE.md $(CURDIR)/debian/tmp/usr/share/doc/linux-hello/
+	cp $(CURDIR)/PAM_MODULE.md $(CURDIR)/debian/tmp/usr/share/doc/linux-hello/
+	cp $(CURDIR)/sudo-linux-hello.pam $(CURDIR)/debian/tmp/usr/share/doc/linux-hello/
+	cp $(CURDIR)/kde-screenlock-linux-hello.pam $(CURDIR)/debian/tmp/usr/share/doc/linux-hello/
+	
+	# Install example config
+	mkdir -p $(CURDIR)/debian/tmp/etc/linux-hello
+	cp $(CURDIR)/linux-hello.config.toml.example $(CURDIR)/debian/tmp/etc/linux-hello/config.toml.example
+
+override_dh_install:
+	# We handle installation manually in override_dh_auto_install
+
+override_dh_missing:
+
+override_dh_strip:
+	# Keep symbols for debugging
+	dh_strip --no-automatic-dbgsym
+
+.PHONY: override_dh_auto_build override_dh_auto_test override_dh_auto_install override_dh_strip

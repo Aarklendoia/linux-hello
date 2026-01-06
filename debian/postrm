@@ -1,0 +1,37 @@
+#!/bin/bash
+# Post-removal cleanup
+
+set -e
+
+echo "Linux Hello - Cleanup"
+echo "===================="
+
+# Stop and disable daemon
+systemctl --user stop hello-daemon.service 2>/dev/null || true
+systemctl --user disable hello-daemon.service 2>/dev/null || true
+
+echo "✓ Daemon stopped"
+
+# Offer to restore PAM configuration
+if [ -f /etc/pam.d/sudo.pre-linuxhello-* ]; then
+    echo ""
+    echo "Found PAM backups:"
+    ls -1t /etc/pam.d/*.pre-linuxhello-* 2>/dev/null | head -5
+    echo ""
+    read -p "Restore PAM configuration from backup? (y/n) [y]: " restore_pam
+    restore_pam=${restore_pam:-y}
+    
+    if [ "$restore_pam" = "y" ] || [ "$restore_pam" = "Y" ]; then
+        LATEST_SUDO=$(ls -1t /etc/pam.d/sudo.pre-linuxhello-* 2>/dev/null | head -1)
+        if [ -n "$LATEST_SUDO" ]; then
+            cp "$LATEST_SUDO" /etc/pam.d/sudo
+            echo "✓ Restored /etc/pam.d/sudo from backup"
+        fi
+    fi
+fi
+
+echo ""
+echo "Linux Hello uninstalled"
+echo ""
+
+exit 0

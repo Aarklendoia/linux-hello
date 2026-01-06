@@ -1,0 +1,29 @@
+[Unit]
+Description=Linux Hello Face Authentication Daemon
+Documentation=file:///usr/share/doc/linux-hello/README.md
+After=dbus.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/hello-daemon
+Restart=on-failure
+RestartSec=5s
+
+# Security settings
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+NoNewPrivileges=true
+ReadWritePaths=/home/%u/.local/share/linux-hello
+
+# Timeout settings
+TimeoutStartSec=10
+TimeoutStopSec=5
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=hello-daemon
+
+[Install]
+WantedBy=default.target

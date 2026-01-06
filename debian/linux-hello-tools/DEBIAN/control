@@ -1,0 +1,11 @@
+Package: linux-hello-tools
+Source: linux-hello
+Version: 1.0.0-1
+Architecture: amd64
+Maintainer: Linux Hello Team <dev@linuxhello.local>
+Installed-Size: 9
+Section: system
+Priority: optional
+Homepage: https://github.com/linuxhello/face-auth
+Description: Command-line tools for Linux Hello
+ Includes the linux-hello CLI for managing faces and testing.

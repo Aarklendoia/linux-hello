@@ -1,0 +1,53 @@
+linux-hello (1.0.0-1) unstable; urgency=high
+
+  * Initial release of Linux Hello face authentication system
+  * Complete daemon with D-Bus interface for secure face recognition
+  * PAM module for sudo and KDE screenlock authentication
+  * Automated installation with interactive PAM configuration
+  * Pre-installation backups of system PAM files for safety
+  * Command-line tools for face registration and verification
+  * Comprehensive documentation and quick-start guide
+  * All tests passing: daemon, D-Bus, PAM module, sudo, screenlock
+
+  Key Features:
+  - Async D-Bus daemon with tokio runtime
+  - Secure face matching with cosine similarity
+  - JSON-based persistent storage
+  - Support for multiple authentication contexts (sudo, screenlock, login)
+  - Context-specific match thresholds for optimal security/usability
+  - Automatic fallback to password authentication
+  - Systemd user service for daemon management
+  - Full logging and error handling
+
+  Packages Included:
+  - hello-daemon: Face authentication daemon service
+  - libpam-linux-hello: PAM module for system integration
+  - linux-hello: CLI tools for face management
+  - linux-hello-tools: Additional utilities and examples
+
+  Tested On:
+  - Debian Bookworm
+  - Ubuntu 24.04 LTS
+  - KDE Plasma 6.x
+
+ -- Linux Hello Team <dev@linuxhello.local>  Mon, 20 Jan 2025 15:30:00 +0000
+
+linux-hello (0.9.0-beta) unstable; urgency=medium
+
+  * Beta release: phase B - PAM module integration
+  * Daemon D-Bus methods fully operational
+  * PAM module for sudo and KDE screenlock
+  * Comprehensive test suite with 100% passing rate
+  * Documentation and integration guides
+
+ -- Linux Hello Team <dev@linuxhello.local>  Sun, 19 Jan 2025 10:00:00 +0000
+
+linux-hello (0.1.0-alpha) unstable; urgency=low
+
+  * Alpha release: initial daemon implementation
+  * D-Bus interface for face authentication
+  * Face registration, verification, and listing
+  * Camera frame capture simulation
+  * Basic storage and matching algorithms
+
+ -- Linux Hello Team <dev@linuxhello.local>  Fri, 17 Jan 2025 09:00:00 +0000

@@ -1,0 +1,167 @@
+Linux Hello - Debian Package Documentation
+=============================================
+
+INSTALLATION COMPLETED
+======================
+
+The Linux Hello face authentication system has been installed successfully!
+
+POST-INSTALLATION SETUP
+=======================
+
+1. DAEMON STARTUP
+   The daemon has been configured as a systemd user service and will start
+   automatically on next login.
+   
+   To start the daemon now:
+     systemctl --user start hello-daemon
+   
+   To check daemon status:
+     systemctl --user status hello-daemon
+   
+   To view daemon logs:
+     journalctl --user -u hello-daemon -f
+
+2. FACE REGISTRATION
+   Before using face authentication, you need to register your face:
+   
+     linux-hello register --uid <your_uid> --device /dev/video0
+   
+   Example (register your own face):
+     linux-hello register --uid $(id -u) --device /dev/video0
+   
+   The daemon will capture frames from your camera and store face data securely.
+
+3. TESTING FACE AUTHENTICATION
+   Test sudo authentication with your face:
+   
+     sudo -l   # Test with face authentication
+   
+   If face recognition fails, you'll be prompted for your password (fallback).
+
+4. SCREENLOCK INTEGRATION (KDE PLASMA)
+   If you chose to configure KDE screenlock during installation:
+   
+     - Lock the screen (Ctrl+Alt+L)
+     - Enter your face in front of the camera
+     - Unlock happens automatically on face match
+   
+   Fall back to password if needed.
+
+5. PAM CONFIGURATION
+   The installation script modified these files:
+   
+   - /etc/pam.d/sudo          (if you selected sudo option)
+   - /etc/pam.d/kde           (if you selected screenlock option)
+   
+   Backups are saved as:
+   - /etc/pam.d/sudo.pre-linuxhello-TIMESTAMP
+   - /etc/pam.d/kde.pre-linuxhello-TIMESTAMP
+
+6. UNINSTALLATION & RESTORATION
+   If you need to remove Linux Hello:
+   
+     sudo apt remove linux-hello
+   
+   The uninstaller will offer to restore PAM files from backups.
+
+TROUBLESHOOTING
+===============
+
+DAEMON WON'T START
+  - Check D-Bus availability: dbus-send --print-reply --dest=org.freedesktop.DBus
+  - View logs: journalctl --user -u hello-daemon -n 50
+  - Restart: systemctl --user restart hello-daemon
+
+FACE REGISTRATION FAILS
+  - Check camera: ls -la /dev/video*
+  - Check permissions: id -G (should show video group)
+  - Add user to video group: sudo usermod -a -G video $USER
+  - Log out and back in, then try again
+
+PAM AUTHENTICATION NOT WORKING
+  - Check PAM config: cat /etc/pam.d/sudo
+  - Verify daemon is running: systemctl --user is-active hello-daemon
+  - Check logs: journalctl --user -u hello-daemon -n 20
+  - Try fallback: Use your password instead
+
+PERFORMANCE ISSUES
+  - Face matching threshold might be too low (more false positives)
+  - Adjust thresholds in /etc/linux-hello/config.toml (if created)
+  - Restart daemon: systemctl --user restart hello-daemon
+
+SUPPORT
+=======
+
+For detailed documentation, see:
+  - /usr/share/doc/linux-hello/README.md           (Project overview)
+  - /usr/share/doc/linux-hello/QUICKSTART.md       (Quick start guide)
+  - /usr/share/doc/linux-hello/INTEGRATION_GUIDE.md (Integration details)
+  - /usr/share/doc/linux-hello/PAM_MODULE.md       (PAM configuration)
+
+PAM Configuration Examples:
+  - /usr/share/doc/linux-hello/sudo-linux-hello.pam
+  - /usr/share/doc/linux-hello/kde-screenlock-linux-hello.pam
+
+MANUAL PAM CONFIGURATION
+========================
+
+If you chose "None" during installation, configure PAM manually:
+
+FOR SUDO:
+  1. Backup: sudo cp /etc/pam.d/sudo /etc/pam.d/sudo.backup
+  2. Edit: sudo nano /etc/pam.d/sudo
+  3. Add after the auth line:
+     auth sufficient pam_linux_hello.so uid=%u
+  4. Example final file: see /usr/share/doc/linux-hello/sudo-linux-hello.pam
+
+FOR KDE SCREENLOCK:
+  1. Backup: sudo cp /etc/pam.d/kde /etc/pam.d/kde.backup
+  2. Edit: sudo nano /etc/pam.d/kde
+  3. Add after the auth line:
+     auth sufficient pam_linux_hello.so uid=%u
+  4. Example: see /usr/share/doc/linux-hello/kde-screenlock-linux-hello.pam
+
+SECURITY NOTES
+==============
+
+1. AUTHENTICATION FALLBACK
+   If face recognition fails for any reason, you can always use your password.
+   The system is designed to never lock you out.
+
+2. BACKUP YOUR PAM FILES
+   Always keep backups of your original PAM files before modifications.
+   Pre-installation backups are automatically created.
+
+3. CAMERA PERMISSIONS
+   Your user must be in the 'video' group to access the camera.
+   The installation script handles this automatically.
+
+4. DAEMON SECURITY
+   The daemon runs with restricted privileges:
+   - No system-wide access
+   - No access to other users' data
+   - Reads camera only via /dev/video*
+   - Stores face data in ~/.local/share/linux-hello/
+
+NEXT STEPS
+==========
+
+1. Register your face:
+   linux-hello register --uid $(id -u) --device /dev/video0
+
+2. Test authentication:
+   sudo -l    # Test sudo
+   
+   Or lock your KDE screenlock to test (if configured)
+
+3. Check daemon status:
+   systemctl --user status hello-daemon
+
+4. View logs:
+   journalctl --user -u hello-daemon -f
+
+Happy authenticating with your face! 🔐
+
+---
+Linux Hello Team
