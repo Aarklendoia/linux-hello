@@ -1,0 +1,63 @@
+[workspace]
+members = [
+    "hello_face_core",
+    "hello_camera",
+    "hello_daemon",
+    "pam_linux_hello",
+    "linux_hello_cli",
+]
+
+resolver = "2"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Linux Hello Contributors"]
+license = "GPL-3.0-or-later"
+
+[workspace.dependencies]
+# Async runtime
+tokio = { version = "1.36", features = ["full"] }
+tokio-util = "0.7"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Errors
+anyhow = "1.0"
+thiserror = "1.0"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "json"] }
+
+# D-Bus
+zbus = { version = "4.4", features = ["tokio"] }
+zvariant = "4.0"
+
+# PAM
+pam-sys = "0.5"
+
+# Image processing (future, for face detection)
+ndarray = "0.15"
+image = "0.24"
+
+# CLI
+clap = { version = "4.4", features = ["derive"] }
+
+# Database
+sqlx = { version = "0.7", features = ["runtime-tokio-native-tls", "sqlite"] }
+
+# Security
+sha2 = "0.10"
+rand = "0.8"
+
+# System
+libc = "0.2"
+parking_lot = "0.12"

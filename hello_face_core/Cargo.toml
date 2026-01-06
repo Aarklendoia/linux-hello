@@ -1,0 +1,18 @@
+[package]
+name = "hello_face_core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+ndarray = { workspace = true, optional = true }
+image = { workspace = true, optional = true }
+serde = { workspace = true }
+serde_json.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
+
+[features]
+default = ["backends"]
+backends = ["ndarray", "image"]

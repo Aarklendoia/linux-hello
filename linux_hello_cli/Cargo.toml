@@ -1,0 +1,22 @@
+[package]
+name = "linux_hello_cli"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "linux-hello"
+path = "src/main.rs"
+
+[dependencies]
+hello_face_core = { path = "../hello_face_core" }
+hello_camera = { path = "../hello_camera" }
+hello_daemon = { path = "../hello_daemon" }
+
+tokio.workspace = true
+clap = { workspace = true, features = ["derive"] }
+anyhow.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }

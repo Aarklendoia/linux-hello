@@ -1,0 +1,144 @@
+# PAM Configuration Examples for Linux Hello
+# Copy examples to /etc/pam.d/ and adjust as needed
+
+# =============================================================================
+# /etc/pam.d/system-login.example
+# Base configuration for TTY login (used by login, getty, etc.)
+# =============================================================================
+#@include common-auth-pc
+auth       sufficient   pam_linux_hello.so context=login timeout_ms=5000
+auth       include      system-auth
+#@include common-account
+
+account    required     pam_permit.so
+password   required     pam_permit.so
+session    required     pam_permit.so
+
+# =============================================================================
+# /etc/pam.d/sudo.example
+# Modified for face authentication with confirmation
+# =============================================================================
+# Authenticate with face (with manual confirmation) OR password
+auth       sufficient   pam_linux_hello.so context=sudo confirm=true timeout_ms=5000
+auth       include      system-auth
+
+account    include      system-auth
+session    include      system-auth
+session    required     pam_limits.so
+
+# =============================================================================
+# /etc/pam.d/kde.example
+# For KScreenLocker (already uses this service by default in KDE/Plasma)
+# =============================================================================
+auth       sufficient   pam_linux_hello.so context=screenlock timeout_ms=3000
+auth       include      system-login
+
+account    include      system-login
+session    include      system-login
+
+# =============================================================================
+# /etc/pam.d/sddm.example
+# For SDDM login manager (requires daemon in root mode)
+# =============================================================================
+#
+# NOTE: This requires hello-daemon running as root with special privileges
+# Not recommended for user-mode daemon
+#
+#auth       sufficient   pam_linux_hello.so context=sddm timeout_ms=5000
+#auth       include      system-login
+#
+#account    include      system-login
+#session    include      system-login
+
+# =============================================================================
+# /etc/pam.d/linux-hello-test.example
+# Minimal test configuration for development
+# Useful for testing pam_linux_hello.so before integrating into production
+# =============================================================================
+auth       sufficient   pam_linux_hello.so context=test debug
+auth       required     pam_permit.so
+
+account    required     pam_permit.so
+password   required     pam_permit.so
+session    required     pam_permit.so
+
+# =============================================================================
+# /etc/pam.d/lightdm.example (alternative display manager)
+# =============================================================================
+#@include common-auth
+auth       sufficient   pam_linux_hello.so context=login timeout_ms=5000
+auth       include      system-auth
+#@include common-account
+#@include common-session
+#session    optional     pam_systemd.so
+
+# =============================================================================
+# Notes on PAM module placement
+# =============================================================================
+#
+# auth sufficient pam_linux_hello.so ...
+#   - "sufficient": If face matches, succeed and stop (don't try password)
+#   - Good for: login, screenlock, SDDM (when you ONLY want face)
+#
+# auth required pam_linux_hello.so ...
+#   - "required": Must succeed, continue checking other modules
+#   - Not recommended here
+#
+# auth optional pam_linux_hello.so ...
+#   - "optional": Doesn't affect overall result if fails
+#   - Could be used for audit/logging only
+#
+# Best practice: Use "sufficient" and put password-based auth AFTER:
+#   auth sufficient pam_linux_hello.so ...
+#   auth include system-auth  (or pam_unix.so pam_deny.so)
+#
+# This gives priority to face, but allows fallback to password if:
+#   - Caméra not available (PAM_IGNORE)
+#   - No face detected (PAM_IGNORE)
+#   - Face mismatch (PAM_IGNORE)
+#   - Daemon error (PAM_IGNORE)
+
+# =============================================================================
+# Module options reference
+# =============================================================================
+#
+# context=<string>          - login, sudo, screenlock, sddm, test
+# timeout_ms=<u64>          - Milliseconds to wait for face detection (default: 5000)
+# similarity_threshold=<f32> - Minimum score 0.0-1.0 (default: 0.6)
+# confirm=true              - Ask for confirmation after successful match
+# debug                      - Enable debug logging to stderr
+#
+# Example:
+#   auth sufficient pam_linux_hello.so context=sudo timeout_ms=3000 confirm=true debug
+#
+
+# =============================================================================
+# Testing a new PAM service
+# =============================================================================
+#
+# 1. Create /etc/pam.d/linux-hello-test with test configuration
+# 2. Compile module: cargo build --release
+# 3. Copy module: sudo cp target/release/libpam_linux_hello.so /lib/security/
+# 4. Test with pamtester:
+#      sudo apt install libpam-dev  # if needed
+#      pamtester -v linux-hello-test <username> authenticate
+# 5. Check logs:
+#      journalctl -e | grep pam_linux_hello
+#      OR stderr if running in foreground
+#
+
+# =============================================================================
+# Rolling back from broken configuration
+# =============================================================================
+#
+# If /etc/pam.d/login or /etc/pam.d/sudo breaks:
+#
+# 1. Boot into single-user mode or recovery mode
+# 2. Restore from backup:
+#      sudo cp /etc/pam.d/login.backup /etc/pam.d/login
+# 3. Or rebuild a working config using a live USB
+#
+# ALWAYS test in a non-critical service first!
+# (like linux-hello-test or an unprivileged user service)
+#
+

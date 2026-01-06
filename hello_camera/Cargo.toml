@@ -1,0 +1,25 @@
+[package]
+name = "hello_camera"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+hello_face_core = { path = "../hello_face_core" }
+anyhow.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+tokio = { workspace = true, features = ["time"] }
+parking_lot.workspace = true
+
+# V4L2 (pour fallback Linux simple)
+v4l = "0.14"
+
+# PipeWire (pour Wayland/Kubuntu 25.10) - future
+# pipewire-sys = "0.3"  # À ajouter quand nécessaire
+
+[features]
+default = ["v4l2"]
+v4l2 = []
+pipewire = []
