@@ -4,8 +4,31 @@
 //! - Afficher les frames RGB en temps réel
 //! - Dessiner la bounding box autour du visage détecté
 //! - Afficher la barre de progression
+//! - Gérer les animations et transitions
 
 use crate::streaming::{CaptureFrame, FaceBox};
+
+/// Utilitaires d'animation
+pub mod animation {
+    /// Interpolation linéaire entre deux valeurs
+    pub fn lerp(current: f32, target: f32, speed: f32) -> f32 {
+        if (current - target).abs() < 0.001 {
+            target
+        } else {
+            current + (target - current) * speed
+        }
+    }
+
+    /// Easing: ease-out (quartic)
+    pub fn ease_out_quad(t: f32) -> f32 {
+        1.0 - (1.0 - t) * (1.0 - t)
+    }
+
+    /// Clamp value between 0.0 and 1.0
+    pub fn clamp_01(value: f32) -> f32 {
+        value.max(0.0).min(1.0)
+    }
+}
 
 /// État du preview
 pub struct PreviewState {
@@ -223,5 +246,36 @@ mod tests {
         assert!(display_data.is_some());
         let data = display_data.unwrap();
         assert_eq!(data.len(), 640 * 480 * 3);
+    }
+}
+
+#[cfg(test)]
+mod animation_tests {
+    use super::animation::*;
+
+    #[test]
+    fn test_lerp_interpolation() {
+        let result = lerp(0.0, 1.0, 0.5);
+        assert!((result - 0.5).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_lerp_at_target() {
+        let result = lerp(0.5, 0.5, 0.1);
+        assert!((result - 0.5).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_ease_out_quad() {
+        let result = ease_out_quad(0.5);
+        // ease_out_quad(0.5) = 1 - (1-0.5)^2 = 1 - 0.25 = 0.75
+        assert!((result - 0.75).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_clamp_01_bounds() {
+        assert_eq!(clamp_01(0.5), 0.5);
+        assert_eq!(clamp_01(-0.1), 0.0);
+        assert_eq!(clamp_01(1.5), 1.0);
     }
 }
