@@ -10,7 +10,9 @@ use iced::widget::{Button, Column, Container, ProgressBar, Row, Text};
 use iced::{executor, Application, Command, Element, Length};
 use std::time::Instant;
 
+mod animation_tests;
 mod animation_ticker;
+mod button_state;
 mod config;
 mod dbus_client;
 mod preview;
@@ -18,6 +20,7 @@ mod streaming;
 mod ui;
 
 use animation_ticker::AnimationTicker;
+use button_state::{ButtonState, ButtonStates};
 use iced::futures::stream::{self, Stream};
 use iced::futures::StreamExt;
 use std::time::Duration;
@@ -42,6 +45,9 @@ struct LinuxHelloConfig {
     progress_animation_target: f32, // Target progress value
     last_animation_update: Instant, // Track timing for smooth animation
     animation_preview_opacity: f32, // Fade-in effect for preview area (0.0-1.0)
+
+    // Button states for transitions
+    button_states: ButtonStates,
 
     // Animation ticker
     animation_ticker: AnimationTicker, // Generates animation ticks
@@ -97,6 +103,7 @@ impl Application for LinuxHelloConfig {
                 progress_animation_target: 0.0,
                 last_animation_update: Instant::now(),
                 animation_preview_opacity: 1.0,
+                button_states: ButtonStates::new(),
                 animation_ticker: ticker,
             },
             Command::none(),
@@ -170,8 +177,22 @@ impl Application for LinuxHelloConfig {
                 // TODO: Sauvegarder le paramètre
             }
             Message::AnimationTick => {
-                // Animation ticks are handled in _process_pending_animation_ticks()
-                // This message case remains for completeness but is now rarely used
+                // Process animation updates from the ticker
+                // Apply smooth interpolation to animated_progress
+                const ANIMATION_DURATION: f32 = 300.0; // ms
+
+                let now = Instant::now();
+                let elapsed = now.duration_since(self.last_animation_update).as_secs_f32() * 1000.0;
+
+                // Interpolate progress towards target
+                if (self.animated_progress - self.progress_animation_target).abs() > 0.001 {
+                    let delta = self.progress_animation_target - self.animated_progress;
+                    let speed = (elapsed / ANIMATION_DURATION).min(1.0);
+                    self.animated_progress += delta * speed * 0.1;
+                    self.animated_progress = self.animated_progress.max(0.0).min(1.0);
+                }
+
+                self.last_animation_update = now;
             }
             Message::WindowClosed => {
                 // TODO: Cleanup
@@ -350,7 +371,28 @@ impl LinuxHelloConfig {
 
 /// Create an animation subscription that emits AnimationTick messages at ~60fps
 fn animation_subscription() -> iced::Subscription<Message> {
-    // TODO: Implement proper async subscription using tokio interval
-    // For now, animations are driven by frame captures (CaptureProgressReceived messages)
-    iced::Subscription::none()
+    // Create a subscription that emits AnimationTick at ~60fps when capture is active
+    animation_ticker_recipe()
+}
+
+/// Recipe for animation ticks
+fn animation_ticker_recipe() -> iced::Subscription<Message> {
+    use iced::subscription;
+
+    subscription::run_with_id("animation_ticker", animation_stream_generator())
+}
+
+/// Generate an animation tick stream
+fn animation_stream_generator() -> impl iced::futures::Stream<Item = Message> + Send + 'static {
+    use std::time::Duration;
+
+    // Create a stream that emits ticks at 60fps
+    // Use async_stream's stream! macro with tokio::time::interval
+    async_stream::stream! {
+        let mut interval = tokio::time::interval(Duration::from_millis(16));
+        loop {
+            interval.tick().await;
+            yield Message::AnimationTick;
+        }
+    }
 }

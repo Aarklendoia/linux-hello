@@ -26,6 +26,7 @@ parking_lot.workspace = true
 # Pour MVP, utiliser iced (plus moderne et Wayland-ready)
 iced = { version = "0.12", features = ["debug"] }
 image = { workspace = true }
+async-stream = "0.3"                              # For generating streams in async code
 
 # Pour affichage images RGB
 pixels = "0.13" # Pixel buffer pour rendu GPU
