@@ -26,6 +26,7 @@ where
 ```
 
 **Caractéristiques**:
+
 - Capture `num_frames` frames successives
 - Timeout global en millisecondes
 - Callback pour chaque frame capturée
@@ -34,6 +35,7 @@ where
 - Support complet des erreurs et timeouts
 
 **Tests ajoutés**: 2 nouveaux tests
+
 - `test_start_capture_stream()` - Structure de l'événement
 - `test_start_capture_stream_collects_frames()` - Collecte de frames avec Arc<Mutex>
 
@@ -51,6 +53,7 @@ pub async fn start_capture_stream(
 ```
 
 **Caractéristiques**:
+
 - Appelable via D-Bus
 - Retourne "OK" au succès
 - Enregistre les logs des signaux en INFO
@@ -58,6 +61,7 @@ pub async fn start_capture_stream(
 - Architecture prête pour l'émission de signaux D-Bus (Phase 3)
 
 **Note pour Phase 3**:
+
 - Actuellement: logs INFO (bonne pour debug)
 - Phase 3: Implémenter `zbus::SignalEmitter` pour véritables signaux
 
@@ -114,6 +118,7 @@ Signal: `com.linuxhello.FaceAuth.CaptureProgress`
 Paramètre: `event_json: &str`
 
 **Format JSON**:
+
 ```json
 {
   "frame_number": 0,
@@ -154,29 +159,35 @@ Aucune erreur, warnings uniquement sur lifetimes dans GUI (non-bloquants).
 ## 📄 Fichiers Modifiés
 
 ### `hello_daemon/src/camera.rs`
+
 - **Ligne 1-8**: Ajout imports (`SystemTime`, `UNIX_EPOCH`, `CaptureFrameEvent`)
 - **Ligne 131-219**: Nouvelle méthode `start_capture_stream()`
 - **Ligne 220-246**: Tests unitaires (+2 nouveaux)
 
 ### `hello_daemon/src/dbus.rs`
+
 - **Ligne 57-111**: Nouvelle méthode D-Bus `start_capture_stream()`
 
 ### `hello_daemon/src/lib.rs`
+
 - **Ligne 330-332**: Nouveau getter `camera_manager()`
 
 ## 🚀 Prochaines Étapes (Phase 3)
 
 ### 3.1 Implémentation D-Bus Signals
+
 - Utiliser `zbus::SignalEmitter` pour véritables signaux
 - Modifier la closure `on_frame` pour émettre le signal
 - Tester avec `dbus-monitor --session`
 
 ### 3.2 Subscription GUI dans `linux_hello_config/src/main.rs`
+
 - Implémenter `fn subscription()` pour écouter `CaptureProgress`
 - Parser les événements JSON reçus
 - Mettre à jour `LinuxHelloConfig` avec `current_frame`
 
 ### 3.3 Rendering
+
 - Implémenter `preview_widget.draw()` avec pixels crate
 - Afficher frame RGB en direct
 - Dessiner bounding box
@@ -202,16 +213,19 @@ Aucune erreur, warnings uniquement sur lifetimes dans GUI (non-bloquants).
 ## 🐛 Notes Techniques
 
 ### Simulation de Frames
+
 - Actuellement: Dummy RGB data (zeros)
 - Phase suivante: Intégrer vraie caméra V4L2 (hello_camera)
 - Architecture: Callback permet facilement le swap
 
 ### Sérialisation
+
 - Utilise `serde_json::to_string(&event)`
 - Compatible avec `CaptureFrameEvent` qui dérive `Serialize`
 - En production: Considérer gzip si données trop volumineuses
 
 ### Threading
+
 - Callback appelé dans le contexte tokio async
 - Closure accepte `FnMut` pour mutabilité
 - Arc<Mutex> pour partage entre threads (voir test)

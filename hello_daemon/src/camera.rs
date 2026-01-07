@@ -47,9 +47,7 @@ pub struct CameraManager {
 impl CameraManager {
     /// Créer un nouveau gestionnaire caméra
     pub fn new(default_timeout_ms: u64) -> Self {
-        Self {
-            default_timeout_ms,
-        }
+        Self { default_timeout_ms }
     }
 
     /// Vérifier si une caméra est disponible
@@ -115,7 +113,11 @@ impl CameraManager {
             frames.push(frame);
             embeddings.push(embedding);
 
-            debug!("Frame {}/{} capturée et embeddings extraits", i + 1, num_frames);
+            debug!(
+                "Frame {}/{} capturée et embeddings extraits",
+                i + 1,
+                num_frames
+            );
         }
 
         // Calculer score de qualité moyen
@@ -216,7 +218,10 @@ impl CameraManager {
             tokio::time::sleep(Duration::from_millis(33)).await; // ~30fps
         }
 
-        info!("Capture streaming terminée: {} frames capturées", num_frames);
+        info!(
+            "Capture streaming terminée: {} frames capturées",
+            num_frames
+        );
         Ok(())
     }
 }
@@ -285,4 +290,3 @@ mod tests {
         assert_eq!(captured[2], 2);
     }
 }
-
