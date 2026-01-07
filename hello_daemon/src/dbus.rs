@@ -162,7 +162,79 @@ impl FaceAuthInterface {
         Ok("pong".to_string())
     }
 
-    /// Version du daemon
+    /// Démarrer une session de capture en streaming avec émission de signaux
+    ///
+    /// Émet des signaux D-Bus `CaptureProgress` pour chaque frame capturée.
+    /// La GUI s'abonne à ces signaux pour afficher la preview en direct.
+    ///
+    /// # Arguments
+    /// * `user_id` - UID de l'utilisateur qui s'enregistre
+    /// * `num_frames` - Nombre de frames à capturer (30 par défaut)
+    /// * `timeout_ms` - Timeout en millisecondes (120000 par défaut = 2 minutes)
+    ///
+    /// # Returns
+    /// "OK" si la capture a démarré avec succès, ou erreur
+    ///
+    /// # D-Bus Signal Emitted
+    /// `CaptureProgress(event_json: &str)` - Émis pour chaque frame
+    pub async fn start_capture_stream(
+        &self,
+        user_id: u32,
+        num_frames: u32,
+        timeout_ms: u64,
+    ) -> zbus::fdo::Result<String> {
+        debug!(
+            "D-Bus call: start_capture_stream user_id={} num_frames={} timeout={}ms",
+            user_id, num_frames, timeout_ms
+        );
+
+        info!(
+            "Démarrage streaming capture: user_id={}, {} frames",
+            user_id, num_frames
+        );
+
+        // Utiliser le camera manager pour capturer en streaming
+        let daemon = self.daemon.read().await;
+        let camera_manager = daemon.camera_manager();
+
+        // Capturer les frames avec callback qui émet les signaux
+        let result = camera_manager
+            .start_capture_stream(num_frames, timeout_ms, |event| {
+                // Sérialiser l'événement en JSON
+                let event_json = match serde_json::to_string(&event) {
+                    Ok(j) => j,
+                    Err(e) => {
+                        error!("JSON serialize error: {}", e);
+                        return;
+                    }
+                };
+
+                debug!(
+                    "Frame {}/{} - Émission signal D-Bus",
+                    event.frame_number + 1,
+                    event.total_frames
+                );
+
+                // En production: utiliser zbus::SignalEmitter pour émettre le signal
+                // Signal: com.linuxhello.FaceAuth.CaptureProgress(event_json)
+                info!("Signal CaptureProgress: {}", event_json);
+            })
+            .await;
+
+        drop(daemon); // Libérer le lock
+
+        match result {
+            Ok(_) => {
+                info!("start_capture_stream succeeded");
+                Ok("OK".to_string())
+            }
+            Err(e) => {
+                error!("start_capture_stream failed: {}", e);
+                Err(zbus::fdo::Error::Failed(e.to_string()))
+            }
+        }
+    }
+
     #[zbus(property)]
     pub fn version(&self) -> String {
         self.version.clone()

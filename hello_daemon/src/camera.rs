@@ -3,9 +3,10 @@
 //! Fournit une interface simple pour capturer des frames
 //! et les passer au moteur de reconnaissance
 
+use crate::capture_stream::CaptureFrameEvent;
 use hello_camera::Frame;
 use hello_face_core::Embedding;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 use tracing::{debug, info};
 
@@ -134,6 +135,90 @@ impl CameraManager {
         // Dummy image RGB 640x480
         Ok(vec![0; 640 * 480 * 3])
     }
+
+    /// Démarrer une session de capture avec streaming en direct
+    ///
+    /// Émet des événements CaptureFrameEvent via callback pour chaque frame capturée.
+    /// Idéal pour envoyer via signaux D-Bus à la GUI.
+    ///
+    /// # Arguments
+    /// * `num_frames` - Nombre total de frames à capturer (ex: 30)
+    /// * `timeout_ms` - Timeout total en millisecondes
+    /// * `on_frame` - Callback appelé pour chaque frame capturée
+    ///
+    /// # Example
+    /// ```no_run
+    /// # async {
+    /// camera.start_capture_stream(30, 120000, |event| {
+    ///     println!("Frame {}/{}", event.frame_number, event.total_frames);
+    /// }).await?;
+    /// # Ok::<(), CameraError>(())
+    /// # };
+    /// ```
+    pub async fn start_capture_stream<F>(
+        &self,
+        num_frames: u32,
+        timeout_ms: u64,
+        mut on_frame: F,
+    ) -> Result<(), CameraError>
+    where
+        F: FnMut(CaptureFrameEvent) -> (),
+    {
+        info!(
+            "Démarrage capture streaming: {} frames, timeout={}ms",
+            num_frames, timeout_ms
+        );
+
+        let start_time = SystemTime::now();
+        let timeout = Duration::from_millis(timeout_ms);
+
+        for frame_num in 0..num_frames {
+            // Vérifier timeout
+            if let Ok(elapsed) = start_time.elapsed() {
+                if elapsed > timeout {
+                    debug!("Timeout capture streaming");
+                    return Err(CameraError::Timeout);
+                }
+            }
+
+            // Capturer frame (pour MVP: dummy data)
+            let frame_data = vec![0; 640 * 480 * 3]; // RGB 640x480
+
+            // Créer événement de capture
+            let timestamp_ms = start_time
+                .elapsed()
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0);
+
+            let event = CaptureFrameEvent {
+                frame_number: frame_num,
+                total_frames: num_frames,
+                frame_data,
+                width: 640,
+                height: 480,
+                face_detected: false, // Placeholder pour Phase 2
+                face_box: None,       // Placeholder pour Phase 2
+                quality_score: 0.85,
+                timestamp_ms,
+            };
+
+            debug!(
+                "Capture frame {}/{} à {}ms",
+                frame_num + 1,
+                num_frames,
+                timestamp_ms
+            );
+
+            // Émettre l'événement
+            on_frame(event);
+
+            // Petit délai pour simulation
+            tokio::time::sleep(Duration::from_millis(33)).await; // ~30fps
+        }
+
+        info!("Capture streaming terminée: {} frames capturées", num_frames);
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -154,6 +239,50 @@ mod tests {
         assert_eq!(result.frames.len(), 3);
         assert_eq!(result.embeddings.len(), 3);
         assert_eq!(result.embeddings[0].vector.len(), 128);
+    }
+
+    #[tokio::test]
+    async fn test_start_capture_stream() {
+        let camera = CameraManager::new(5000);
+        let mut frame_count = 0;
+
+        let result = camera
+            .start_capture_stream(5, 10000, |event| {
+                // Vérifier structure de l'événement
+                assert_eq!(event.total_frames, 5);
+                assert_eq!(event.width, 640);
+                assert_eq!(event.height, 480);
+                assert_eq!(event.frame_data.len(), 640 * 480 * 3);
+                frame_count += 1;
+            })
+            .await;
+
+        assert!(result.is_ok());
+        // Note: frame_count ne sera pas accessible ici, juste vérifier que ça compile
+    }
+
+    #[tokio::test]
+    async fn test_start_capture_stream_collects_frames() {
+        use std::sync::{Arc, Mutex};
+
+        let camera = CameraManager::new(5000);
+        let frames_captured = Arc::new(Mutex::new(Vec::new()));
+        let frames_captured_clone = frames_captured.clone();
+
+        let _ = camera
+            .start_capture_stream(3, 10000, move |event| {
+                frames_captured_clone
+                    .lock()
+                    .unwrap()
+                    .push(event.frame_number);
+            })
+            .await;
+
+        let captured = frames_captured.lock().unwrap();
+        assert_eq!(captured.len(), 3);
+        assert_eq!(captured[0], 0);
+        assert_eq!(captured[1], 1);
+        assert_eq!(captured[2], 2);
     }
 }
 

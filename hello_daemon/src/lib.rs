@@ -323,6 +323,10 @@ impl FaceAuthDaemon {
     pub fn is_camera_available(&self) -> bool {
         self.camera.is_available()
     }
+
+    pub fn camera_manager(&self) -> &CameraManager {
+        &self.camera
+    }
 }
 
 #[cfg(test)]
