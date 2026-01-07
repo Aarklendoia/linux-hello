@@ -160,95 +160,165 @@ pub type SharedCamera = Arc<parking_lot::Mutex<Box<dyn CameraBackend>>>;
 pub mod v4l2_backend {
     use super::*;
     use std::time::Instant;
+    use tracing::info;
 
-    /// Backend V4L2 simplifié - stub pour compatibilité
+    /// Backend V4L2 réel avec accès direct aux devices Linux
     pub struct V4L2Camera {
         config: CameraConfig,
+        device: Option<v4l::Device>,
         is_open: bool,
         start_time: Instant,
+        stream_initialized: bool,
     }
 
     impl V4L2Camera {
         pub fn new(config: CameraConfig) -> Self {
             Self {
                 config,
+                device: None,
                 is_open: false,
                 start_time: Instant::now(),
+                stream_initialized: false,
             }
+        }
+
+        /// Ouvrir le device V4L2 et le configurer pour la capture
+        fn open_device(&mut self) -> Result<(), CameraError> {
+            use v4l::video::Capture;
+
+            // Ouvrir le device V4L2
+            let dev = v4l::Device::with_path(&self.config.device_path).map_err(|e| {
+                CameraError::OpenFailed(format!(
+                    "Impossible d'ouvrir {}: {}",
+                    self.config.device_path, e
+                ))
+            })?;
+
+            // Obtenir le format courant et l'adapter
+            let mut format = dev
+                .format()
+                .map_err(|e| CameraError::OpenFailed(format!("Erreur lecture format: {}", e)))?;
+
+            // Configurer la résolution
+            format.width = self.config.width;
+            format.height = self.config.height;
+
+            // Choisir le format selon les préférences
+            match self.config.preferred_format {
+                FrameFormat::Rgb8 => {
+                    // RGB24 (format standard V4L2: R,G,B,R,G,B...)
+                    format.fourcc = v4l::format::FourCC::new(b"RGB3");
+                }
+                FrameFormat::Gray8 => {
+                    // Format grayscale
+                    format.fourcc = v4l::format::FourCC::new(b"GREY");
+                }
+                FrameFormat::MjPeg => {
+                    // Format MJPEG (souvent plus efficace)
+                    format.fourcc = v4l::format::FourCC::new(b"MJPG");
+                }
+            }
+
+            // Appliquer la configuration
+            dev.set_format(&format).map_err(|e| {
+                CameraError::OpenFailed(format!("Erreur configuration format V4L2: {}", e))
+            })?;
+
+            info!(
+                "V4L2 device ouvert et configuré: {} ({}x{} @ {}fps)",
+                self.config.device_path, self.config.width, self.config.height, self.config.fps
+            );
+
+            self.device = Some(dev);
+            Ok(())
         }
     }
 
     impl CameraBackend for V4L2Camera {
         fn open(&mut self) -> Result<(), CameraError> {
-            // Vérifier que le device existe
-            std::fs::metadata(&self.config.device_path).map_err(|e| {
-                CameraError::OpenFailed(format!(
-                    "Failed to access {}: {}",
-                    self.config.device_path, e
-                ))
-            })?;
-
-            tracing::info!(
-                "V4L2 camera opened: {}x{} at {}",
-                self.config.width,
-                self.config.height,
-                self.config.device_path
-            );
-
+            self.open_device()?;
             self.is_open = true;
             self.start_time = Instant::now();
+
+            info!(
+                "V4L2 caméra ouverte: {}x{} at {}",
+                self.config.width, self.config.height, self.config.device_path
+            );
             Ok(())
         }
 
         fn close(&mut self) -> Result<(), CameraError> {
+            self.device = None;
+            self.stream_initialized = false;
             self.is_open = false;
+            info!("V4L2 caméra fermée");
             Ok(())
         }
 
         fn capture(&mut self, _timeout_ms: u64) -> Result<Frame, CameraError> {
-            if !self.is_open {
+            use v4l::buffer::Type;
+            use v4l::io::traits::CaptureStream;
+
+            if !self.is_open || self.device.is_none() {
                 return Err(CameraError::CaptureFailed("Caméra non ouverte".to_string()));
             }
 
-            // Stub: retourner une frame de test colorée
-            let frame_size = (self.config.width * self.config.height * 3) as usize;
-            let mut data = vec![0u8; frame_size];
+            let dev = self.device.as_ref().unwrap();
 
-            // Créer une image de test avec des dégradés (simule une vraie caméra)
-            for y in 0..self.config.height {
-                for x in 0..self.config.width {
-                    let idx = ((y * self.config.width + x) * 3) as usize;
-                    data[idx] = ((x * 255) / self.config.width) as u8; // R
-                    data[idx + 1] = ((y * 255) / self.config.height) as u8; // G
-                    data[idx + 2] = 128; // B
+            // Créer un stream mmap à chaque capture (approche simple mais fonctionnelle)
+            // Dans une implémentation optimisée, on voudrait stocker ceci
+            // mais avec les génériques et lifetimes de v4l c'est complexe
+            let mut stream = v4l::io::mmap::Stream::with_buffers(dev, Type::VideoCapture, 4)
+                .map_err(|e| {
+                    CameraError::CaptureFailed(format!("Erreur création stream: {}", e))
+                })?;
+
+            // Capturer une frame
+            match stream.next() {
+                Ok((buf, _meta)) => {
+                    let timestamp_ms = self.start_time.elapsed().as_millis() as u64;
+
+                    Ok(Frame {
+                        data: buf.to_vec(),
+                        width: self.config.width,
+                        height: self.config.height,
+                        format: self.config.preferred_format,
+                        timestamp_ms,
+                    })
                 }
+                Err(e) => Err(CameraError::CaptureFailed(format!(
+                    "Erreur capture V4L2: {}",
+                    e
+                ))),
             }
-
-            let timestamp_ms = self.start_time.elapsed().as_millis() as u64;
-
-            Ok(Frame {
-                data,
-                width: self.config.width,
-                height: self.config.height,
-                format: FrameFormat::Rgb8,
-                timestamp_ms,
-            })
         }
 
         fn pending_frames(&self) -> usize {
-            0
+            if self.is_open {
+                1
+            } else {
+                0
+            }
         }
 
         fn flush_buffers(&mut self) -> Result<(), CameraError> {
+            // Drainer les anciens buffers en capturant et jetant quelques frames
+            // Note: avec l'approche mmap, c'est plus simple
+            if self.is_open {
+                // Essayer de faire quelques captures fast pour vider les buffers
+                for _ in 0..3 {
+                    let _ = self.capture(100);
+                }
+            }
             Ok(())
         }
 
         fn is_open(&self) -> bool {
-            self.is_open
+            self.is_open && self.device.is_some()
         }
 
         fn backend_name(&self) -> &str {
-            "V4L2-Stub"
+            "V4L2-Logitech-Brio"
         }
     }
 }
