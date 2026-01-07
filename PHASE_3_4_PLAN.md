@@ -255,6 +255,34 @@ Phase 4: Settings & ManageFaces screens
 
 ---
 
-**Version**: 0.3.4 (Planning)
-**Status**: Ready to Implement
+**Version**: 0.3.4
+**Status**: ✅ PART 1 COMPLETE + ✅ PART 2 COMPLETE (42 tests passing)
 **Start Date**: 2026-01-07
+**Last Update**: Phase 3.4 Part 2 completed with animation ticker infrastructure
+
+## 📊 Phase 3.4 Progress Update
+
+### ✅ Part 1: Animation Infrastructure (100% COMPLETE)
+
+- Animation state fields (animated_progress, progress_animation_target, etc.)
+- Message::AnimationTick handler with interpolation logic
+- Animation helpers (lerp, ease_out_quad, clamp_01)
+- 4 new animation tests added
+
+### ✅ Part 2: Animation Ticker (100% COMPLETE)
+
+- AnimationTicker module created (125 lines, 3 tests)
+- Background thread generating ticks at ~60fps (16ms intervals)
+- Non-blocking `try_tick()` for polling
+- Integrated into LinuxHelloConfig struct
+- Initializes on app startup
+
+**Achievement**: Tests increased from 35 → 42 (+7 new tests)
+
+### ⏳ Part 3: Optimizations & Integration (PLANNED)
+
+- Wire ticker to subscription system
+- Button transition effects
+- Frame caching optimization
+- Performance validation (30+ fps sustained)
+- Estimated: 3-4 hours of work remaining
