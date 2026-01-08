@@ -46,11 +46,30 @@ override_dh_auto_install:
 	# Install example config
 	mkdir -p $(CURDIR)/debian/tmp/etc/linux-hello
 	cp $(CURDIR)/linux-hello.config.toml.example $(CURDIR)/debian/tmp/etc/linux-hello/config.toml.example
+	
+	# Install GUI files
+	mkdir -p $(CURDIR)/debian/tmp/usr/bin
+	mkdir -p $(CURDIR)/debian/tmp/usr/share/linux-hello/qml/i18n
+	mkdir -p $(CURDIR)/debian/tmp/usr/share/linux-hello/icons
+	mkdir -p $(CURDIR)/debian/tmp/usr/share/applications
+	mkdir -p $(CURDIR)/debian/tmp/usr/share/doc/linux-hello-gui
+	
+	cp $(CURDIR)/bin/linux-hello-config $(CURDIR)/debian/tmp/usr/bin/
+	chmod +x $(CURDIR)/debian/tmp/usr/bin/linux-hello-config
+	
+	cp $(CURDIR)/linux_hello_config/qml/*.qml $(CURDIR)/debian/tmp/usr/share/linux-hello/qml/
+	cp $(CURDIR)/linux_hello_config/qml/i18n/*.json $(CURDIR)/debian/tmp/usr/share/linux-hello/qml/i18n/
+	cp $(CURDIR)/linux_hello_config/qml/icons/*.png $(CURDIR)/debian/tmp/usr/share/linux-hello/icons/
+	cp $(CURDIR)/linux-hello.desktop $(CURDIR)/debian/tmp/usr/share/applications/
+	
+	cp $(CURDIR)/I18N_IMPLEMENTATION.md $(CURDIR)/debian/tmp/usr/share/doc/linux-hello-gui/
+	cp $(CURDIR)/INTERNATIONALIZATION_FINAL_REPORT.md $(CURDIR)/debian/tmp/usr/share/doc/linux-hello-gui/
 
 override_dh_install:
-	# We handle installation manually in override_dh_auto_install
+	dh_install
 
 override_dh_missing:
+	dh_missing --list-missing
 
 override_dh_strip:
 	# Keep symbols for debugging

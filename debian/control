@@ -20,7 +20,6 @@ Depends:
   ${misc:Depends},
   dbus,
   systemd
-Conflicts: linux-hello-gui
 Description: Face Authentication System for Linux
  Linux Hello provides facial recognition authentication for:
  .
@@ -58,3 +57,25 @@ Depends:
   ${misc:Depends}
 Description: Command-line tools for Linux Hello
  Includes the linux-hello CLI for managing faces and testing.
+
+Package: linux-hello-gui
+Architecture: any
+Depends:
+  ${misc:Depends},
+  linux-hello-daemon,
+  qml,
+  qml-module-org-kde-kirigami2,
+  qml-module-qtquick-controls2,
+  qml-module-qtquick-layouts
+Recommends: kde-plasma-desktop
+Description: Configuration GUI for Linux Hello
+ Graphical interface for managing Linux Hello facial authentication.
+ Provides a Qt/Kirigami-based settings application with support
+ for 10 languages (English, Chinese, Spanish, Hindi, Arabic,
+ Portuguese, Russian, Japanese, German, French).
+ .
+ Features:
+  * Face registration and management
+  * Authentication settings configuration
+  * Multi-language support with instant switching
+  * System integration with KDE Plasma and GNOME

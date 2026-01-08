@@ -1,0 +1,37 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Linux Hello
+Comment=Biometric Authentication Configuration
+Icon=/usr/share/linux-hello/icons/app-icon.png
+Exec=linux-hello-config
+Categories=System;Settings;Security;
+Keywords=face;recognition;authentication;biometric;
+
+# Translations
+Name[fr]=Linux Hello
+Comment[fr]=Configuration de l'Authentification Biométrique
+
+Name[zh]=Linux Hello
+Comment[zh]=生物识别身份验证配置
+
+Name[es]=Linux Hello
+Comment[es]=Configuración de Autenticación Biométrica
+
+Name[de]=Linux Hello
+Comment[de]=Konfiguration der biometrischen Authentifizierung
+
+Name[pt]=Linux Hello
+Comment[pt]=Configuração de Autenticação Biométrica
+
+Name[ru]=Linux Hello
+Comment[ru]=Конфигурация биометрической аутентификации
+
+Name[ja]=Linux Hello
+Comment[ja]=バイオメトリック認証設定
+
+Name[hi]=Linux Hello
+Comment[hi]=बायोमेट्रिक प्रमाणीकरण कॉन्फ़िगरेशन
+
+Name[ar]=Linux Hello
+Comment[ar]=تكوين المصادقة البيومترية

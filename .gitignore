@@ -24,3 +24,19 @@ test-output/
 
 # Logs
 *.log
+# Debian packaging
+debian/tmp/
+debian/linux-hello*/
+debian/*.substvars
+debian/*.debhelper
+debian/files
+debian/.debhelper.log
+../*.deb
+../*.buildinfo
+../*.changes
+../*.dsc
+../*.tar.*
+
+# Build/packaging temporary files
+*.deb
+.debhelper-build-stamp

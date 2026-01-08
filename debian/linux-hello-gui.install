@@ -1,0 +1,35 @@
+# GUI Configuration Tool and Assets for linux-hello-gui package
+# Format: source destination
+
+# GUI Configuration Tool
+bin/linux-hello-config usr/bin
+
+# GUI QML Files
+linux_hello_config/qml/main.qml usr/share/linux-hello/qml
+linux_hello_config/qml/Home.qml usr/share/linux-hello/qml
+linux_hello_config/qml/Enrollment.qml usr/share/linux-hello/qml
+linux_hello_config/qml/Settings.qml usr/share/linux-hello/qml
+linux_hello_config/qml/ManageFaces.qml usr/share/linux-hello/qml
+linux_hello_config/qml/I18n.qml usr/share/linux-hello/qml
+
+# GUI Icons
+linux_hello_config/qml/icons/app-icon.png usr/share/linux-hello/icons
+
+# GUI Translations (i18n)
+linux_hello_config/qml/i18n/en.json usr/share/linux-hello/qml/i18n
+linux_hello_config/qml/i18n/zh.json usr/share/linux-hello/qml/i18n
+linux_hello_config/qml/i18n/es.json usr/share/linux-hello/qml/i18n
+linux_hello_config/qml/i18n/hi.json usr/share/linux-hello/qml/i18n
+linux_hello_config/qml/i18n/ar.json usr/share/linux-hello/qml/i18n
+linux_hello_config/qml/i18n/pt.json usr/share/linux-hello/qml/i18n
+linux_hello_config/qml/i18n/ru.json usr/share/linux-hello/qml/i18n
+linux_hello_config/qml/i18n/ja.json usr/share/linux-hello/qml/i18n
+linux_hello_config/qml/i18n/de.json usr/share/linux-hello/qml/i18n
+linux_hello_config/qml/i18n/fr.json usr/share/linux-hello/qml/i18n
+
+# Desktop entry
+linux-hello.desktop usr/share/applications
+
+# GUI Documentation
+I18N_IMPLEMENTATION.md usr/share/doc/linux-hello-gui
+INTERNATIONALIZATION_FINAL_REPORT.md usr/share/doc/linux-hello-gui

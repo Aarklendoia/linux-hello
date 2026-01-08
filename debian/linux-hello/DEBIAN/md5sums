@@ -1,3 +1,13 @@
+e7962d8b1e76b3254a714ba69f484140  lib/x86_64-linux-gnu/security/libpam_linux_hello.so
+1b0afba2ea047b9502cece0bc18a100d  usr/bin/hello-daemon
+bc41adccd6a0065dec5164476c0992ba  usr/bin/linux-hello
+c0ec21108de85aca20b03619ff17661f  usr/lib/systemd/user/hello-daemon.service
+38fc539a336c816cabb2c9b64de63721  usr/share/doc/linux-hello/INTEGRATION_GUIDE.md.gz
+247b19a3731da88916c5c55828e0cb1d  usr/share/doc/linux-hello/PAM_MODULE.md.gz
+a155c7cedf8f8c6c6a504f08c7fd3703  usr/share/doc/linux-hello/QUICKSTART.md
 f22157bb5c791d9f68bf8bccc6edc464  usr/share/doc/linux-hello/README.Debian.gz
+be0c1b2531fdd8af23d865f98a599324  usr/share/doc/linux-hello/README.md.gz
 fa2f2a1f6cd1470c19fe4c1b1e9ebbe7  usr/share/doc/linux-hello/changelog.Debian.gz
 253d8239d5ddb1974f2639d3c6990821  usr/share/doc/linux-hello/copyright
+563c21308d9c68d4a93eea53e737916b  usr/share/doc/linux-hello/kde-screenlock-linux-hello.pam
+2be60a4f16ed5d5e60aa854980a16e71  usr/share/doc/linux-hello/sudo-linux-hello.pam

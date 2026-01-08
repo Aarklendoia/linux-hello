@@ -3,6 +3,7 @@
 
 set -e
 
+# shellcheck source=/usr/share/debconf/confmodule disable=SC1091
 . /usr/share/debconf/confmodule
 
 echo "Linux Hello - Postinstallation Configuration"
@@ -26,7 +27,7 @@ echo "3. Both"
 echo "4. None (manual configuration)"
 echo ""
 
-read -p "Select option (1-4) [1]: " pam_option
+read -rp "Select option (1-4) [1]: " pam_option
 pam_option=${pam_option:-1}
 
 case "$pam_option" in
@@ -34,7 +35,7 @@ case "$pam_option" in
         # Configure sudo
         if [ -f /etc/pam.d/sudo ]; then
             # Backup existing
-            cp /etc/pam.d/sudo /etc/pam.d/sudo.backup.$(date +%s)
+            cp /etc/pam.d/sudo "/etc/pam.d/sudo.backup.$(date +%s)"
             
             # Add linux-hello at the beginning if not already present
             if ! grep -q "pam_linux_hello" /etc/pam.d/sudo; then
@@ -50,7 +51,7 @@ case "$pam_option" in
     2)
         # Configure screenlock
         if [ -f /etc/pam.d/kde ]; then
-            cp /etc/pam.d/kde /etc/pam.d/kde.backup.$(date +%s)
+            cp /etc/pam.d/kde "/etc/pam.d/kde.backup.$(date +%s)"
             
             if ! grep -q "pam_linux_hello" /etc/pam.d/kde; then
                 echo "auth sufficient /lib/x86_64-linux-gnu/security/pam_linux_hello.so context=screenlock timeout_ms=3000" | \
@@ -63,7 +64,7 @@ case "$pam_option" in
     3)
         # Both
         if [ -f /etc/pam.d/sudo ]; then
-            cp /etc/pam.d/sudo /etc/pam.d/sudo.backup.$(date +%s)
+            cp /etc/pam.d/sudo "/etc/pam.d/sudo.backup.$(date +%s)"
             if ! grep -q "pam_linux_hello" /etc/pam.d/sudo; then
                 echo "auth sufficient /lib/x86_64-linux-gnu/security/pam_linux_hello.so context=sudo timeout_ms=3000" | \
                     cat - /etc/pam.d/sudo > /tmp/sudo.new && \
@@ -72,7 +73,7 @@ case "$pam_option" in
         fi
         
         if [ -f /etc/pam.d/kde ]; then
-            cp /etc/pam.d/kde /etc/pam.d/kde.backup.$(date +%s)
+            cp /etc/pam.d/kde "/etc/pam.d/kde.backup.$(date +%s)"
             if ! grep -q "pam_linux_hello" /etc/pam.d/kde; then
                 echo "auth sufficient /lib/x86_64-linux-gnu/security/pam_linux_hello.so context=screenlock timeout_ms=3000" | \
                     cat - /etc/pam.d/kde > /tmp/kde.new && \
@@ -94,7 +95,7 @@ echo "1. Enable daemon autostart (systemd user service)"
 echo "2. Manual daemon startup only"
 echo ""
 
-read -p "Select option (1-2) [1]: " daemon_option
+read -rp "Select option (1-2) [1]: " daemon_option
 daemon_option=${daemon_option:-1}
 
 if [ "$daemon_option" = "1" ]; then

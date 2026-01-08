@@ -13,16 +13,16 @@ systemctl --user disable hello-daemon.service 2>/dev/null || true
 echo "✓ Daemon stopped"
 
 # Offer to restore PAM configuration
-if [ -f /etc/pam.d/sudo.pre-linuxhello-* ]; then
+if compgen -G "/etc/pam.d/sudo.pre-linuxhello-*" > /dev/null; then
     echo ""
     echo "Found PAM backups:"
-    ls -1t /etc/pam.d/*.pre-linuxhello-* 2>/dev/null | head -5
+    find /etc/pam.d -name "*.pre-linuxhello-*" -type f -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -5 | cut -d' ' -f2-
     echo ""
-    read -p "Restore PAM configuration from backup? (y/n) [y]: " restore_pam
+    read -r -p "Restore PAM configuration from backup? (y/n) [y]: " restore_pam
     restore_pam=${restore_pam:-y}
     
     if [ "$restore_pam" = "y" ] || [ "$restore_pam" = "Y" ]; then
-        LATEST_SUDO=$(ls -1t /etc/pam.d/sudo.pre-linuxhello-* 2>/dev/null | head -1)
+        LATEST_SUDO=$(find /etc/pam.d -name "sudo.pre-linuxhello-*" -type f -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)
         if [ -n "$LATEST_SUDO" ]; then
             cp "$LATEST_SUDO" /etc/pam.d/sudo
             echo "✓ Restored /etc/pam.d/sudo from backup"

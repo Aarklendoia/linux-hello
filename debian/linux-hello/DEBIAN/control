@@ -2,9 +2,8 @@ Package: linux-hello
 Version: 1.0.0-1
 Architecture: amd64
 Maintainer: Linux Hello Team <dev@linuxhello.local>
-Installed-Size: 17
-Depends: dbus, systemd
-Conflicts: linux-hello-gui
+Installed-Size: 5789
+Depends: libc6 (>= 2.39), libgcc-s1 (>= 4.2), init-system-helpers (>= 1.52), dbus, systemd
 Section: system
 Priority: optional
 Homepage: https://github.com/linuxhello/face-auth

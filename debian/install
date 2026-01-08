@@ -1,4 +1,4 @@
-# Installation file mappings
+# Installation file mappings for linux-hello package
 # Format: source destination
 
 # Main daemon binary
@@ -23,3 +23,5 @@ linux-hello.config.toml.example etc/linux-hello
 
 # Systemd service
 hello-daemon.service usr/lib/systemd/user
+
+# Note: GUI files are in linux-hello-gui.install

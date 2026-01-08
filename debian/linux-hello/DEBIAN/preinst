@@ -9,12 +9,12 @@ echo ""
 
 # Backup PAM files if they exist
 if [ -f /etc/pam.d/sudo ]; then
-    cp /etc/pam.d/sudo /etc/pam.d/sudo.pre-linuxhello-$(date +%s)
+    cp /etc/pam.d/sudo "/etc/pam.d/sudo.pre-linuxhello-$(date +%s)"
     echo "✓ Backed up /etc/pam.d/sudo"
 fi
 
 if [ -f /etc/pam.d/kde ]; then
-    cp /etc/pam.d/kde /etc/pam.d/kde.pre-linuxhello-$(date +%s)
+    cp /etc/pam.d/kde "/etc/pam.d/kde.pre-linuxhello-$(date +%s)"
     echo "✓ Backed up /etc/pam.d/kde"
 fi
 

@@ -1,19 +1,23 @@
 #!/bin/bash
 # Linux Hello Configuration GUI Launcher
-# Lance l'application QML avec l'icône dans la barre de tâche
+# Launched from /usr/bin/linux-hello-config
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-APP_DIR="$SCRIPT_DIR/../linux_hello_config"
-ICON="$APP_DIR/qml/icons/app-icon.png"
+# Determine installation path
+if [ -d "/usr/share/linux-hello/qml" ]; then
+    # System installation from package
+    APP_DIR="/usr/share/linux-hello"
+else
+    # Development installation
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    APP_DIR="$SCRIPT_DIR/../linux_hello_config"
+fi
 
-# Export icon pour la barre des tâches
+# Set Qt environment variables
 export QT_QPA_PLATFORM="xcb"
 export QT_STYLE_OVERRIDE="org.kde.desktop"
+export QML_XHR_ALLOW_FILE_READ="1"
 
-# Lance qml avec l'option d'icône
-cd "$APP_DIR"
-
-# Utilise wmctrl ou xsetroot pour définir l'icône, sinon utilise setIcon via qml
+# Launch QML application
 exec qml -I "$APP_DIR/qml" \
     --apptype gui \
     "$APP_DIR/qml/main.qml"
