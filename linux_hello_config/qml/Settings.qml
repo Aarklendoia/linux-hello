@@ -5,7 +5,14 @@ import org.kde.kirigami 2.13 as Kirigami
 
 Kirigami.Page {
     id: settingsPage
-    title: "Settings"
+    title: i18n.tr("settings.title")
+    
+    Connections {
+        target: mainWindow
+        function onLanguageChanged() { 
+            settingsPage.title = i18n.tr("settings.title")
+        }
+    }
     
     ColumnLayout {
         anchors.fill: parent
@@ -14,7 +21,7 @@ Kirigami.Page {
         
         // Title
         Label {
-            text: "Configuration"
+            text: i18n.tr("settings.configuration")
             font.pixelSize: 20
             font.weight: Font.Bold
             color: Kirigami.Theme.textColor
@@ -36,7 +43,7 @@ Kirigami.Page {
                     Layout.topMargin: Kirigami.Units.mediumSpacing
                     
                     Label {
-                        text: "Authentication"
+                        text: i18n.tr("settings.authentication")
                         font.weight: Font.Bold
                         font.pixelSize: 14
                         color: Kirigami.Theme.textColor
@@ -49,7 +56,7 @@ Kirigami.Page {
                         Layout.rightMargin: Kirigami.Units.largeSpacing
                         
                         Label {
-                            text: "Minimum Confidence:"
+                            text: i18n.tr("settings.minConfidence")
                             color: Kirigami.Theme.textColor
                             Layout.fillWidth: true
                         }
@@ -69,7 +76,7 @@ Kirigami.Page {
                         Layout.rightMargin: Kirigami.Units.largeSpacing
                         
                         Label {
-                            text: "Timeout (seconds):"
+                            text: i18n.tr("settings.timeout")
                             color: Kirigami.Theme.textColor
                             Layout.fillWidth: true
                         }
@@ -96,7 +103,7 @@ Kirigami.Page {
                     Layout.topMargin: Kirigami.Units.mediumSpacing
                     
                     Label {
-                        text: "Camera"
+                        text: i18n.tr("settings.camera")
                         font.weight: Font.Bold
                         font.pixelSize: 14
                         color: Kirigami.Theme.textColor
@@ -109,7 +116,7 @@ Kirigami.Page {
                         Layout.rightMargin: Kirigami.Units.largeSpacing
                         
                         Label {
-                            text: "Resolution:"
+                            text: i18n.tr("settings.resolution")
                             color: Kirigami.Theme.textColor
                             Layout.fillWidth: true
                         }
@@ -127,7 +134,7 @@ Kirigami.Page {
                         Layout.rightMargin: Kirigami.Units.largeSpacing
                         
                         Label {
-                            text: "FPS:"
+                            text: i18n.tr("settings.fps")
                             color: Kirigami.Theme.textColor
                             Layout.fillWidth: true
                         }
@@ -154,7 +161,7 @@ Kirigami.Page {
                     Layout.topMargin: Kirigami.Units.mediumSpacing
                     
                     Label {
-                        text: "System"
+                        text: i18n.tr("settings.system")
                         font.weight: Font.Bold
                         font.pixelSize: 14
                         color: Kirigami.Theme.textColor
@@ -167,7 +174,7 @@ Kirigami.Page {
                         Layout.rightMargin: Kirigami.Units.largeSpacing
                         
                         Label {
-                            text: "PAM Integrated:"
+                            text: i18n.tr("settings.pamIntegrated")
                             color: Kirigami.Theme.textColor
                             Layout.fillWidth: true
                         }
@@ -184,7 +191,7 @@ Kirigami.Page {
                         Layout.rightMargin: Kirigami.Units.largeSpacing
                         
                         Label {
-                            text: "DBus Active:"
+                            text: i18n.tr("settings.dbusActive")
                             color: Kirigami.Theme.textColor
                             Layout.fillWidth: true
                         }
@@ -193,6 +200,45 @@ Kirigami.Page {
                             text: "✓"
                             color: Kirigami.Theme.positiveTextColor
                             font.pixelSize: 16
+                        }
+                    }
+                    
+                    RowLayout {
+                        spacing: Kirigami.Units.largeSpacing
+                        Layout.fillWidth: true
+                        Layout.leftMargin: Kirigami.Units.largeSpacing
+                        Layout.rightMargin: Kirigami.Units.largeSpacing
+                        
+                        Label {
+                            text: i18n.tr("settings.language")
+                            color: Kirigami.Theme.textColor
+                            Layout.fillWidth: true
+                        }
+                        
+                        ComboBox {
+                            model: i18n.languages
+                            
+                            // Create display text with language names
+                            delegate: ItemDelegate {
+                                width: parent.width
+                                text: i18n.languageNames[modelData]
+                                highlighted: ListView.isCurrentItem
+                            }
+                            
+                            currentIndex: i18n.languages.indexOf(i18n.currentLanguage)
+                            
+                            contentItem: Text {
+                                text: i18n.languageNames[i18n.languages[currentIndex]]
+                                color: Kirigami.Theme.textColor
+                                verticalAlignment: Text.AlignVCenter
+                                horizontalAlignment: Text.AlignLeft
+                            }
+                            
+                            onCurrentIndexChanged: {
+                                if (currentIndex >= 0 && currentIndex < i18n.languages.length) {
+                                    i18n.loadLanguage(i18n.languages[currentIndex])
+                                }
+                            }
                         }
                     }
                 }
@@ -209,7 +255,7 @@ Kirigami.Page {
             Layout.rightMargin: Kirigami.Units.mediumSpacing
             
             Button {
-                text: "Save"
+                text: i18n.tr("settings.saveBtn")
                 Layout.fillWidth: true
                 implicitHeight: Kirigami.Units.gridUnit * 2.2
                 
@@ -222,7 +268,7 @@ Kirigami.Page {
             }
             
             Button {
-                text: "Back"
+                text: i18n.tr("settings.backBtn")
                 Layout.fillWidth: true
                 implicitHeight: Kirigami.Units.gridUnit * 2.2
                 onClicked: {

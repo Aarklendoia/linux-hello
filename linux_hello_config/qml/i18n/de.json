@@ -1,0 +1,54 @@
+{
+    "app": {
+        "title": "Linux Hello",
+        "subtitle": "Konfiguration der biometrischen Authentifizierung"
+    },
+    "home": {
+        "title": "Startseite",
+        "welcome": "Willkommen bei Linux Hello, dem biometrischen Authentifizierungssystem für KDE.",
+        "youCan": "Du kannst:",
+        "action1": "• Dein Gesicht zur Authentifizierung registrieren",
+        "action2": "• Registrierte Gesichter verwalten",
+        "action3": "• Sicherheitseinstellungen konfigurieren",
+        "registerBtn": "📷 Gesicht Registrieren",
+        "manageFacesBtn": "👤 Gesichter Verwalten",
+        "settingsBtn": "⚙️ Einstellungen"
+    },
+    "enrollment": {
+        "title": "Gesichtsregistrierung",
+        "registerNew": "Neues Gesicht Registrieren",
+        "cameraPreview": "Kamera-Vorschau",
+        "progress": "Fortschritt:",
+        "instructions": "Zeige dein Gesicht zur Kamera. Das System erfasst mehrere Winkel für bessere Erkennung.",
+        "startBtn": "Erfassung Starten",
+        "stopBtn": "Stoppen",
+        "cancelBtn": "Abbrechen"
+    },
+    "settings": {
+        "title": "Einstellungen",
+        "configuration": "Konfiguration",
+        "authentication": "Authentifizierung",
+        "minConfidence": "Mindestvertrauen:",
+        "timeout": "Zeitüberschreitung (Sekunden):",
+        "camera": "Kamera",
+        "resolution": "Auflösung:",
+        "fps": "FPS:",
+        "system": "System",
+        "pamIntegrated": "PAM Integriert:",
+        "dbusActive": "DBus Aktiv:",
+        "language": "Sprache:",
+        "saveBtn": "Speichern",
+        "backBtn": "Zurück"
+    },
+    "manageFaces": {
+        "title": "Gesichter Verwalten",
+        "registeredFaces": "Registrierte Gesichter",
+        "noFaces": "Keine registrierten Gesichter",
+        "confidence": "Vertrauen:",
+        "registered": "Registriert:",
+        "unknown": "Unbekannt",
+        "deleteBtn": "🗑️ Löschen",
+        "registerNewBtn": "+ Neues Gesicht Registrieren",
+        "backBtn": "Zurück"
+    }
+}

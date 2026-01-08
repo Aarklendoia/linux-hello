@@ -1,0 +1,54 @@
+{
+    "app": {
+        "title": "Linux Hello",
+        "subtitle": "Configuration de l'Authentification Biométrique"
+    },
+    "home": {
+        "title": "Accueil",
+        "welcome": "Bienvenue dans Linux Hello, le système d'authentification biométrique pour KDE.",
+        "youCan": "Vous pouvez:",
+        "action1": "• Enregistrer votre visage pour l'authentification",
+        "action2": "• Gérer les visages enregistrés",
+        "action3": "• Configurer les paramètres de sécurité",
+        "registerBtn": "📷 Enregistrer le Visage",
+        "manageFacesBtn": "👤 Gérer les Visages",
+        "settingsBtn": "⚙️ Paramètres"
+    },
+    "enrollment": {
+        "title": "Enregistrement du Visage",
+        "registerNew": "Enregistrer un Nouveau Visage",
+        "cameraPreview": "Aperçu de la Caméra",
+        "progress": "Progression:",
+        "instructions": "Présentez votre visage à la caméra. Le système capturera plusieurs angles pour une meilleure reconnaissance.",
+        "startBtn": "Démarrer la Capture",
+        "stopBtn": "Arrêter",
+        "cancelBtn": "Annuler"
+    },
+    "settings": {
+        "title": "Paramètres",
+        "configuration": "Configuration",
+        "authentication": "Authentification",
+        "minConfidence": "Confiance Minimale:",
+        "timeout": "Délai d'Attente (secondes):",
+        "camera": "Caméra",
+        "resolution": "Résolution:",
+        "fps": "FPS:",
+        "system": "Système",
+        "pamIntegrated": "PAM Intégré:",
+        "dbusActive": "DBus Actif:",
+        "language": "Langue:",
+        "saveBtn": "Enregistrer",
+        "backBtn": "Retour"
+    },
+    "manageFaces": {
+        "title": "Gérer les Visages",
+        "registeredFaces": "Visages Enregistrés",
+        "noFaces": "Aucun visage enregistré",
+        "confidence": "Confiance:",
+        "registered": "Enregistré:",
+        "unknown": "Inconnu",
+        "deleteBtn": "🗑️ Supprimer",
+        "registerNewBtn": "+ Enregistrer un Nouveau Visage",
+        "backBtn": "Retour"
+    }
+}

@@ -5,7 +5,14 @@ import org.kde.kirigami 2.13 as Kirigami
 
 Kirigami.Page {
     id: manageFacesPage
-    title: "Manage Faces"
+    title: i18n.tr("manageFaces.title")
+    
+    Connections {
+        target: mainWindow
+        function onLanguageChanged() { 
+            manageFacesPage.title = i18n.tr("manageFaces.title")
+        }
+    }
     
     ColumnLayout {
         anchors.fill: parent
@@ -14,7 +21,7 @@ Kirigami.Page {
         
         // Title
         Label {
-            text: "Registered Faces"
+            text: i18n.tr("manageFaces.registeredFaces")
             font.pixelSize: 20
             font.weight: Font.Bold
             color: Kirigami.Theme.textColor
@@ -64,13 +71,13 @@ Kirigami.Page {
                             }
                             
                             Label {
-                                text: "Confidence: " + (modelData.confidence || 85) + "%"
+                                text: i18n.tr("manageFaces.confidence") + " " + (modelData.confidence || 85) + "%"
                                 font.pixelSize: 11
                                 color: Kirigami.Theme.disabledTextColor
                             }
                             
                             Label {
-                                text: "Registered: " + (modelData.date || "Unknown")
+                                text: i18n.tr("manageFaces.registered") + " " + (modelData.date || i18n.tr("manageFaces.unknown"))
                                 font.pixelSize: 10
                                 color: Kirigami.Theme.disabledTextColor
                             }
@@ -78,7 +85,7 @@ Kirigami.Page {
                         
                         // Action buttons
                         Button {
-                            text: "🗑️ Delete"
+                            text: i18n.tr("manageFaces.deleteBtn")
                             implicitHeight: Kirigami.Units.gridUnit * 2
                             
                             onClicked: {
@@ -91,7 +98,7 @@ Kirigami.Page {
                 // Message if no faces
                 Label {
                     visible: facesList.model.length === 0
-                    text: "No registered faces"
+                    text: i18n.tr("manageFaces.noFaces")
                     color: Kirigami.Theme.disabledTextColor
                     horizontalAlignment: Text.AlignHCenter
                     anchors.centerIn: parent
@@ -108,7 +115,7 @@ Kirigami.Page {
             Layout.fillWidth: true
             
             Button {
-                text: "+ Register New Face"
+                text: i18n.tr("manageFaces.registerNewBtn")
                 Layout.fillWidth: true
                 implicitHeight: Kirigami.Units.gridUnit * 2.2
                 
@@ -121,7 +128,7 @@ Kirigami.Page {
             }
             
             Button {
-                text: "Back"
+                text: i18n.tr("manageFaces.backBtn")
                 Layout.fillWidth: true
                 implicitHeight: Kirigami.Units.gridUnit * 2.2
                 onClicked: {

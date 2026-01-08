@@ -5,7 +5,22 @@ import org.kde.kirigami 2.13 as Kirigami
 
 Kirigami.Page {
     id: homePage
-    title: "Home"
+    
+    // Connexion au gestionnaire i18n
+    Component.onCompleted: {
+        mainWindow.languageChanged.connect(updateTexts)
+    }
+    
+    Connections {
+        target: mainWindow
+        function onLanguageChanged() { updateTexts() }
+    }
+    
+    function updateTexts() {
+        title = i18n.tr("home.title")
+    }
+    
+    title: i18n.tr("home.title")
     
     ColumnLayout {
         anchors.fill: parent
@@ -23,7 +38,7 @@ Kirigami.Page {
         
         // Subtitle
         Label {
-            text: "Biometric Authentication Configuration"
+            text: i18n.tr("app.subtitle")
             font.pixelSize: 16
             color: Kirigami.Theme.disabledTextColor
             Layout.alignment: Qt.AlignHCenter
@@ -43,14 +58,14 @@ Kirigami.Page {
             Layout.maximumWidth: 400
             
             Label {
-                text: "Welcome to Linux Hello, the biometric authentication system for KDE."
+                text: i18n.tr("home.welcome")
                 wrapMode: Text.WordWrap
                 color: Kirigami.Theme.textColor
                 Layout.fillWidth: true
             }
             
             Label {
-                text: "You can:"
+                text: i18n.tr("home.youCan")
                 font.weight: Font.Bold
                 color: Kirigami.Theme.textColor
                 Layout.fillWidth: true
@@ -61,19 +76,19 @@ Kirigami.Page {
                 Layout.leftMargin: Kirigami.Units.largeSpacing * 1.5
                 
                 Label {
-                    text: "• Register your face for authentication"
+                    text: i18n.tr("home.action1")
                     color: Kirigami.Theme.textColor
                     wrapMode: Text.WordWrap
                 }
                 
                 Label {
-                    text: "• Manage registered faces"
+                    text: i18n.tr("home.action2")
                     color: Kirigami.Theme.textColor
                     wrapMode: Text.WordWrap
                 }
                 
                 Label {
-                    text: "• Configure security settings"
+                    text: i18n.tr("home.action3")
                     color: Kirigami.Theme.textColor
                     wrapMode: Text.WordWrap
                 }
@@ -89,7 +104,7 @@ Kirigami.Page {
             Layout.fillWidth: true
             
             Button {
-                text: "📷 Register Face"
+                text: i18n.tr("home.registerBtn")
                 Layout.fillWidth: true
                 implicitHeight: Kirigami.Units.gridUnit * 2.5
                 onClicked: mainWindow.navigateToEnroll()
@@ -99,14 +114,14 @@ Kirigami.Page {
             }
             
             Button {
-                text: "👤 Manage Faces"
+                text: i18n.tr("home.manageFacesBtn")
                 Layout.fillWidth: true
                 implicitHeight: Kirigami.Units.gridUnit * 2.5
                 onClicked: mainWindow.navigateToManageFaces()
             }
             
             Button {
-                text: "⚙️ Settings"
+                text: i18n.tr("home.settingsBtn")
                 Layout.fillWidth: true
                 implicitHeight: Kirigami.Units.gridUnit * 2.5
                 onClicked: mainWindow.navigateToSettings()

@@ -1,0 +1,54 @@
+{
+    "app": {
+        "title": "Linux Hello",
+        "subtitle": "Configuración de Autenticación Biométrica"
+    },
+    "home": {
+        "title": "Inicio",
+        "welcome": "Bienvenido a Linux Hello, el sistema de autenticación biométrica para KDE.",
+        "youCan": "Puedes:",
+        "action1": "• Registrar tu rostro para la autenticación",
+        "action2": "• Gestionar rostros registrados",
+        "action3": "• Configurar ajustes de seguridad",
+        "registerBtn": "📷 Registrar Rostro",
+        "manageFacesBtn": "👤 Gestionar Rostros",
+        "settingsBtn": "⚙️ Configuración"
+    },
+    "enrollment": {
+        "title": "Registro de Rostro",
+        "registerNew": "Registrar un Nuevo Rostro",
+        "cameraPreview": "Vista Previa de Cámara",
+        "progress": "Progreso:",
+        "instructions": "Presenta tu rostro a la cámara. El sistema capturará múltiples ángulos para un mejor reconocimiento.",
+        "startBtn": "Iniciar Captura",
+        "stopBtn": "Detener",
+        "cancelBtn": "Cancelar"
+    },
+    "settings": {
+        "title": "Configuración",
+        "configuration": "Configuración",
+        "authentication": "Autenticación",
+        "minConfidence": "Confianza Mínima:",
+        "timeout": "Tiempo de Espera (segundos):",
+        "camera": "Cámara",
+        "resolution": "Resolución:",
+        "fps": "FPS:",
+        "system": "Sistema",
+        "pamIntegrated": "PAM Integrado:",
+        "dbusActive": "DBus Activo:",
+        "language": "Idioma:",
+        "saveBtn": "Guardar",
+        "backBtn": "Atrás"
+    },
+    "manageFaces": {
+        "title": "Gestionar Rostros",
+        "registeredFaces": "Rostros Registrados",
+        "noFaces": "Sin rostros registrados",
+        "confidence": "Confianza:",
+        "registered": "Registrado:",
+        "unknown": "Desconocido",
+        "deleteBtn": "🗑️ Eliminar",
+        "registerNewBtn": "+ Registrar Nuevo Rostro",
+        "backBtn": "Atrás"
+    }
+}

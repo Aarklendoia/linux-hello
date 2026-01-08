@@ -11,6 +11,82 @@ Kirigami.ApplicationWindow {
     height: 600
     visible: true
     
+    // Gestionnaire i18n inline
+    QtObject {
+        id: i18n
+        
+        property var translations: ({})
+        property string currentLanguage: "en"
+        
+        readonly property var languages: ["en", "zh", "es", "hi", "ar", "pt", "ru", "ja", "de", "fr"]
+        readonly property var languageNames: ({
+            "en": "English",
+            "zh": "中文",
+            "es": "Español",
+            "hi": "हिंदी",
+            "ar": "العربية",
+            "pt": "Português",
+            "ru": "Русский",
+            "ja": "日本語",
+            "de": "Deutsch",
+            "fr": "Français"
+        })
+        
+        function loadLanguage(lang) {
+            try {
+                var fileUrl = Qt.resolvedUrl("./i18n/" + lang + ".json")
+                var xhr = new XMLHttpRequest()
+                xhr.open("GET", fileUrl, false)
+                xhr.send()
+                
+                if (xhr.status === 200) {
+                    translations = JSON.parse(xhr.responseText)
+                    currentLanguage = lang
+                    mainWindow.languageChanged()
+                    return true
+                }
+            } catch (e) {
+                console.error("Failed to load language:", lang, e.message)
+                if (lang !== "en") {
+                    return loadLanguage("en")
+                }
+            }
+            return false
+        }
+        
+        function tr(key) {
+            if (!key || key === "") {
+                return key
+            }
+            
+            var keys = key.split('.')
+            var value = translations
+            
+            for (var i = 0; i < keys.length; i++) {
+                if (value && typeof value === 'object' && keys[i] in value) {
+                    value = value[keys[i]]
+                } else {
+                    return key
+                }
+            }
+            
+            return typeof value === 'string' ? value : key
+        }
+        
+        Component.onCompleted: {
+            // Détecter la langue système
+            var systemLang = Qt.locale().name.substring(0, 2).toLowerCase()
+            if (languages.includes(systemLang)) {
+                loadLanguage(systemLang)
+            } else {
+                loadLanguage("en")
+            }
+        }
+    }
+    
+    // Signal pour les changements de langue
+    signal languageChanged()
+    
     // Thème Breeze automatique via Kirigami
     color: Kirigami.Theme.backgroundColor
     

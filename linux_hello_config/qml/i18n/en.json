@@ -1,0 +1,54 @@
+{
+    "app": {
+        "title": "Linux Hello",
+        "subtitle": "Biometric Authentication Configuration"
+    },
+    "home": {
+        "title": "Home",
+        "welcome": "Welcome to Linux Hello, the biometric authentication system for KDE.",
+        "youCan": "You can:",
+        "action1": "• Register your face for authentication",
+        "action2": "• Manage registered faces",
+        "action3": "• Configure security settings",
+        "registerBtn": "📷 Register Face",
+        "manageFacesBtn": "👤 Manage Faces",
+        "settingsBtn": "⚙️ Settings"
+    },
+    "enrollment": {
+        "title": "Face Registration",
+        "registerNew": "Register a New Face",
+        "cameraPreview": "Camera Preview",
+        "progress": "Progress:",
+        "instructions": "Present your face to the camera. The system will capture multiple angles for better recognition.",
+        "startBtn": "Start Capture",
+        "stopBtn": "Stop",
+        "cancelBtn": "Cancel"
+    },
+    "settings": {
+        "title": "Settings",
+        "configuration": "Configuration",
+        "authentication": "Authentication",
+        "minConfidence": "Minimum Confidence:",
+        "timeout": "Timeout (seconds):",
+        "camera": "Camera",
+        "resolution": "Resolution:",
+        "fps": "FPS:",
+        "system": "System",
+        "pamIntegrated": "PAM Integrated:",
+        "dbusActive": "DBus Active:",
+        "language": "Language:",
+        "saveBtn": "Save",
+        "backBtn": "Back"
+    },
+    "manageFaces": {
+        "title": "Manage Faces",
+        "registeredFaces": "Registered Faces",
+        "noFaces": "No registered faces",
+        "confidence": "Confidence:",
+        "registered": "Registered:",
+        "unknown": "Unknown",
+        "deleteBtn": "🗑️ Delete",
+        "registerNewBtn": "+ Register New Face",
+        "backBtn": "Back"
+    }
+}

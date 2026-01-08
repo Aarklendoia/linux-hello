@@ -1,0 +1,54 @@
+{
+    "app": {
+        "title": "Linux Hello",
+        "subtitle": "生物识别身份验证配置"
+    },
+    "home": {
+        "title": "主页",
+        "welcome": "欢迎使用 Linux Hello，这是 KDE 的生物识别身份验证系统。",
+        "youCan": "您可以：",
+        "action1": "• 注册您的脸部以进行身份验证",
+        "action2": "• 管理已注册的脸部",
+        "action3": "• 配置安全设置",
+        "registerBtn": "📷 注册脸部",
+        "manageFacesBtn": "👤 管理脸部",
+        "settingsBtn": "⚙️ 设置"
+    },
+    "enrollment": {
+        "title": "脸部注册",
+        "registerNew": "注册新脸部",
+        "cameraPreview": "摄像头预览",
+        "progress": "进度：",
+        "instructions": "将您的脸部对准摄像头。系统将从多个角度捕获以进行更好的识别。",
+        "startBtn": "开始捕获",
+        "stopBtn": "停止",
+        "cancelBtn": "取消"
+    },
+    "settings": {
+        "title": "设置",
+        "configuration": "配置",
+        "authentication": "身份验证",
+        "minConfidence": "最低置信度：",
+        "timeout": "超时（秒）：",
+        "camera": "摄像头",
+        "resolution": "分辨率：",
+        "fps": "帧率：",
+        "system": "系统",
+        "pamIntegrated": "PAM 集成：",
+        "dbusActive": "DBus 活跃：",
+        "language": "语言:",
+        "saveBtn": "保存",
+        "backBtn": "返回"
+    },
+    "manageFaces": {
+        "title": "管理脸部",
+        "registeredFaces": "已注册的脸部",
+        "noFaces": "没有已注册的脸部",
+        "confidence": "置信度：",
+        "registered": "注册时间：",
+        "unknown": "未知",
+        "deleteBtn": "🗑️ 删除",
+        "registerNewBtn": "+ 注册新脸部",
+        "backBtn": "返回"
+    }
+}

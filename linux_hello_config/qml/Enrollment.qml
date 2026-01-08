@@ -5,7 +5,14 @@ import org.kde.kirigami 2.13 as Kirigami
 
 Kirigami.Page {
     id: enrollPage
-    title: "Face Registration"
+    title: i18n.tr("enrollment.title")
+    
+    Connections {
+        target: mainWindow
+        function onLanguageChanged() { 
+            enrollPage.title = i18n.tr("enrollment.title")
+        }
+    }
     
     ColumnLayout {
         anchors.fill: parent
@@ -14,7 +21,7 @@ Kirigami.Page {
         
         // Title
         Label {
-            text: "Register a New Face"
+            text: i18n.tr("enrollment.registerNew")
             font.pixelSize: 20
             font.weight: Font.Bold
             color: Kirigami.Theme.textColor
@@ -34,7 +41,7 @@ Kirigami.Page {
                 spacing: Kirigami.Units.mediumSpacing
                 
                 Label {
-                    text: "Camera Preview"
+                    text: i18n.tr("enrollment.cameraPreview")
                     color: Kirigami.Theme.disabledTextColor
                     Layout.alignment: Qt.AlignHCenter
                     Layout.fillHeight: true
@@ -51,7 +58,7 @@ Kirigami.Page {
             Layout.fillWidth: true
             
             Label {
-                text: "Progress: 0%"
+                text: i18n.tr("enrollment.progress") + " " + appController.progress + "%"
                 color: Kirigami.Theme.textColor
                 id: progressLabel
             }
@@ -65,7 +72,7 @@ Kirigami.Page {
         
         // Instructions
         Label {
-            text: "Present your face to the camera. The system will capture multiple angles for better recognition."
+            text: i18n.tr("enrollment.instructions")
             wrapMode: Text.WordWrap
             color: Kirigami.Theme.disabledTextColor
             Layout.fillWidth: true
@@ -80,7 +87,7 @@ Kirigami.Page {
             Layout.fillWidth: true
             
             Button {
-                text: "Start Capture"
+                text: i18n.tr("enrollment.startBtn")
                 Layout.fillWidth: true
                 implicitHeight: Kirigami.Units.gridUnit * 2.2
                 enabled: !mainWindow.appController.capturing
@@ -94,7 +101,7 @@ Kirigami.Page {
             }
             
             Button {
-                text: "Stop"
+                text: i18n.tr("enrollment.stopBtn")
                 Layout.fillWidth: true
                 implicitHeight: Kirigami.Units.gridUnit * 2.2
                 enabled: mainWindow.appController.capturing
@@ -104,7 +111,7 @@ Kirigami.Page {
             }
             
             Button {
-                text: "Cancel"
+                text: i18n.tr("enrollment.cancelBtn")
                 Layout.fillWidth: true
                 implicitHeight: Kirigami.Units.gridUnit * 2.2
                 onClicked: {
@@ -120,12 +127,12 @@ Kirigami.Page {
         
         function onAppProgressChanged(value) {
             progressBar.value = value / 100.0
-            progressLabel.text = "Progress: " + value + "%"
+            progressLabel.text = i18n.tr("enrollment.progress") + " " + value + "%"
         }
         
         function onCaptureCompletedSignal() {
             progressBar.value = 1.0
-            progressLabel.text = "Progress: 100%"
+            progressLabel.text = i18n.tr("enrollment.progress") + " 100%"
         }
     }
 }
