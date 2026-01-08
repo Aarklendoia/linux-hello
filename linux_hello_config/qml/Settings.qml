@@ -5,14 +5,14 @@ import org.kde.kirigami 2.13 as Kirigami
 
 Kirigami.Page {
     id: settingsPage
-    title: "Paramètres"
+    title: "Settings"
     
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: Kirigami.Units.largeSpacing * 1.5
         spacing: Kirigami.Units.largeSpacing
         
-        // Titre
+        // Title
         Label {
             text: "Configuration"
             font.pixelSize: 20
@@ -20,7 +20,7 @@ Kirigami.Page {
             color: Kirigami.Theme.textColor
         }
         
-        // Zone scrollable
+        // Scrollable area
         ScrollView {
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -29,14 +29,14 @@ Kirigami.Page {
                 spacing: Kirigami.Units.largeSpacing * 1.5
                 width: settingsPage.width - 4 * Kirigami.Units.largeSpacing
                 
-                // Section Authentification
+                // Authentication Section
                 ColumnLayout {
                     spacing: Kirigami.Units.mediumSpacing * 1.5
                     Layout.fillWidth: true
                     Layout.topMargin: Kirigami.Units.mediumSpacing
                     
                     Label {
-                        text: "Authentification"
+                        text: "Authentication"
                         font.weight: Font.Bold
                         font.pixelSize: 14
                         color: Kirigami.Theme.textColor
@@ -49,7 +49,7 @@ Kirigami.Page {
                         Layout.rightMargin: Kirigami.Units.largeSpacing
                         
                         Label {
-                            text: "Confiance minimale :"
+                            text: "Minimum Confidence:"
                             color: Kirigami.Theme.textColor
                             Layout.fillWidth: true
                         }
@@ -69,7 +69,7 @@ Kirigami.Page {
                         Layout.rightMargin: Kirigami.Units.largeSpacing
                         
                         Label {
-                            text: "Timeout (secondes) :"
+                            text: "Timeout (seconds):"
                             color: Kirigami.Theme.textColor
                             Layout.fillWidth: true
                         }
@@ -89,14 +89,14 @@ Kirigami.Page {
                     color: Kirigami.Theme.backgroundColor
                 }
                 
-                // Section Caméra
+                // Camera Section
                 ColumnLayout {
                     spacing: Kirigami.Units.mediumSpacing * 1.5
                     Layout.fillWidth: true
                     Layout.topMargin: Kirigami.Units.mediumSpacing
                     
                     Label {
-                        text: "Caméra"
+                        text: "Camera"
                         font.weight: Font.Bold
                         font.pixelSize: 14
                         color: Kirigami.Theme.textColor
@@ -109,7 +109,7 @@ Kirigami.Page {
                         Layout.rightMargin: Kirigami.Units.largeSpacing
                         
                         Label {
-                            text: "Résolution :"
+                            text: "Resolution:"
                             color: Kirigami.Theme.textColor
                             Layout.fillWidth: true
                         }
@@ -127,7 +127,7 @@ Kirigami.Page {
                         Layout.rightMargin: Kirigami.Units.largeSpacing
                         
                         Label {
-                            text: "FPS :"
+                            text: "FPS:"
                             color: Kirigami.Theme.textColor
                             Layout.fillWidth: true
                         }
@@ -147,14 +147,14 @@ Kirigami.Page {
                     color: Kirigami.Theme.backgroundColor
                 }
                 
-                // Section Système
+                // System Section
                 ColumnLayout {
                     spacing: Kirigami.Units.mediumSpacing * 1.5
                     Layout.fillWidth: true
                     Layout.topMargin: Kirigami.Units.mediumSpacing
                     
                     Label {
-                        text: "Système"
+                        text: "System"
                         font.weight: Font.Bold
                         font.pixelSize: 14
                         color: Kirigami.Theme.textColor
@@ -167,7 +167,7 @@ Kirigami.Page {
                         Layout.rightMargin: Kirigami.Units.largeSpacing
                         
                         Label {
-                            text: "PAM intégré :"
+                            text: "PAM Integrated:"
                             color: Kirigami.Theme.textColor
                             Layout.fillWidth: true
                         }
@@ -184,7 +184,7 @@ Kirigami.Page {
                         Layout.rightMargin: Kirigami.Units.largeSpacing
                         
                         Label {
-                            text: "DBus actif :"
+                            text: "DBus Active:"
                             color: Kirigami.Theme.textColor
                             Layout.fillWidth: true
                         }
@@ -201,7 +201,7 @@ Kirigami.Page {
             }
         }
         
-        // Boutons d'action
+        // Action buttons
         RowLayout {
             spacing: Kirigami.Units.largeSpacing
             Layout.fillWidth: true
@@ -209,7 +209,7 @@ Kirigami.Page {
             Layout.rightMargin: Kirigami.Units.mediumSpacing
             
             Button {
-                text: "Enregistrer"
+                text: "Save"
                 Layout.fillWidth: true
                 implicitHeight: Kirigami.Units.gridUnit * 2.2
                 
@@ -222,7 +222,7 @@ Kirigami.Page {
             }
             
             Button {
-                text: "Retour"
+                text: "Back"
                 Layout.fillWidth: true
                 implicitHeight: Kirigami.Units.gridUnit * 2.2
                 onClicked: {

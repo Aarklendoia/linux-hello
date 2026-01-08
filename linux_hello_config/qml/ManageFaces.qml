@@ -5,22 +5,22 @@ import org.kde.kirigami 2.13 as Kirigami
 
 Kirigami.Page {
     id: manageFacesPage
-    title: "Gérer les Visages"
+    title: "Manage Faces"
     
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: Kirigami.Units.largeSpacing * 1.5
         spacing: Kirigami.Units.largeSpacing
         
-        // Titre
+        // Title
         Label {
-            text: "Visages Enregistrés"
+            text: "Registered Faces"
             font.pixelSize: 20
             font.weight: Font.Bold
             color: Kirigami.Theme.textColor
         }
         
-        // Liste des visages
+        // Faces list
         ScrollView {
             Layout.fillWidth: true
             Layout.fillHeight: true
@@ -52,33 +52,33 @@ Kirigami.Page {
                             }
                         }
                         
-                        // Infos
+                        // Info
                         ColumnLayout {
                             spacing: Kirigami.Units.smallSpacing * 1.5
                             Layout.fillWidth: true
                             
                             Label {
-                                text: modelData.name || "Visage " + (index + 1)
+                                text: modelData.name || "Face " + (index + 1)
                                 font.weight: Font.Bold
                                 color: Kirigami.Theme.textColor
                             }
                             
                             Label {
-                                text: "Confiance: " + (modelData.confidence || 85) + "%"
+                                text: "Confidence: " + (modelData.confidence || 85) + "%"
                                 font.pixelSize: 11
                                 color: Kirigami.Theme.disabledTextColor
                             }
                             
                             Label {
-                                text: "Enregistré: " + (modelData.date || "Inconnu")
+                                text: "Registered: " + (modelData.date || "Unknown")
                                 font.pixelSize: 10
                                 color: Kirigami.Theme.disabledTextColor
                             }
                         }
                         
-                        // Boutons d'action
+                        // Action buttons
                         Button {
-                            text: "🗑️ Supprimer"
+                            text: "🗑️ Delete"
                             implicitHeight: Kirigami.Units.gridUnit * 2
                             
                             onClicked: {
@@ -88,10 +88,10 @@ Kirigami.Page {
                     }
                 }
                 
-                // Message si aucun visage
+                // Message if no faces
                 Label {
                     visible: facesList.model.length === 0
-                    text: "Aucun visage enregistré"
+                    text: "No registered faces"
                     color: Kirigami.Theme.disabledTextColor
                     horizontalAlignment: Text.AlignHCenter
                     anchors.centerIn: parent
@@ -99,16 +99,16 @@ Kirigami.Page {
             }
         }
         
-        // Espace
+        // Flexible spacing
         Item { Layout.fillHeight: true }
         
-        // Boutons d'action
+        // Action buttons
         RowLayout {
             spacing: Kirigami.Units.mediumSpacing * 1.5
             Layout.fillWidth: true
             
             Button {
-                text: "+ Enregistrer un nouveau visage"
+                text: "+ Register New Face"
                 Layout.fillWidth: true
                 implicitHeight: Kirigami.Units.gridUnit * 2.2
                 
@@ -121,7 +121,7 @@ Kirigami.Page {
             }
             
             Button {
-                text: "Retour"
+                text: "Back"
                 Layout.fillWidth: true
                 implicitHeight: Kirigami.Units.gridUnit * 2.2
                 onClicked: {

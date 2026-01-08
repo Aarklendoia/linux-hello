@@ -5,22 +5,22 @@ import org.kde.kirigami 2.13 as Kirigami
 
 Kirigami.Page {
     id: enrollPage
-    title: "Enregistrement"
+    title: "Face Registration"
     
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: Kirigami.Units.largeSpacing * 1.5
         spacing: Kirigami.Units.largeSpacing
         
-        // Titre
+        // Title
         Label {
-            text: "Enregistrer un nouveau visage"
+            text: "Register a New Face"
             font.pixelSize: 20
             font.weight: Font.Bold
             color: Kirigami.Theme.textColor
         }
         
-        // Zone de préview
+        // Camera preview area
         Rectangle {
             Layout.fillWidth: true
             Layout.preferredHeight: 300
@@ -34,7 +34,7 @@ Kirigami.Page {
                 spacing: Kirigami.Units.mediumSpacing
                 
                 Label {
-                    text: "Aperçu de la caméra"
+                    text: "Camera Preview"
                     color: Kirigami.Theme.disabledTextColor
                     Layout.alignment: Qt.AlignHCenter
                     Layout.fillHeight: true
@@ -45,13 +45,13 @@ Kirigami.Page {
             }
         }
         
-        // Barre de progression
+        // Progress bar
         ColumnLayout {
             spacing: Kirigami.Units.smallSpacing * 1.5
             Layout.fillWidth: true
             
             Label {
-                text: "Progression : 0%"
+                text: "Progress: 0%"
                 color: Kirigami.Theme.textColor
                 id: progressLabel
             }
@@ -65,25 +65,25 @@ Kirigami.Page {
         
         // Instructions
         Label {
-            text: "Présentez votre visage à la caméra. Le système capturera plusieurs angles pour une meilleure reconnaissance."
+            text: "Present your face to the camera. The system will capture multiple angles for better recognition."
             wrapMode: Text.WordWrap
             color: Kirigami.Theme.disabledTextColor
             Layout.fillWidth: true
         }
         
-        // Espace flexible
+        // Flexible spacing
         Item { Layout.fillHeight: true }
         
-        // Boutons d'action
+        // Action buttons
         RowLayout {
             spacing: Kirigami.Units.mediumSpacing * 1.5
             Layout.fillWidth: true
             
             Button {
-                text: "Démarrer la capture"
+                text: "Start Capture"
                 Layout.fillWidth: true
                 implicitHeight: Kirigami.Units.gridUnit * 2.2
-                enabled: !linuxHelloApp.capturing
+                enabled: !mainWindow.appController.capturing
                 
                 palette.buttonText: Kirigami.Theme.highlightedTextColor
                 palette.button: Kirigami.Theme.highlightColor
@@ -94,17 +94,17 @@ Kirigami.Page {
             }
             
             Button {
-                text: "Arrêter"
+                text: "Stop"
                 Layout.fillWidth: true
                 implicitHeight: Kirigami.Units.gridUnit * 2.2
-                enabled: linuxHelloApp.capturing
+                enabled: mainWindow.appController.capturing
                 onClicked: {
                     mainWindow.stopCapture()
                 }
             }
             
             Button {
-                text: "Annuler"
+                text: "Cancel"
                 Layout.fillWidth: true
                 implicitHeight: Kirigami.Units.gridUnit * 2.2
                 onClicked: {
@@ -114,18 +114,18 @@ Kirigami.Page {
         }
     }
     
-    // Connexions aux signaux de l'app
+    // Connections to app signals
     Connections {
         target: mainWindow
         
         function onAppProgressChanged(value) {
             progressBar.value = value / 100.0
-            progressLabel.text = "Progression : " + value + "%"
+            progressLabel.text = "Progress: " + value + "%"
         }
         
         function onCaptureCompletedSignal() {
             progressBar.value = 1.0
-            progressLabel.text = "Progression : 100%"
+            progressLabel.text = "Progress: 100%"
         }
     }
 }

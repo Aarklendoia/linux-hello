@@ -5,14 +5,14 @@ import org.kde.kirigami 2.13 as Kirigami
 
 Kirigami.Page {
     id: homePage
-    title: "Accueil"
+    title: "Home"
     
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: Kirigami.Units.largeSpacing * 1.5
         spacing: Kirigami.Units.largeSpacing
         
-        // Titre principal
+        // Main title
         Label {
             text: "Linux Hello"
             font.pixelSize: 32
@@ -21,9 +21,9 @@ Kirigami.Page {
             Layout.alignment: Qt.AlignHCenter
         }
         
-        // Sous-titre
+        // Subtitle
         Label {
-            text: "Configuration d'authentification biométrique"
+            text: "Biometric Authentication Configuration"
             font.pixelSize: 16
             color: Kirigami.Theme.disabledTextColor
             Layout.alignment: Qt.AlignHCenter
@@ -32,10 +32,10 @@ Kirigami.Page {
             horizontalAlignment: Text.AlignHCenter
         }
         
-        // Espace
+        // Spacing
         Item { Layout.fillHeight: true }
         
-        // Contenu principal
+        // Main content
         ColumnLayout {
             spacing: Kirigami.Units.mediumSpacing * 1.5
             Layout.alignment: Qt.AlignHCenter
@@ -43,14 +43,14 @@ Kirigami.Page {
             Layout.maximumWidth: 400
             
             Label {
-                text: "Bienvenue dans Linux Hello, le système d'authentification biométrique pour KDE."
+                text: "Welcome to Linux Hello, the biometric authentication system for KDE."
                 wrapMode: Text.WordWrap
                 color: Kirigami.Theme.textColor
                 Layout.fillWidth: true
             }
             
             Label {
-                text: "Vous pouvez :"
+                text: "You can:"
                 font.weight: Font.Bold
                 color: Kirigami.Theme.textColor
                 Layout.fillWidth: true
@@ -61,35 +61,35 @@ Kirigami.Page {
                 Layout.leftMargin: Kirigami.Units.largeSpacing * 1.5
                 
                 Label {
-                    text: "• Enregistrer votre visage pour l'authentification"
+                    text: "• Register your face for authentication"
                     color: Kirigami.Theme.textColor
                     wrapMode: Text.WordWrap
                 }
                 
                 Label {
-                    text: "• Gérer les visages enregistrés"
+                    text: "• Manage registered faces"
                     color: Kirigami.Theme.textColor
                     wrapMode: Text.WordWrap
                 }
                 
                 Label {
-                    text: "• Configurer les paramètres de sécurité"
+                    text: "• Configure security settings"
                     color: Kirigami.Theme.textColor
                     wrapMode: Text.WordWrap
                 }
             }
         }
         
-        // Espace
+        // Spacing
         Item { Layout.fillHeight: true }
         
-        // Boutons de navigation
+        // Navigation buttons
         ColumnLayout {
             spacing: Kirigami.Units.mediumSpacing * 1.5
             Layout.fillWidth: true
             
             Button {
-                text: "📷 Enregistrer un Visage"
+                text: "📷 Register Face"
                 Layout.fillWidth: true
                 implicitHeight: Kirigami.Units.gridUnit * 2.5
                 onClicked: mainWindow.navigateToEnroll()
@@ -99,14 +99,14 @@ Kirigami.Page {
             }
             
             Button {
-                text: "👤 Gérer les Visages"
+                text: "👤 Manage Faces"
                 Layout.fillWidth: true
                 implicitHeight: Kirigami.Units.gridUnit * 2.5
                 onClicked: mainWindow.navigateToManageFaces()
             }
             
             Button {
-                text: "⚙️ Paramètres"
+                text: "⚙️ Settings"
                 Layout.fillWidth: true
                 implicitHeight: Kirigami.Units.gridUnit * 2.5
                 onClicked: mainWindow.navigateToSettings()
