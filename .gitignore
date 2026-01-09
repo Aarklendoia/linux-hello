@@ -46,3 +46,15 @@ debian/debhelper-build-stamp
 # Build/packaging temporary files
 *.deb
 .debhelper-build-stamp
+
+# Debian patches and quilt
+debian/patches/.pc/
+.pc/
+
+# Generated source tarball
+*.tar.gz
+*.tar.xz
+
+# Distribution files
+dist/
+release/

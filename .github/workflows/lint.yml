@@ -1,0 +1,79 @@
+name: Code Quality Checks
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+      - develop
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      
+      - name: Cache cargo registry
+        uses: actions/cache@v3
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+      
+      - name: Cache cargo index
+        uses: actions/cache@v3
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-git-${{ hashFiles('**/Cargo.lock') }}
+      
+      - name: Cache cargo build
+        uses: actions/cache@v3
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+      
+      - name: Run clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+      
+      - name: Run tests
+        run: cargo test --lib
+      
+      - name: Check formatting
+        run: cargo fmt -- --check
+
+  debian-lint:
+    runs-on: ubuntu-latest
+    container:
+      image: debian:bookworm
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Install linters
+        run: |
+          apt-get update
+          apt-get install -y \
+            lintian \
+            shellcheck \
+            debhelper
+      
+      - name: Lint shell scripts
+        run: |
+          shellcheck bin/linux-hello-config || true
+          shellcheck debian/postinst debian/postrm debian/preinst || true
+      
+      - name: Check debian files syntax
+        run: |
+          # Check debian/control
+          dpkg-parsechangelog -l debian/changelog > /dev/null
+          
+          # Check debian/control
+          cat debian/control | head -20

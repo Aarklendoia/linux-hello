@@ -1,0 +1,67 @@
+name: Test Package Installation
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+      - develop
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    container:
+      image: debian:bookworm
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Install build dependencies
+        run: |
+          apt-get update
+          apt-get install -y \
+            build-essential \
+            debhelper \
+            quilt \
+            rustc \
+            cargo \
+            libssl-dev \
+            libpam0g-dev \
+            pkg-config \
+            dh-cargo \
+            libkf6config-dev \
+            libkf6coreaddons-dev \
+            libkf6guiaddons-dev \
+            qml6-module-qtbase
+      
+      - name: Build Debian packages
+        run: |
+          dpkg-buildpackage -us -uc -b
+      
+      - name: Install packages
+        run: |
+          cd /
+          dpkg -i /root/linux-hello*.deb || apt-get install -yf
+      
+      - name: Verify installation
+        run: |
+          # Check if all packages are installed
+          dpkg -l | grep linux-hello
+          
+          # Verify binary is present
+          which linux-hello-config
+          
+          # Verify icon is installed
+          test -f /usr/share/icons/hicolor/scalable/apps/linux-hello.svg
+          
+          # Verify .desktop file is installed
+          test -f /usr/share/applications/linux-hello.desktop
+      
+      - name: Test daemon service
+        run: |
+          # Check if service is available
+          test -f /usr/lib/systemd/user/hello-daemon.service
