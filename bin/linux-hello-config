@@ -2,10 +2,6 @@
 # Linux Hello Configuration GUI Launcher
 # Launched from /usr/bin/linux-hello-config
 
-# Activer le daemon au premier lancement
-systemctl --user enable hello-daemon.service 2>/dev/null || true
-systemctl --user start hello-daemon.service 2>/dev/null || true
-
 # Determine installation path
 if [ -d "/usr/share/linux-hello/qml" ]; then
     # System installation from package
@@ -27,5 +23,4 @@ export QT_APPLICATION_DISPLAY_NAME="Linux Hello"
 # Launch QML application with proper window properties
 exec qml -I "$APP_DIR/qml" \
     --apptype gui \
-    -WindowTitle "Linux Hello - Configuration" \
     "$APP_DIR/qml/main.qml"

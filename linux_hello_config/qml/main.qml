@@ -11,12 +11,6 @@ Kirigami.ApplicationWindow {
     height: 600
     visible: true
     
-    // Window and application properties to avoid duplicate taskbar icons
-    Component.onCompleted: {
-        // Ensure single window instance in taskbar
-        mainWindow.icon.name = "linux-hello"
-    }
-    
     // Gestionnaire i18n inline
     QtObject {
         id: i18n
