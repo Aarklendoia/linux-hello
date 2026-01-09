@@ -26,4 +26,4 @@ parking_lot.workspace = true
 async-trait = "0.1"
 
 # Configuration
-dirs = "5.0"
+dirs = "6.0"
