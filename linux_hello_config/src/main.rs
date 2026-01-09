@@ -16,8 +16,8 @@ fn main() {
     // Les fichiers QML sont dans le répertoire 'qml/'
     
     // Déterminer le chemin QML (système ou développement)
-    let qml_path = if PathBuf::from("/usr/share/linux-hello/qml/main.qml").exists() {
-        "/usr/share/linux-hello/qml/main.qml".to_string()
+    let qml_path = if PathBuf::from("/usr/share/linux-hello/qml-modules/Linux/Hello/main.qml").exists() {
+        "/usr/share/linux-hello/qml-modules/Linux/Hello/main.qml".to_string()
     } else {
         let manifest_dir = env::var("CARGO_MANIFEST_DIR")
             .unwrap_or_else(|_| ".".to_string());
@@ -28,18 +28,15 @@ fn main() {
             .to_string()
     };
     
-    // Configurer les chemins d'import QML (priorité Qt5, fallback Qt6)
+    // Configurer les chemins d'import QML (Qt6 uniquement, pas Qt5)
+    // IMPORTANT: qml6 nécessite que les chemins soient dans le bon ordre
     let qml_import_paths = vec![
-        "/usr/lib/x86_64-linux-gnu/qt5/qml",
-        "/usr/lib/x86_64-linux-gnu/qt6/qml",
-        "/usr/lib/qt5/qml",
-        "/usr/lib/qt6/qml",
+        "/usr/lib/x86_64-linux-gnu/qt6/qml",  // Qt6 modules principaux
+        "/usr/share/linux-hello/qml-modules",  // ✨ Modules personnalisés
     ].join(":");
     
     let qt_plugin_paths = vec![
-        "/usr/lib/x86_64-linux-gnu/qt5/plugins",
         "/usr/lib/x86_64-linux-gnu/qt6/plugins",
-        "/usr/lib/qt5/plugins",
         "/usr/lib/qt6/plugins",
     ].join(":");
     
@@ -47,6 +44,7 @@ fn main() {
     let mut cmd = Command::new("qml6");
     cmd.arg(&qml_path)
         // Chemins des modules QML (CRITIQUE pour Kirigami)
+        .env("QML_IMPORT_PATH", &qml_import_paths)
         .env("QML2_IMPORT_PATH", &qml_import_paths)
         // Chemins des plugins Qt
         .env("QT_PLUGIN_PATH", &qt_plugin_paths)

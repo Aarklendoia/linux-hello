@@ -1,27 +1,27 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import org.kde.kirigami 2.20 as Kirigami
+import org.kde.kirigami as Kirigami
+import Linux.Hello 1.0
 
 Kirigami.Page {
     id: manageFacesPage
-    title: i18n.tr("manageFaces.title")
+    title: I18n.tr("manageFaces.title")
     
-    Connections {
-        target: mainWindow
-        function onLanguageChanged() { 
-            manageFacesPage.title = i18n.tr("manageFaces.title")
-        }
-    }
+    // Propriétés pour pageStack
+    Layout.fillWidth: true
+    Layout.fillHeight: true
     
     ColumnLayout {
-        anchors.fill: parent
-        anchors.margins: Kirigami.Units.largeSpacing * 1.5
+        anchors {
+            fill: parent
+            margins: Kirigami.Units.largeSpacing
+        }
         spacing: Kirigami.Units.largeSpacing
         
         // Title
         Label {
-            text: i18n.tr("manageFaces.registeredFaces")
+            text: I18n.tr("manageFaces.registeredFaces")
             font.pixelSize: 20
             font.weight: Font.Bold
             color: Kirigami.Theme.textColor
@@ -41,8 +41,6 @@ Kirigami.Page {
                     height: Kirigami.Units.gridUnit * 4
                     
                     RowLayout {
-                        anchors.fill: parent
-                        anchors.margins: Kirigami.Units.mediumSpacing * 1.5
                         spacing: Kirigami.Units.mediumSpacing * 1.5
                         
                         // Thumbnail (placeholder)
@@ -71,13 +69,13 @@ Kirigami.Page {
                             }
                             
                             Label {
-                                text: i18n.tr("manageFaces.confidence") + " " + (modelData.confidence || 85) + "%"
+                                text: I18n.tr("manageFaces.confidence") + " " + (modelData.confidence || 85) + "%"
                                 font.pixelSize: 11
                                 color: Kirigami.Theme.disabledTextColor
                             }
                             
                             Label {
-                                text: i18n.tr("manageFaces.registered") + " " + (modelData.date || i18n.tr("manageFaces.unknown"))
+                                text: I18n.tr("manageFaces.registered") + " " + (modelData.date || I18n.tr("manageFaces.unknown"))
                                 font.pixelSize: 10
                                 color: Kirigami.Theme.disabledTextColor
                             }
@@ -85,12 +83,10 @@ Kirigami.Page {
                         
                         // Action buttons
                         Button {
-                            text: i18n.tr("manageFaces.deleteBtn")
+                            text: I18n.tr("manageFaces.deleteBtn")
                             implicitHeight: Kirigami.Units.gridUnit * 2
                             
-                            onClicked: {
-                                mainWindow.deleteFace(index)
-                            }
+                            onClicked: mainWindow.deleteFace(index)
                         }
                     }
                 }
@@ -98,7 +94,7 @@ Kirigami.Page {
                 // Message if no faces
                 Label {
                     visible: facesList.model.length === 0
-                    text: i18n.tr("manageFaces.noFaces")
+                    text: I18n.tr("manageFaces.noFaces")
                     color: Kirigami.Theme.disabledTextColor
                     horizontalAlignment: Text.AlignHCenter
                     anchors.centerIn: parent
@@ -106,34 +102,27 @@ Kirigami.Page {
             }
         }
         
-        // Flexible spacing
-        Item { Layout.fillHeight: true }
-        
         // Action buttons
         RowLayout {
             spacing: Kirigami.Units.mediumSpacing * 1.5
             Layout.fillWidth: true
             
             Button {
-                text: i18n.tr("manageFaces.registerNewBtn")
+                text: I18n.tr("manageFaces.registerNewBtn")
                 Layout.fillWidth: true
                 implicitHeight: Kirigami.Units.gridUnit * 2.2
                 
                 palette.buttonText: Kirigami.Theme.highlightedTextColor
                 palette.button: Kirigami.Theme.highlightColor
                 
-                onClicked: {
-                    mainWindow.navigateToEnroll()
-                }
+                onClicked: mainWindow.navigateToEnroll()
             }
             
             Button {
-                text: i18n.tr("manageFaces.backBtn")
+                text: I18n.tr("manageFaces.backBtn")
                 Layout.fillWidth: true
                 implicitHeight: Kirigami.Units.gridUnit * 2.2
-                onClicked: {
-                    mainWindow.navigateToHome()
-                }
+                onClicked: mainWindow.navigateToHome()
             }
         }
     }

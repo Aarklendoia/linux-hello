@@ -1,27 +1,27 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import org.kde.kirigami 2.20 as Kirigami
+import org.kde.kirigami as Kirigami
+import Linux.Hello 1.0
 
 Kirigami.Page {
     id: settingsPage
-    title: i18n.tr("settings.title")
+    title: I18n.tr("settings.title")
     
-    Connections {
-        target: mainWindow
-        function onLanguageChanged() { 
-            settingsPage.title = i18n.tr("settings.title")
-        }
-    }
+    // Propriétés pour pageStack
+    Layout.fillWidth: true
+    Layout.fillHeight: true
     
     ColumnLayout {
-        anchors.fill: parent
-        anchors.margins: Kirigami.Units.largeSpacing * 1.5
+        anchors {
+            fill: parent
+            margins: Kirigami.Units.largeSpacing
+        }
         spacing: Kirigami.Units.largeSpacing
         
         // Title
         Label {
-            text: i18n.tr("settings.configuration")
+            text: I18n.tr("settings.configuration")
             font.pixelSize: 20
             font.weight: Font.Bold
             color: Kirigami.Theme.textColor
@@ -43,7 +43,7 @@ Kirigami.Page {
                     Layout.topMargin: Kirigami.Units.mediumSpacing
                     
                     Label {
-                        text: i18n.tr("settings.authentication")
+                        text: I18n.tr("settings.authentication")
                         font.weight: Font.Bold
                         font.pixelSize: 14
                         color: Kirigami.Theme.textColor
@@ -56,7 +56,7 @@ Kirigami.Page {
                         Layout.rightMargin: Kirigami.Units.largeSpacing
                         
                         Label {
-                            text: i18n.tr("settings.minConfidence")
+                            text: I18n.tr("settings.minConfidence")
                             color: Kirigami.Theme.textColor
                             Layout.fillWidth: true
                         }
@@ -76,7 +76,7 @@ Kirigami.Page {
                         Layout.rightMargin: Kirigami.Units.largeSpacing
                         
                         Label {
-                            text: i18n.tr("settings.timeout")
+                            text: I18n.tr("settings.timeout")
                             color: Kirigami.Theme.textColor
                             Layout.fillWidth: true
                         }
@@ -103,7 +103,7 @@ Kirigami.Page {
                     Layout.topMargin: Kirigami.Units.mediumSpacing
                     
                     Label {
-                        text: i18n.tr("settings.camera")
+                        text: I18n.tr("settings.camera")
                         font.weight: Font.Bold
                         font.pixelSize: 14
                         color: Kirigami.Theme.textColor
@@ -116,7 +116,7 @@ Kirigami.Page {
                         Layout.rightMargin: Kirigami.Units.largeSpacing
                         
                         Label {
-                            text: i18n.tr("settings.resolution")
+                            text: I18n.tr("settings.resolution")
                             color: Kirigami.Theme.textColor
                             Layout.fillWidth: true
                         }
@@ -134,7 +134,7 @@ Kirigami.Page {
                         Layout.rightMargin: Kirigami.Units.largeSpacing
                         
                         Label {
-                            text: i18n.tr("settings.fps")
+                            text: I18n.tr("settings.fps")
                             color: Kirigami.Theme.textColor
                             Layout.fillWidth: true
                         }
@@ -161,7 +161,7 @@ Kirigami.Page {
                     Layout.topMargin: Kirigami.Units.mediumSpacing
                     
                     Label {
-                        text: i18n.tr("settings.system")
+                        text: I18n.tr("settings.system")
                         font.weight: Font.Bold
                         font.pixelSize: 14
                         color: Kirigami.Theme.textColor
@@ -174,7 +174,7 @@ Kirigami.Page {
                         Layout.rightMargin: Kirigami.Units.largeSpacing
                         
                         Label {
-                            text: i18n.tr("settings.pamIntegrated")
+                            text: I18n.tr("settings.pamIntegrated")
                             color: Kirigami.Theme.textColor
                             Layout.fillWidth: true
                         }
@@ -191,7 +191,7 @@ Kirigami.Page {
                         Layout.rightMargin: Kirigami.Units.largeSpacing
                         
                         Label {
-                            text: i18n.tr("settings.dbusActive")
+                            text: I18n.tr("settings.dbusActive")
                             color: Kirigami.Theme.textColor
                             Layout.fillWidth: true
                         }
@@ -210,7 +210,7 @@ Kirigami.Page {
                         Layout.rightMargin: Kirigami.Units.largeSpacing
                         
                         Label {
-                            text: i18n.tr("settings.language")
+                            text: I18n.tr("settings.language")
                             color: Kirigami.Theme.textColor
                             Layout.fillWidth: true
                         }
@@ -255,7 +255,7 @@ Kirigami.Page {
             Layout.rightMargin: Kirigami.Units.mediumSpacing
             
             Button {
-                text: i18n.tr("settings.saveBtn")
+                text: I18n.tr("settings.saveBtn")
                 Layout.fillWidth: true
                 implicitHeight: Kirigami.Units.gridUnit * 2.2
                 
@@ -268,7 +268,7 @@ Kirigami.Page {
             }
             
             Button {
-                text: i18n.tr("settings.backBtn")
+                text: I18n.tr("settings.backBtn")
                 Layout.fillWidth: true
                 implicitHeight: Kirigami.Units.gridUnit * 2.2
                 onClicked: {

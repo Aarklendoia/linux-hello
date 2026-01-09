@@ -3,6 +3,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import QtQuick.Window
 
+import Linux.Hello 1.0
 ApplicationWindow {
     id: mainWindow
     title: "Linux Hello - Configuration"

@@ -1,27 +1,27 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import org.kde.kirigami 2.20 as Kirigami
+import org.kde.kirigami as Kirigami
+import Linux.Hello 1.0
 
 Kirigami.Page {
     id: enrollPage
-    title: i18n.tr("enrollment.title")
+    title: I18n.tr("enrollment.title")
     
-    Connections {
-        target: mainWindow
-        function onLanguageChanged() { 
-            enrollPage.title = i18n.tr("enrollment.title")
-        }
-    }
+    // Propriétés pour pageStack
+    Layout.fillWidth: true
+    Layout.fillHeight: true
     
     ColumnLayout {
-        anchors.fill: parent
-        anchors.margins: Kirigami.Units.largeSpacing * 1.5
+        anchors {
+            fill: parent
+            margins: Kirigami.Units.largeSpacing
+        }
         spacing: Kirigami.Units.largeSpacing
         
         // Title
         Label {
-            text: i18n.tr("enrollment.registerNew")
+            text: I18n.tr("enrollment.registerNew")
             font.pixelSize: 20
             font.weight: Font.Bold
             color: Kirigami.Theme.textColor
@@ -36,12 +36,10 @@ Kirigami.Page {
             border.width: 1
             
             ColumnLayout {
-                anchors.fill: parent
-                anchors.margins: Kirigami.Units.mediumSpacing
                 spacing: Kirigami.Units.mediumSpacing
                 
                 Label {
-                    text: i18n.tr("enrollment.cameraPreview")
+                    text: I18n.tr("enrollment.cameraPreview")
                     color: Kirigami.Theme.disabledTextColor
                     Layout.alignment: Qt.AlignHCenter
                     Layout.fillHeight: true
@@ -58,7 +56,7 @@ Kirigami.Page {
             Layout.fillWidth: true
             
             Label {
-                text: i18n.tr("enrollment.progress") + " " + appController.progress + "%"
+                text: I18n.tr("enrollment.progress") + " " + appController.progress + "%"
                 color: Kirigami.Theme.textColor
                 id: progressLabel
             }
@@ -72,7 +70,7 @@ Kirigami.Page {
         
         // Instructions
         Label {
-            text: i18n.tr("enrollment.instructions")
+            text: I18n.tr("enrollment.instructions")
             wrapMode: Text.WordWrap
             color: Kirigami.Theme.disabledTextColor
             Layout.fillWidth: true
@@ -87,52 +85,46 @@ Kirigami.Page {
             Layout.fillWidth: true
             
             Button {
-                text: i18n.tr("enrollment.startBtn")
+                text: I18n.tr("enrollment.startBtn")
                 Layout.fillWidth: true
                 implicitHeight: Kirigami.Units.gridUnit * 2.2
-                enabled: !mainWindow.appController.capturing
+                enabled: !appController.capturing
                 
                 palette.buttonText: Kirigami.Theme.highlightedTextColor
                 palette.button: Kirigami.Theme.highlightColor
                 
-                onClicked: {
-                    mainWindow.startCapture()
-                }
+                onClicked: mainWindow.startCapture()
             }
             
             Button {
-                text: i18n.tr("enrollment.stopBtn")
+                text: I18n.tr("enrollment.stopBtn")
                 Layout.fillWidth: true
                 implicitHeight: Kirigami.Units.gridUnit * 2.2
-                enabled: mainWindow.appController.capturing
-                onClicked: {
-                    mainWindow.stopCapture()
-                }
+                enabled: appController.capturing
+                onClicked: mainWindow.stopCapture()
             }
             
             Button {
-                text: i18n.tr("enrollment.cancelBtn")
+                text: I18n.tr("enrollment.cancelBtn")
                 Layout.fillWidth: true
                 implicitHeight: Kirigami.Units.gridUnit * 2.2
-                onClicked: {
-                    mainWindow.navigateToHome()
-                }
+                onClicked: mainWindow.navigateToHome()
             }
         }
     }
     
     // Connections to app signals
     Connections {
-        target: mainWindow
+        target: appController
         
         function onAppProgressChanged(value) {
             progressBar.value = value / 100.0
-            progressLabel.text = i18n.tr("enrollment.progress") + " " + value + "%"
+            progressLabel.text = I18n.tr("enrollment.progress") + " " + value + "%"
         }
         
         function onCaptureCompletedSignal() {
             progressBar.value = 1.0
-            progressLabel.text = i18n.tr("enrollment.progress") + " 100%"
+            progressLabel.text = I18n.tr("enrollment.progress") + " 100%"
         }
     }
 }
