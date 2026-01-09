@@ -96,6 +96,12 @@ QtObject {
             return key
         }
         
+        // Vérifier d'abord si la clé existe directement (pour les clés plates)
+        if (key in translations) {
+            return translations[key]
+        }
+        
+        // Essayer de naviguer par points (pour les clés imbriquées)
         var keys = key.split('.')
         var value = translations
         
@@ -103,7 +109,7 @@ QtObject {
             if (value && typeof value === 'object' && keys[i] in value) {
                 value = value[keys[i]]
             } else {
-                console.warn("Translation key not found:", key)
+                // Si la clé n'existe pas, retourner la clé elle-même comme fallback
                 return key
             }
         }

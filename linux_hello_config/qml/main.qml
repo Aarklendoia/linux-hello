@@ -22,7 +22,12 @@ Kirigami.ApplicationWindow {
     // Stack de pages pour navigation
     pageStack {
         initialPage: homeComponent
+        // Forcer le mode une seule colonne en Kirigami 6
+        columnView.columnWidth: mainWindow.width
     }
+    
+    // Désactiver les ToolTips complexes de Kirigami pour éviter les binding loops
+    property bool showToolTips: false
 
     // Propriétés globales de l'app
     QtObject {
@@ -71,15 +76,15 @@ Kirigami.ApplicationWindow {
         }
 
         function navigateToEnrollImpl() {
-            mainWindow.pageStack.push(enrollComponent)
+            mainWindow.pageStack.replace(enrollComponent)
         }
 
         function navigateToSettingsImpl() {
-            mainWindow.pageStack.push(settingsComponent)
+            mainWindow.pageStack.replace(settingsComponent)
         }
 
         function navigateToManageFacesImpl() {
-            mainWindow.pageStack.push(manageFacesComponent)
+            mainWindow.pageStack.replace(manageFacesComponent)
         }
 
         function animateProgress() {

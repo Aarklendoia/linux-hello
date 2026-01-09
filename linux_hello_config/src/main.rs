@@ -63,7 +63,9 @@ fn main() {
         // XCB avec GPU si possible
         .env("QT_XCB_GL_INTEGRATION", "xcb_egl,none")
         // Désactive les avertissements de driver
-        .env("QT_DEBUG_PLUGINS", "0");
+        .env("QT_DEBUG_PLUGINS", "0")
+        // Supprime les messages de binding loop connus de Kirigami ToolTip
+        .env("QML_BIND_IGNORE", "1");
     
     eprintln!("🚀 Launching Linux Hello Configuration GUI");
     eprintln!("  📂 QML path: {}", qml_path);

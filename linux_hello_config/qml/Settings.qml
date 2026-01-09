@@ -34,7 +34,7 @@ Kirigami.Page {
             
             ColumnLayout {
                 spacing: Kirigami.Units.largeSpacing * 1.5
-                width: settingsPage.width - 4 * Kirigami.Units.largeSpacing
+                Layout.fillWidth: true
                 
                 // Authentication Section
                 ColumnLayout {
@@ -122,8 +122,8 @@ Kirigami.Page {
                         }
                         
                         ComboBox {
-                            model: ["1280x720", "1920x1080", "640x480"]
-                            currentIndex: 0
+                            model: ["640x480", "1280x720", "1920x1080"]
+                            currentIndex: 1
                         }
                     }
                     
@@ -216,27 +216,33 @@ Kirigami.Page {
                         }
                         
                         ComboBox {
-                            model: i18n.languages
+                            id: languageCombo
+                            model: I18n.languages
                             
                             // Create display text with language names
                             delegate: ItemDelegate {
                                 width: parent.width
-                                text: i18n.languageNames[modelData]
+                                text: I18n.languageNames[modelData]
                                 highlighted: ListView.isCurrentItem
                             }
                             
-                            currentIndex: i18n.languages.indexOf(i18n.currentLanguage)
+                            Binding {
+                                target: languageCombo
+                                property: "currentIndex"
+                                value: I18n.languages.indexOf(I18n.currentLanguage)
+                            }
                             
                             contentItem: Text {
-                                text: i18n.languageNames[i18n.languages[currentIndex]]
+                                text: languageCombo.currentIndex >= 0 && languageCombo.currentIndex < I18n.languages.length ? I18n.languageNames[I18n.languages[languageCombo.currentIndex]] : "Language"
                                 color: Kirigami.Theme.textColor
                                 verticalAlignment: Text.AlignVCenter
                                 horizontalAlignment: Text.AlignLeft
+                                leftPadding: Kirigami.Units.largeSpacing
                             }
                             
                             onCurrentIndexChanged: {
-                                if (currentIndex >= 0 && currentIndex < i18n.languages.length) {
-                                    i18n.loadLanguage(i18n.languages[currentIndex])
+                                if (currentIndex >= 0 && currentIndex < I18n.languages.length) {
+                                    I18n.loadLanguage(I18n.languages[currentIndex])
                                 }
                             }
                         }

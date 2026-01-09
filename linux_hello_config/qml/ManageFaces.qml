@@ -12,6 +12,9 @@ Kirigami.Page {
     Layout.fillWidth: true
     Layout.fillHeight: true
     
+    // Accès à appController depuis le contexte global
+    property QtObject appController: typeof mainWindow !== 'undefined' && mainWindow ? mainWindow.appController : null
+    
     ColumnLayout {
         anchors {
             fill: parent
@@ -34,7 +37,7 @@ Kirigami.Page {
             
             ListView {
                 id: facesList
-                model: mainWindow.appController.facesList
+                model: appController ? appController.facesList : []
                 
                 delegate: ItemDelegate {
                     width: manageFacesPage.width - 2 * Kirigami.Units.largeSpacing
@@ -93,7 +96,7 @@ Kirigami.Page {
                 
                 // Message if no faces
                 Label {
-                    visible: facesList.model.length === 0
+                    visible: !appController || !appController.facesList || appController.facesList.length === 0
                     text: I18n.tr("manageFaces.noFaces")
                     color: Kirigami.Theme.disabledTextColor
                     horizontalAlignment: Text.AlignHCenter

@@ -35,18 +35,10 @@ Kirigami.Page {
             border.color: Kirigami.Theme.textColor
             border.width: 1
             
-            ColumnLayout {
-                spacing: Kirigami.Units.mediumSpacing
-                
-                Label {
-                    text: I18n.tr("enrollment.cameraPreview")
-                    color: Kirigami.Theme.disabledTextColor
-                    Layout.alignment: Qt.AlignHCenter
-                    Layout.fillHeight: true
-                    Layout.fillWidth: true
-                    verticalAlignment: Text.AlignVCenter
-                    horizontalAlignment: Text.AlignHCenter
-                }
+            Label {
+                text: I18n.tr("enrollment.cameraPreview")
+                color: Kirigami.Theme.disabledTextColor
+                anchors.centerIn: parent
             }
         }
         
