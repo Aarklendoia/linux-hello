@@ -1,6 +1,2 @@
 # Quilt patch management options
 
-# Include original source
--p ab
---no-effect
---no-timestamps
