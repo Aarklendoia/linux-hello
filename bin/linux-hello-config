@@ -12,15 +12,17 @@ else
     APP_DIR="$SCRIPT_DIR/../linux_hello_config"
 fi
 
-# Set Qt environment variables
-export QT_QPA_PLATFORM="xcb"
-export QT_STYLE_OVERRIDE="org.kde.desktop"
-export QML_XHR_ALLOW_FILE_READ="1"
-# Set application metadata for window manager and taskbar
+# Configure Qt/Kirigami environment variables (CRITICAL for plugin loading)
+export QML2_IMPORT_PATH="/usr/lib/x86_64-linux-gnu/qt5/qml:/usr/lib/x86_64-linux-gnu/qt6/qml:/usr/lib/qt5/qml:/usr/lib/qt6/qml"
+export QT_PLUGIN_PATH="/usr/lib/x86_64-linux-gnu/qt5/plugins:/usr/lib/x86_64-linux-gnu/qt6/plugins:/usr/lib/qt5/plugins:/usr/lib/qt6/plugins"
 export QT_QPA_PLATFORMTHEME="kde"
+export QT_QUICK_CONTROLS_STYLE="org.kde.desktop"
+export QT_STYLE_OVERRIDE="org.kde.desktop"
 export QT_APPLICATION_DISPLAY_NAME="Linux Hello"
+export QML_XHR_ALLOW_FILE_READ="1"
+export QT_XCB_GL_INTEGRATION="xcb_egl,none"
+export QT_QPA_PLATFORM="xcb;wayland;offscreen"
+export QT_DEBUG_PLUGINS="0"
 
-# Launch QML application with proper window properties
-exec qml -I "$APP_DIR/qml" \
-    --apptype gui \
-    "$APP_DIR/qml/main.qml"
+# Launch QML application with Qt 6
+exec qml6 "$APP_DIR/qml/main.qml"
