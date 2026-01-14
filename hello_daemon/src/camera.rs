@@ -165,7 +165,7 @@ impl CameraManager {
         mut on_frame: F,
     ) -> Result<(), CameraError>
     where
-        F: FnMut(CaptureFrameEvent) -> (),
+        F: FnMut(CaptureFrameEvent),
     {
         info!(
             "Démarrage capture streaming: {} frames, timeout={}ms",

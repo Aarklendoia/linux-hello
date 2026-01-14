@@ -24,8 +24,9 @@ impl FaceStorage {
         let base_path = base_path.as_ref().to_path_buf();
 
         // Créer la structure de répertoires
-        std::fs::create_dir_all(&base_path)
-            .map_err(|e| DaemonError::StorageError(format!("Création répertoire échouée: {}", e)))?;
+        std::fs::create_dir_all(&base_path).map_err(|e| {
+            DaemonError::StorageError(format!("Création répertoire échouée: {}", e))
+        })?;
 
         let db_path = base_path.join("faces.db");
 
@@ -60,16 +61,16 @@ impl FaceStorage {
 
         // Sauvegarder métadonnées dans un fichier JSON
         let metadata_path = user_dir.join(format!("{}.meta.json", record.face_id));
-        let metadata_json = serde_json::to_string_pretty(&record)
-            .map_err(DaemonError::JsonError)?;
+        let metadata_json =
+            serde_json::to_string_pretty(&record).map_err(DaemonError::JsonError)?;
 
         std::fs::write(&metadata_path, metadata_json)
             .map_err(|e| DaemonError::StorageError(format!("Écriture métadonnées: {}", e)))?;
 
         // Sauvegarder embedding
         let embedding_path = user_dir.join(format!("{}.embedding.json", record.face_id));
-        let embedding_json = serde_json::to_string_pretty(&embedding)
-            .map_err(DaemonError::JsonError)?;
+        let embedding_json =
+            serde_json::to_string_pretty(&embedding).map_err(DaemonError::JsonError)?;
 
         std::fs::write(&embedding_path, embedding_json)
             .map_err(|e| DaemonError::StorageError(format!("Écriture embedding: {}", e)))?;
@@ -94,8 +95,8 @@ impl FaceStorage {
         let content = std::fs::read_to_string(&embedding_path)
             .map_err(|e| DaemonError::StorageError(format!("Lecture embedding: {}", e)))?;
 
-        let embedding: hello_face_core::Embedding = serde_json::from_str(&content)
-            .map_err(DaemonError::JsonError)?;
+        let embedding: hello_face_core::Embedding =
+            serde_json::from_str(&content).map_err(DaemonError::JsonError)?;
 
         Ok(embedding)
     }
@@ -113,8 +114,8 @@ impl FaceStorage {
         for entry in std::fs::read_dir(&user_dir)
             .map_err(|e| DaemonError::StorageError(format!("Lecture user dir: {}", e)))?
         {
-            let entry = entry
-                .map_err(|e| DaemonError::StorageError(format!("Entrée dir: {}", e)))?;
+            let entry =
+                entry.map_err(|e| DaemonError::StorageError(format!("Entrée dir: {}", e)))?;
             let path = entry.path();
 
             // Chercher les fichiers .meta.json
@@ -127,8 +128,8 @@ impl FaceStorage {
                 let content = std::fs::read_to_string(&path)
                     .map_err(|e| DaemonError::StorageError(format!("Lecture meta: {}", e)))?;
 
-                let record: FaceRecord = serde_json::from_str(&content)
-                    .map_err(DaemonError::JsonError)?;
+                let record: FaceRecord =
+                    serde_json::from_str(&content).map_err(DaemonError::JsonError)?;
 
                 faces.push(record);
             }
@@ -154,10 +155,7 @@ impl FaceStorage {
                 .map_err(|e| DaemonError::StorageError(format!("Suppression embedding: {}", e)))?;
         }
 
-        debug!(
-            "Visage supprimé: user_id={}, face_id={}",
-            user_id, face_id
-        );
+        debug!("Visage supprimé: user_id={}, face_id={}", user_id, face_id);
 
         Ok(())
     }
@@ -184,7 +182,7 @@ impl FaceStorage {
         // Utiliser une approche plus simple: vérifier que le chemin normalisé commence par base_path
         let normalized_user = user_dir.canonicalize().ok();
         let normalized_base = self.base_path.canonicalize().ok();
-        
+
         match (normalized_user, normalized_base) {
             (Some(user), Some(base)) => {
                 if !user.starts_with(&base) {
@@ -250,9 +248,7 @@ mod tests {
 
         storage.save_face(&record, &embedding).unwrap();
 
-        let loaded = storage
-            .load_face_embedding(1000, "test_face_1")
-            .unwrap();
+        let loaded = storage.load_face_embedding(1000, "test_face_1").unwrap();
         assert_eq!(loaded.vector.len(), 3);
     }
 

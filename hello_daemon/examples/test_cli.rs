@@ -88,7 +88,10 @@ async fn main() -> anyhow::Result<()> {
     // Exécuter commande
     match cli.command {
         Commands::Register { user_id, context } => {
-            info!("Enregistrement pour user_id={}, context={}", user_id, context);
+            info!(
+                "Enregistrement pour user_id={}, context={}",
+                user_id, context
+            );
 
             let request = hello_daemon::dbus_interface::RegisterFaceRequest {
                 user_id,
@@ -166,15 +169,9 @@ async fn main() -> anyhow::Result<()> {
         }
 
         Commands::Delete { user_id, face_id } => {
-            info!(
-                "Suppression user_id={}, face_id={:?}",
-                user_id, face_id
-            );
+            info!("Suppression user_id={}, face_id={:?}", user_id, face_id);
 
-            let request = hello_daemon::dbus_interface::DeleteFaceRequest {
-                user_id,
-                face_id,
-            };
+            let request = hello_daemon::dbus_interface::DeleteFaceRequest { user_id, face_id };
 
             match daemon.delete_face(request).await {
                 Ok(_) => {

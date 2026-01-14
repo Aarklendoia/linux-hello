@@ -96,40 +96,29 @@ async fn main() -> anyhow::Result<()> {
         Level::INFO
     };
 
-    tracing_subscriber::fmt()
-        .with_max_level(level)
-        .init();
+    tracing_subscriber::fmt().with_max_level(level).init();
 
     info!("Linux Hello CLI v{}", env!("CARGO_PKG_VERSION"));
 
     match cli.command {
-        Commands::Daemon { debug, storage } => {
-            command_daemon(debug, storage).await
-        }
+        Commands::Daemon { debug, storage } => command_daemon(debug, storage).await,
         Commands::Enroll {
             user_id,
             context,
             samples,
-        } => {
-            command_enroll(user_id, &context, samples).await
-        }
+        } => command_enroll(user_id, &context, samples).await,
         Commands::Verify {
             user_id,
             context,
             timeout,
-        } => {
-            command_verify(user_id, &context, timeout).await
-        }
+        } => command_verify(user_id, &context, timeout).await,
         Commands::List { user_id } => command_list(user_id).await,
         Commands::Delete { user_id, face_id } => command_delete(user_id, face_id).await,
         Commands::Camera { duration } => command_camera(duration).await,
     }
 }
 
-async fn command_daemon(
-    debug: bool,
-    storage: Option<std::path::PathBuf>,
-) -> anyhow::Result<()> {
+async fn command_daemon(debug: bool, storage: Option<std::path::PathBuf>) -> anyhow::Result<()> {
     info!("Lancement du daemon");
 
     let mut config = hello_daemon::DaemonConfig::default();
@@ -147,11 +136,7 @@ async fn command_daemon(
     Ok(())
 }
 
-async fn command_enroll(
-    user_id: u32,
-    context: &str,
-    samples: u32,
-) -> anyhow::Result<()> {
+async fn command_enroll(user_id: u32, context: &str, samples: u32) -> anyhow::Result<()> {
     info!(
         "Enregistrement d'un visage pour UID {} (contexte: {})",
         user_id, context

@@ -93,6 +93,7 @@ impl FaceDetector for StubDetector {
 
 impl StubDetector {
     /// Détection basée sur contraste simple
+    #[allow(clippy::too_many_arguments)]
     fn detect_simple_contrast(
         &self,
         frame_data: &[u8],

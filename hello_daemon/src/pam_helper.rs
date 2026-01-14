@@ -5,12 +5,12 @@
 //!
 //! Communication : Socket Unix à `/tmp/hello-pam-UID.socket`
 
-use std::fs;
-use std::os::unix::net::{UnixListener, UnixStream};
-use std::io::{Read, Write};
-use serde::{Serialize, Deserialize};
-use tracing::{info, debug, error};
 use crate::dbus_interface::VerifyRequest;
+use serde::{Deserialize, Serialize};
+use std::fs;
+use std::io::{Read, Write};
+use std::os::unix::net::{UnixListener, UnixStream};
+use tracing::{debug, error, info};
 
 /// Port helper pour la requête PAM via socket
 #[derive(Debug, Serialize, Deserialize)]
@@ -83,7 +83,7 @@ async fn handle_pam_request(
     // Lire la requête (JSON)
     let mut buf = vec![0u8; 4096];
     let n = stream.read(&mut buf)?;
-    
+
     if n == 0 {
         return Ok(());
     }
@@ -107,22 +107,19 @@ async fn handle_pam_request(
 
     // Créer la réponse
     let response = match result {
-        Ok(crate::dbus_interface::VerifyResult::Success { face_id, similarity_score }) => {
-            PamHelperResponse::Success {
-                face_id,
-                similarity_score,
-            }
-        }
-        Ok(_) => {
-            PamHelperResponse::Failure {
-                reason: "Face not recognized".to_string(),
-            }
-        }
-        Err(e) => {
-            PamHelperResponse::Failure {
-                reason: e.to_string(),
-            }
-        }
+        Ok(crate::dbus_interface::VerifyResult::Success {
+            face_id,
+            similarity_score,
+        }) => PamHelperResponse::Success {
+            face_id,
+            similarity_score,
+        },
+        Ok(_) => PamHelperResponse::Failure {
+            reason: "Face not recognized".to_string(),
+        },
+        Err(e) => PamHelperResponse::Failure {
+            reason: e.to_string(),
+        },
     };
 
     // Envoyer la réponse

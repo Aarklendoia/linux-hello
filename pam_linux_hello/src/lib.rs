@@ -129,7 +129,7 @@ fn _pam_conv_send(
 /// * `pamh` - PAM handle
 /// * `flags` - Flags PAM (PAM_SILENT, etc.)
 /// * `argc` - Nombre d'arguments
-/// * `argv` - Arguments (argv[0] est le nom du module, argv[1..] sont les options)
+/// * `argv` - Arguments (argv\[0\] est le nom du module, argv\[1..\] sont les options)
 ///
 /// # Returns
 /// PAM_SUCCESS si authentification réussie

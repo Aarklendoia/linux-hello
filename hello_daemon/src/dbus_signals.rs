@@ -71,12 +71,9 @@ impl StreamingSignalEmitter {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
     #[test]
     fn test_streaming_signal_emitter_creation() {
         // Ce test est pour vérifier que la structure compile
         // Les tests vrais nécessitent une connexion D-Bus fonctionnelle
     }
 }
-
