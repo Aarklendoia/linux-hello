@@ -33,7 +33,7 @@ serde_bytes = "0.11"
 
 # Errors
 anyhow = "1.0"
-thiserror = "1.0"
+thiserror = "2.0"
 
 # Logging
 tracing = "0.1"
@@ -44,7 +44,7 @@ tracing-subscriber = { version = "0.3", features = [
 ] }
 
 # D-Bus
-zbus = { version = "4.4", features = ["tokio"] }
+zbus = { version = "5.12", features = ["tokio"] }
 zvariant = "4.0"
 
 # PAM
@@ -52,13 +52,13 @@ pam-sys = "0.5"
 
 # Image processing (future, for face detection)
 ndarray = "0.15"
-image = "0.24"
+image = "0.25"
 
 # CLI
 clap = { version = "4.4", features = ["derive"] }
 
 # Database
-sqlx = { version = "0.7", features = ["runtime-tokio-native-tls", "sqlite"] }
+sqlx = { version = "0.8", features = ["runtime-tokio-native-tls", "sqlite"] }
 
 # Security
 sha2 = "0.10"
@@ -67,6 +67,6 @@ rand = "0.8"
 # System
 libc = "0.2"
 parking_lot = "0.12"
-dirs = "5.0"
+dirs = "6.0"
 # Testing
 tempfile = "3.8"
