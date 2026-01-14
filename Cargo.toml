@@ -44,7 +44,7 @@ tracing-subscriber = { version = "0.3", features = [
 ] }
 
 # D-Bus
-zbus = { version = "4.4", features = ["tokio"] }
+zbus = { version = "5.12", features = ["tokio"] }
 zvariant = "4.0"
 
 # PAM
