@@ -67,6 +67,6 @@ rand = "0.8"
 # System
 libc = "0.2"
 parking_lot = "0.12"
-dirs = "5.0"
+dirs = "6.0"
 # Testing
 tempfile = "3.8"
