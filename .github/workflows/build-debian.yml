@@ -44,9 +44,9 @@ jobs:
       
       - name: Build Debian packages
         run: |
-          . "$HOME/.cargo/env"
           cd $GITHUB_WORKSPACE
-          dpkg-buildpackage -us -uc -b
+          # Use -d to ignore missing dependencies since rustc/cargo are installed manually
+          dpkg-buildpackage -us -uc -b -d
       
       - name: Run lintian checks
         run: |

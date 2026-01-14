@@ -4,8 +4,6 @@ Priority: optional
 Maintainer: Linux Hello Team <dev@linuxhello.local>
 Build-Depends: 
   debhelper-compat (= 13),
-  cargo,
-  rustc,
   libssl-dev,
   libpam0g-dev,
   libdbus-1-dev,
