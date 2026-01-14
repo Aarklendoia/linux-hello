@@ -76,20 +76,24 @@ jobs:
           cd $GITHUB_WORKSPACE
           # Use -d to ignore missing dependencies since rustc/cargo are installed via rustup
           dpkg-buildpackage -us -uc -b -d
+          # Copy artifacts to build directory for upload
+          cp ../*.deb . 2>/dev/null || true
+          cp ../*.buildinfo . 2>/dev/null || true
+          cp ../*.changes . 2>/dev/null || true
       
       - name: Run lintian checks
         run: |
           cd $GITHUB_WORKSPACE
-          lintian ../*.deb || true
+          lintian *.deb || true
       
       - name: Upload artifacts
         uses: actions/upload-artifact@v6
         with:
           name: debian-packages
           path: |
-            ../*.deb
-            ../*.buildinfo
-            ../*.changes
+            *.deb
+            *.buildinfo
+            *.changes
           retention-days: 30
       
       - name: Create Release (on tag)
@@ -97,9 +101,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            ../*.deb
-            ../*.buildinfo
-            ../*.changes
+            *.deb
+            *.buildinfo
+            *.changes
           draft: false
           prerelease: false
         env:
