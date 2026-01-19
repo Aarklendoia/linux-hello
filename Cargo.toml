@@ -51,7 +51,7 @@ zvariant = "4.0"
 pam-sys = "0.5"
 
 # Image processing (future, for face detection)
-ndarray = "0.15"
+ndarray = "0.17"
 image = "0.25"
 
 # CLI
