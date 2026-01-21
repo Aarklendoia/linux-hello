@@ -11,7 +11,7 @@
 
 set -e
 
-DAEMON_BIN="./target/debug/hello-daemon"
+DAEMON_BIN="${DAEMON_BIN:-./target/release/hello-daemon}"
 USER_ID=1000
 NUM_FRAMES=5
 TIMEOUT_MS=10000
@@ -41,7 +41,7 @@ DAEMON_PID=$!
 echo "  PID: $DAEMON_PID"
 
 # Attendre que le daemon se lance (D-Bus connexion)
-sleep 2
+sleep 3
 
 # Nettoyer si interruption
 cleanup() {
