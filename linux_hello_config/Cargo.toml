@@ -22,7 +22,6 @@ clap = { workspace = true, features = ["derive"] }
 parking_lot.workspace = true
 
 # D-Bus async client pour communiquer avec daemon
-# La logique métier reste dans hello_daemon, cette app est UI pure QML
 async-trait = "0.1"
 
 # Configuration

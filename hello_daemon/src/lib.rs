@@ -19,6 +19,7 @@ pub mod dbus_signals;
 pub mod matcher;
 pub mod pam_helper;
 pub mod storage;
+pub mod preview;
 
 use camera::CameraManager;
 use dbus_interface::{DeleteFaceRequest, RegisterFaceRequest, VerifyRequest, VerifyResult};

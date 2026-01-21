@@ -20,7 +20,11 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 
 # Stockage
-sqlx = { workspace = true, features = ["sqlite", "runtime-tokio-native-tls", "macros"] }
+sqlx = { workspace = true, features = [
+    "sqlite",
+    "runtime-tokio-native-tls",
+    "macros",
+] }
 
 # Crypto pour hash embeddings
 sha2.workspace = true
@@ -33,6 +37,9 @@ clap = { workspace = true, features = ["derive"] }
 
 # Concurrent
 parking_lot.workspace = true
+
+# Image processing for preview frames
+image = "0.24"
 
 [dev-dependencies]
 tempfile.workspace = true

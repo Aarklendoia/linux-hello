@@ -18,6 +18,7 @@
         "title": "Enregistrement du Visage",
         "registerNew": "Enregistrer un Nouveau Visage",
         "cameraPreview": "Aperçu de la Caméra",
+        "capturing": "Capture en cours...",
         "progress": "Progression :",
         "instructions": "Présentez votre visage à la caméra. Le système capturera plusieurs angles pour une meilleure reconnaissance.",
         "startBtn": "Démarrer la Capture",
