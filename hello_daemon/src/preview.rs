@@ -33,7 +33,12 @@ fn yuyv_to_rgb(data: &[u8], width: u32, height: u32) -> Vec<u8> {
 }
 
 /// Écrire une frame YUYV en JPEG
-pub fn write_frame_preview(data: &[u8], width: u32, height: u32, path: &Path) -> anyhow::Result<()> {
+pub fn write_frame_preview(
+    data: &[u8],
+    width: u32,
+    height: u32,
+    path: &Path,
+) -> anyhow::Result<()> {
     // Convertir YUYV en RGB
     let rgb_data = yuyv_to_rgb(data, width, height);
 
@@ -48,7 +53,7 @@ pub fn write_frame_preview(data: &[u8], width: u32, height: u32, path: &Path) ->
 }
 
 /// Écrire la preview pour l'affichage GUI
-pub async fn export_preview_frame(data: &[u8], width: u32, height: u32) -> anyhow::Result<()> {
+pub fn export_preview_frame(data: &[u8], width: u32, height: u32) -> anyhow::Result<()> {
     let path = Path::new("/tmp/linux-hello-preview.jpg");
     write_frame_preview(data, width, height, path)
 }

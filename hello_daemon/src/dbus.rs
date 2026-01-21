@@ -229,14 +229,14 @@ impl FaceAuthInterface {
                         if let Err(e) = emitter_clone.emit_capture_progress(&event_clone).await {
                             error!("Erreur émission signal: {}", e);
                         }
-                        
+
                         // Exporter la frame pour affichage GUI (chaque 5ème frame pour réduire I/O)
                         if event_clone.frame_number % 5 == 0 {
                             if let Err(e) = crate::preview::export_preview_frame(
                                 &event_clone.frame_data,
                                 event_clone.width,
                                 event_clone.height,
-                            ).await {
+                            ) {
                                 debug!("Erreur export preview: {}", e);
                             }
                         }
