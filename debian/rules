@@ -28,9 +28,9 @@ override_dh_auto_install:
 	cp $(CURDIR)/target/release/linux-hello $(CURDIR)/debian/tmp/usr/bin/
 	
 	# Install PAM module
-	mkdir -p $(CURDIR)/debian/tmp/lib/x86_64-linux-gnu/security
+	mkdir -p $(CURDIR)/debian/tmp/lib/security
 	cp $(CURDIR)/target/release/libpam_linux_hello.so \
-	   $(CURDIR)/debian/tmp/lib/x86_64-linux-gnu/security/pam_linux_hello.so
+	   $(CURDIR)/debian/tmp/lib/security/pam_linux_hello.so
 	
 	# Install systemd user service
 	mkdir -p $(CURDIR)/debian/tmp/usr/lib/systemd/user
@@ -49,17 +49,24 @@ override_dh_auto_install:
 	mkdir -p $(CURDIR)/debian/tmp/etc/linux-hello
 	cp $(CURDIR)/linux-hello.config.toml.example $(CURDIR)/debian/tmp/etc/linux-hello/config.toml.example
 	
-	# Install GUI files
+	# Install GUI files - Qt6 QML module structure
 	mkdir -p $(CURDIR)/debian/tmp/usr/bin
-	mkdir -p $(CURDIR)/debian/tmp/usr/share/linux-hello/qml/i18n
+	mkdir -p $(CURDIR)/debian/tmp/usr/share/qt6/qml/Linux/Hello
 	mkdir -p $(CURDIR)/debian/tmp/usr/share/icons/hicolor/scalable/apps
 	mkdir -p $(CURDIR)/debian/tmp/usr/share/applications
 	mkdir -p $(CURDIR)/debian/tmp/usr/share/doc/linux-hello-gui
 	
-	# GUI installation skipped for now
+	# GUI installation - copy QML files to Qt6 module location
+	cp -r $(CURDIR)/linux_hello_config/qml/* $(CURDIR)/debian/tmp/usr/share/qt6/qml/Linux/Hello/
+	
+	# Copy application icon
+	cp $(CURDIR)/linux_hello_config/qml/icons/app-icon.svg $(CURDIR)/debian/tmp/usr/share/icons/hicolor/scalable/apps/linux-hello.svg || true
 
 override_dh_install:
 	dh_install
+	# Ensure GUI QML files go to linux-hello-gui package
+	mkdir -p $(CURDIR)/debian/linux-hello-gui/usr/share/qt6/qml/Linux/Hello
+	cp -r $(CURDIR)/debian/tmp/usr/share/qt6/qml/Linux/Hello/* $(CURDIR)/debian/linux-hello-gui/usr/share/qt6/qml/Linux/Hello/ 2>/dev/null || true
 
 override_dh_missing:
 	dh_missing --list-missing

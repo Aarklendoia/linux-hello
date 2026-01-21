@@ -16,22 +16,28 @@ fn main() {
     // Les fichiers QML sont dans le répertoire 'qml/'
 
     // Déterminer le chemin QML (système ou développement)
-    let qml_path =
-        if PathBuf::from("/usr/share/linux-hello/qml-modules/Linux/Hello/main.qml").exists() {
-            "/usr/share/linux-hello/qml-modules/Linux/Hello/main.qml".to_string()
-        } else {
-            let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
-            PathBuf::from(&manifest_dir)
-                .join("qml")
-                .join("main.qml")
-                .to_string_lossy()
-                .to_string()
-        };
+    let qml_path = if PathBuf::from("/usr/share/qt6/qml/Linux/Hello/qml/main.qml").exists() {
+        "/usr/share/qt6/qml/Linux/Hello/qml/main.qml".to_string()
+    } else if PathBuf::from("/usr/share/qt6/qml/Linux/Hello/main.qml").exists() {
+        "/usr/share/qt6/qml/Linux/Hello/main.qml".to_string()
+    } else if PathBuf::from("/usr/share/linux-hello/qml/main.qml").exists() {
+        "/usr/share/linux-hello/qml/main.qml".to_string()
+    } else if PathBuf::from("/usr/share/linux-hello/qml-modules/Linux/Hello/main.qml").exists() {
+        "/usr/share/linux-hello/qml-modules/Linux/Hello/main.qml".to_string()
+    } else {
+        let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
+        PathBuf::from(&manifest_dir)
+            .join("qml")
+            .join("main.qml")
+            .to_string_lossy()
+            .to_string()
+    };
 
     // Configurer les chemins d'import QML (Qt6 uniquement, pas Qt5)
     // IMPORTANT: qml6 nécessite que les chemins soient dans le bon ordre
     let qml_import_paths = [
         "/usr/lib/x86_64-linux-gnu/qt6/qml",  // Qt6 modules principaux
+        "/usr/share/qt6/qml",                 // ✨ Qt6 modules standards
         "/usr/share/linux-hello/qml-modules", // ✨ Modules personnalisés
     ]
     .join(":");

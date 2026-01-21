@@ -4,7 +4,7 @@ Type=Application
 Name=Linux Hello
 Comment=Biometric Authentication Configuration
 Icon=linux-hello
-Exec=linux-hello-config
+Exec=linux_hello_config
 Categories=System;Settings;Security;
 Keywords=face;recognition;authentication;biometric;
 
