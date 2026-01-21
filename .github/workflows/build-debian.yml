@@ -18,11 +18,24 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
       
+      - name: Cache Rust installations
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/bin
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.rustup
+          key: ${{ runner.os }}-rust-stable-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-rust-stable-
+      
       - name: Install build dependencies
         run: |
           apt-get update
           apt-get install -y \
             build-essential \
+            cmake \
             debhelper \
             devscripts \
             quilt \
@@ -31,41 +44,56 @@ jobs:
             libpam0g-dev \
             libdbus-1-dev \
             pkg-config \
+            curl \
             qt6-base-dev \
             qt6-tools-dev \
+            libqt6opengl6-dev \
+            libqt6svg6-dev \
             qml6-module-qtcore \
             qml6-module-qtquick \
             qml6-module-qtquick-layouts \
             qml6-module-qtquick-controls \
+            qml6-module-qtquick-window \
+            qml-module-org-kde-kirigami2 \
             libqt6gui6 \
             libqt6core6
       
       - name: Install Rust
         run: |
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
-          . "$HOME/.cargo/env"
-          rustc --version
-          cargo --version
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+      
+      - name: Cache Cargo build outputs
+        uses: actions/cache@v5
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
       
       - name: Build Debian packages
         run: |
-          . "$HOME/.cargo/env"
           cd $GITHUB_WORKSPACE
-          dpkg-buildpackage -us -uc -b
+          # Use -d to ignore missing dependencies since rustc/cargo are installed via rustup
+          dpkg-buildpackage -us -uc -b -d
+          # Copy artifacts to build directory for upload
+          cp ../*.deb . 2>/dev/null || true
+          cp ../*.buildinfo . 2>/dev/null || true
+          cp ../*.changes . 2>/dev/null || true
       
       - name: Run lintian checks
         run: |
           cd $GITHUB_WORKSPACE
-          lintian ../*.deb || true
+          lintian *.deb || true
       
       - name: Upload artifacts
         uses: actions/upload-artifact@v6
         with:
           name: debian-packages
           path: |
-            ../*.deb
-            ../*.buildinfo
-            ../*.changes
+            *.deb
+            *.buildinfo
+            *.changes
           retention-days: 30
       
       - name: Create Release (on tag)
@@ -73,9 +101,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            ../*.deb
-            ../*.buildinfo
-            ../*.changes
+            *.deb
+            *.buildinfo
+            *.changes
           draft: false
           prerelease: false
         env:

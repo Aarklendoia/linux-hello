@@ -1,31 +1,5 @@
-# GUI Configuration Tool and Assets for linux-hello-gui package
-# Format: source destination
-
-# GUI launcher binary (installed by debian/rules from CMake build)
-usr/bin/linux-hello-config usr/bin
-
-# GUI QML Files
-linux_hello_config/qml/main.qml usr/share/linux-hello/qml
-linux_hello_config/qml/Home.qml usr/share/linux-hello/qml
-linux_hello_config/qml/Enrollment.qml usr/share/linux-hello/qml
-linux_hello_config/qml/Settings.qml usr/share/linux-hello/qml
-linux_hello_config/qml/ManageFaces.qml usr/share/linux-hello/qml
-linux_hello_config/qml/I18n.qml usr/share/linux-hello/qml
-
-# GUI Icons
-usr/share/icons/hicolor/scalable/apps/linux-hello.svg
-
-# GUI Translations (i18n)
-linux_hello_config/qml/i18n/en.json usr/share/linux-hello/qml/i18n
-linux_hello_config/qml/i18n/zh.json usr/share/linux-hello/qml/i18n
-linux_hello_config/qml/i18n/es.json usr/share/linux-hello/qml/i18n
-linux_hello_config/qml/i18n/hi.json usr/share/linux-hello/qml/i18n
-linux_hello_config/qml/i18n/ar.json usr/share/linux-hello/qml/i18n
-linux_hello_config/qml/i18n/pt.json usr/share/linux-hello/qml/i18n
-linux_hello_config/qml/i18n/ru.json usr/share/linux-hello/qml/i18n
-linux_hello_config/qml/i18n/ja.json usr/share/linux-hello/qml/i18n
-linux_hello_config/qml/i18n/de.json usr/share/linux-hello/qml/i18n
-linux_hello_config/qml/i18n/fr.json usr/share/linux-hello/qml/i18n
+# GUI launcher binary
+target/release/linux_hello_config usr/bin
 
 # Desktop entry
 linux-hello.desktop usr/share/applications

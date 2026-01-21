@@ -4,7 +4,7 @@
 export DH_VERBOSE=1
 export CARGO_HOME=$(CURDIR)/target/cargo
 export RUSTUP_TOOLCHAIN=stable
-export PATH=$(HOME)/.cargo/bin:$(PATH)
+export PATH:=$(HOME)/.cargo/bin:$(PATH)
 
 %:
 	dh $@
@@ -15,7 +15,7 @@ override_dh_auto_clean:
 
 override_dh_auto_build:
 	cargo build --release --verbose
-	# Qt6 GUI build skipped in CI environment
+	# Qt6 GUI is built as a simple Rust binary by cargo, QML files are handled at runtime
 
 override_dh_auto_test:
 	# Skip tests (they require specific hardware/D-Bus setup)
