@@ -37,7 +37,7 @@ pub fn write_frame_preview(
     data: &[u8],
     width: u32,
     height: u32,
-    path: &Path,
+    path: &std::path::Path,
 ) -> anyhow::Result<()> {
     // Convertir YUYV en RGB
     let rgb_data = yuyv_to_rgb(data, width, height);
@@ -52,8 +52,17 @@ pub fn write_frame_preview(
     Ok(())
 }
 
-/// Écrire la preview pour l'affichage GUI
+/// Écrire la preview pour l'affichage GUI (données déjà en RGB)
 pub fn export_preview_frame(data: &[u8], width: u32, height: u32) -> anyhow::Result<()> {
     let path = Path::new("/tmp/linux-hello-preview.jpg");
     write_frame_preview(data, width, height, path)
+}
+
+/// Écrire la preview pour l'affichage GUI (données déjà en RGB, pas de conversion)
+pub fn export_preview_frame_rgb(data: &[u8], width: u32, height: u32) -> anyhow::Result<()> {
+    let path = Path::new("/tmp/linux-hello-preview.jpg");
+    let img = ImageBuffer::<Rgb<u8>, Vec<u8>>::from_raw(width, height, data.to_vec())
+        .ok_or_else(|| anyhow::anyhow!("Failed to create image buffer"))?;
+    img.save(path)?;
+    Ok(())
 }

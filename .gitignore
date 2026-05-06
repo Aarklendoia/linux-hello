@@ -20,9 +20,12 @@ Cargo.lock
 
 # CMake build directory (Qt6 GUI launcher)
 linux_hello_config/src/build/
+build/
 CMakeFiles/
 CMakeCache.txt
 cmake_install.cmake
+build.ninja
+compile_commands.json
 
 # Test outputs
 test-output/

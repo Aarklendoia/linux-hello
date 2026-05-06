@@ -13,17 +13,26 @@ if ! systemctl --user is-active --quiet hello-daemon; then
     sleep 2
 fi
 
-echo "📸 Appel de start_capture_stream via D-Bus..."
+echo "📸 Appel de StartCaptureStream via D-Bus..."
+echo "   user_id=1000, num_frames=100, timeout=15000ms"
 echo ""
 
 # Démarrer la capture vidéo
-dbus-send --print-reply \
+# Paramètres: user_id (uint32)=1000, num_frames (uint32)=100, timeout_ms (uint64)=15000
+RESULT=$(dbus-send --print-reply \
     --session \
     --dest=com.linuxhello.FaceAuth \
     /com/linuxhello/FaceAuth \
-    com.linuxhello.FaceAuth.StartCaptureStream 2>/dev/null || {
-    echo "⚠️  Appel D-Bus échoué, mais on continue (le daemon peut être occupé)"
+    com.linuxhello.FaceAuth.StartCaptureStream \
+    uint32:1000 \
+    uint32:100 \
+    uint64:15000 2>&1) || {
+    echo "⚠️  Appel D-Bus échoué:"
+    echo "$RESULT" | head -5
+    echo ""
 }
+
+echo "$RESULT" | grep -E "string|OK" && echo "✅ Appel lancé avec succès" || echo "⚠️  Pas de confirmation"
 
 echo ""
 echo "⏳ Attente de quelques frames... (5 secondes)"

@@ -172,22 +172,62 @@ impl CameraManager {
             num_frames, timeout_ms
         );
 
+        // Essayer la vraie caméra V4L2 en premier
+        let mut frame_num_v4l2: u32 = 0;
+        let v4l2_result = tokio::task::block_in_place(|| {
+            hello_camera::capture_rgb_stream_v4l2(
+                "/dev/video0",
+                num_frames,
+                timeout_ms,
+                |rgb_data, width, height| {
+                    let event = CaptureFrameEvent {
+                        frame_number: frame_num_v4l2,
+                        total_frames: num_frames,
+                        frame_data: rgb_data,
+                        width,
+                        height,
+                        face_detected: false,
+                        face_box: None,
+                        quality_score: 0.85,
+                        timestamp_ms: 0,
+                    };
+                    on_frame(event);
+                    frame_num_v4l2 += 1;
+                },
+            )
+        });
+
+        match v4l2_result {
+            Ok(()) => {
+                info!("Capture V4L2 terminée: {} frames", frame_num_v4l2);
+                return Ok(());
+            }
+            Err(e) => {
+                info!("V4L2 non disponible ({}), utilisation simulation", e);
+            }
+        }
+
+        // Simulation de repli: gradient RGB animé ~30fps
         let start_time = SystemTime::now();
         let timeout = Duration::from_millis(timeout_ms);
 
         for frame_num in 0..num_frames {
-            // Vérifier timeout
             if let Ok(elapsed) = start_time.elapsed() {
                 if elapsed > timeout {
-                    debug!("Timeout capture streaming");
+                    debug!("Timeout capture streaming (simulation)");
                     return Err(CameraError::Timeout);
                 }
             }
 
-            // Capturer frame (pour MVP: dummy data)
-            let frame_data = vec![0; 640 * 480 * 3]; // RGB 640x480
+            let frame_data: Vec<u8> = (0u32..640 * 480)
+                .flat_map(|i| {
+                    let x = (i % 640) as u8;
+                    let y = (i / 640) as u8;
+                    let t = (frame_num.wrapping_mul(40)) as u8;
+                    [x.wrapping_add(t), y.wrapping_add(t), 128u8]
+                })
+                .collect();
 
-            // Créer événement de capture
             let timestamp_ms = start_time
                 .elapsed()
                 .map(|d| d.as_millis() as u64)
@@ -199,28 +239,25 @@ impl CameraManager {
                 frame_data,
                 width: 640,
                 height: 480,
-                face_detected: false, // Placeholder pour Phase 2
-                face_box: None,       // Placeholder pour Phase 2
+                face_detected: false,
+                face_box: None,
                 quality_score: 0.85,
                 timestamp_ms,
             };
 
             debug!(
-                "Capture frame {}/{} à {}ms",
+                "Capture (sim) frame {}/{} à {}ms",
                 frame_num + 1,
                 num_frames,
                 timestamp_ms
             );
 
-            // Émettre l'événement
             on_frame(event);
-
-            // Petit délai pour simulation
             tokio::time::sleep(Duration::from_millis(33)).await; // ~30fps
         }
 
         info!(
-            "Capture streaming terminée: {} frames capturées",
+            "Capture streaming terminée: {} frames (simulation)",
             num_frames
         );
         Ok(())
