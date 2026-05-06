@@ -26,6 +26,8 @@ jobs:
             libpam0g-dev \
             libv4l-dev \
             libjpeg-dev \
+            libclang-dev \
+            clang \
             pkg-config \
             dbus
       

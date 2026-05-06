@@ -284,7 +284,7 @@ mod tests {
         assert_eq!(result.embeddings[0].vector.len(), 128);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_start_capture_stream() {
         let camera = CameraManager::new(5000);
         let mut frame_count = 0;
@@ -304,7 +304,7 @@ mod tests {
         // Note: frame_count ne sera pas accessible ici, juste vérifier que ça compile
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "multi_thread")]
     async fn test_start_capture_stream_collects_frames() {
         use std::sync::{Arc, Mutex};
 
