@@ -39,7 +39,7 @@ clap = { workspace = true, features = ["derive"] }
 parking_lot.workspace = true
 
 # Image processing for preview frames
-image = "0.24"
+image.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
