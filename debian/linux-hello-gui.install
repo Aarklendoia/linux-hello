@@ -1,7 +1,7 @@
 # GUI launcher binary
 target/release/linux_hello_config usr/bin
 
-# Application icon (also installed via debian/rules)
+# Application icon — installée explicitement comme fichier SVG
 linux_hello_config/qml/icons/app-icon.svg usr/share/icons/hicolor/scalable/apps/linux-hello.svg
 
 # Desktop entry

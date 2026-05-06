@@ -40,7 +40,9 @@ fn main() {
 
     // Lancer qml6
     let mut cmd = Command::new("qml6");
-    cmd.arg(&qml_path)
+    cmd.arg("-name")
+        .arg("linux-hello")
+        .arg(&qml_path)
         .env("LINUX_HELLO_CTRL_PORT", ctrl_port.to_string())
         .env("LINUX_HELLO_UID", uid.to_string())
         .env("QML_IMPORT_PATH", &qml_import_paths)
@@ -49,6 +51,7 @@ fn main() {
         .env("QT_QPA_PLATFORMTHEME", "kde")
         .env("QT_QUICK_CONTROLS_STYLE", "org.kde.desktop")
         .env("QT_APPLICATION_DISPLAY_NAME", "Linux Hello")
+        .env("QT_QPA_DESKTOPFILENAME", "linux-hello")
         .env("QML_XHR_ALLOW_FILE_READ", "1")
         .env("QT_QPA_PLATFORM", "xcb;wayland;offscreen")
         .env("QT_STYLE_OVERRIDE", "org.kde.desktop")

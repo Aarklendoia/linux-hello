@@ -10,7 +10,7 @@ Keywords=face;recognition;authentication;biometric;
 
 # Window properties
 StartupNotify=true
-StartupWMClass=qml6
+StartupWMClass=linux-hello
 Terminal=false
 NotShowIn=
 
