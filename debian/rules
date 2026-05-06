@@ -59,14 +59,16 @@ override_dh_auto_install:
 	# GUI installation - copy QML files to Qt6 module location
 	cp -r $(CURDIR)/linux_hello_config/qml/* $(CURDIR)/debian/tmp/usr/share/qt6/qml/Linux/Hello/
 	
-	# Copy application icon
-	cp $(CURDIR)/linux_hello_config/qml/icons/app-icon.svg $(CURDIR)/debian/tmp/usr/share/icons/hicolor/scalable/apps/linux-hello.svg || true
+	# Application icon: copiée directement dans override_dh_install (pas via debian/tmp pour éviter le bug de renommage dh_install)
 
 override_dh_install:
 	dh_install
 	# Ensure GUI QML files go to linux-hello-gui package
 	mkdir -p $(CURDIR)/debian/linux-hello-gui/usr/share/qt6/qml/Linux/Hello
 	cp -r $(CURDIR)/debian/tmp/usr/share/qt6/qml/Linux/Hello/* $(CURDIR)/debian/linux-hello-gui/usr/share/qt6/qml/Linux/Hello/ 2>/dev/null || true
+	# Install app icon with correct filename (dh_install ne supporte pas le renommage)
+	mkdir -p $(CURDIR)/debian/linux-hello-gui/usr/share/icons/hicolor/scalable/apps
+	cp $(CURDIR)/linux_hello_config/qml/icons/app-icon.svg $(CURDIR)/debian/linux-hello-gui/usr/share/icons/hicolor/scalable/apps/linux-hello.svg
 
 override_dh_missing:
 	dh_missing --list-missing
