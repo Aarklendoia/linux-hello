@@ -149,8 +149,8 @@ fn handle_ctrl_connection(mut stream: TcpStream, uid: u32) {
                 "StartCaptureStream",
                 "uut",
                 &uid.to_string(),
-                "30",
-                "5000",
+                "600",
+                "25000",
             ])
             .spawn();
         ("200 OK", "OK".to_string())

@@ -1,7 +1,10 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtMultimedia
 import org.kde.kirigami as Kirigami
+
+// qmllint disable unqualified
 
 Kirigami.Page {
     id: enrollPage
@@ -11,15 +14,21 @@ Kirigami.Page {
     Layout.fillWidth: true
     Layout.fillHeight: true
 
-    // Au chargement de la page, commencer à afficher les images
+    // Au chargement de la page, connecter le lecteur MJPEG
     Component.onCompleted: {
         console.log("📄 Page Enrollment chargée");
-        frameRefreshTimer.start();
-        console.log("✓ frameRefreshTimer lancé automatiquement");
+        mjpegPlayer.play();
+        console.log("✓ Lecteur MJPEG démarré");
     }
 
     Component.onDestruction: {
-        frameRefreshTimer.stop();
+        mjpegPlayer.stop();
+    }
+    // Lecteur MJPEG — se connecte au serveur du daemon sur 127.0.0.1:17823
+    MediaPlayer {
+        id: mjpegPlayer
+        videoOutput: cameraPreview
+        source: "http://127.0.0.1:17823"
     }
 
     ColumnLayout {
@@ -50,25 +59,10 @@ Kirigami.Page {
             radius: Kirigami.Units.smallSpacing
             property string previewStatus: qsTr("Aperçu inactif")
 
-            Image {
+            VideoOutput {
                 id: cameraPreview
                 anchors.fill: parent
                 anchors.margins: Kirigami.Units.smallSpacing
-                fillMode: Image.PreserveAspectCrop
-                cache: false
-                smooth: true
-                source: ""
-                onStatusChanged: {
-                    if (status === Image.Ready) {
-                        previewRect.previewStatus = qsTr("Aperçu à jour");
-                    } else if (status === Image.Loading) {
-                        previewRect.previewStatus = qsTr("Chargement en cours…");
-                    }
-                    if (status === Image.Error) {
-                        previewRect.previewStatus = qsTr("Erreur : ") + cameraPreview.errorString;
-                    }
-                    console.log("🎬 cameraPreview.status =", status);
-                }
             }
 
             Label {
@@ -129,9 +123,6 @@ Kirigami.Page {
                     console.log("🎬 Bouton Démarrer cliqué");
                     mainWindow.startCapture();
                     console.log("✓ startCapture() appelé");
-                    frameRefreshTimer.start();
-                    console.log("✓ frameRefreshTimer démarré");
-                    refreshPreview();
                 }
             }
 
@@ -142,7 +133,6 @@ Kirigami.Page {
                 enabled: appController.capturing
                 onClicked: {
                     mainWindow.stopCapture();
-                    frameRefreshTimer.stop();
                     previewRect.previewStatus = qsTr("Capture arrêtée");
                 }
             }
@@ -152,35 +142,11 @@ Kirigami.Page {
                 Layout.fillWidth: true
                 implicitHeight: Kirigami.Units.gridUnit * 2.2
                 onClicked: {
-                    frameRefreshTimer.stop();
                     mainWindow.navigateToHome();
                     previewRect.previewStatus = qsTr("Capture annulée");
                 }
             }
         }
-    }
-
-    function refreshPreview() {
-        if (!appController.capturing) {
-            previewRect.previewStatus = qsTr("Capture inactive — appuyez sur \"Démarrer\"");
-            return;
-        }
-
-        var timestamp = new Date().getTime();
-        var path = "file:///tmp/linux-hello-preview.jpg?" + timestamp;
-        cameraPreview.source = path;
-        previewRect.previewStatus = qsTr("Chargement de l'image…");
-        console.log("🔄 Mise à jour de l'aperçu :", path);
-    }
-
-    // Timer pour actualiser l'image toutes les 500 ms
-    Timer {
-        id: frameRefreshTimer
-        interval: 500
-        running: true
-        repeat: true
-
-        onTriggered: refreshPreview()
     }
 
     // Retour automatique à l'accueil 2 secondes après succès
@@ -197,25 +163,21 @@ Kirigami.Page {
 
         function onAppProgressChanged(value) {
             progressBar.value = value / 100.0;
-            progressLabel.text = I18n.tr("enrollment.progress") + " " + value + "%";
-
-            // Lancer le Timer au premier changement de progression
-            if (value > 0 && !frameRefreshTimer.running) {
-                console.log("🎬 Progression détectée, lancement du Timer");
-                frameRefreshTimer.start();
+            progressLabel.text = I18n.tr("enrollment.progress") + " " + Math.round(value) + "%";
+            if (value >= 100) {
+                previewRect.previewStatus = qsTr("Analyse du visage en cours…");
+                progressLabel.text = qsTr("Validation en cours…");
             }
         }
 
         function onCaptureCompletedSignal() {
             progressBar.value = 1.0;
             progressLabel.text = I18n.tr("enrollment.progress") + " 100%";
-            frameRefreshTimer.stop();
             previewRect.previewStatus = qsTr("✓ Visage enregistré avec succès !");
             navigateHomeTimer.start();
         }
 
         function onCaptureErrorSignal(message) {
-            frameRefreshTimer.stop();
             previewRect.previewStatus = qsTr("✗ Erreur : ") + message;
         }
     }
