@@ -60,6 +60,9 @@ async fn main() -> anyhow::Result<()> {
         warn!("Mode user - accessible uniquement pour l'utilisateur courant");
     }
 
+    // Démarrer le serveur MJPEG pour la preview GUI (flux vidéo temps réel)
+    hello_daemon::preview::start_mjpeg_server().await?;
+
     // Enregistrer sur D-Bus
     info!("Enregistrement sur D-Bus...");
 

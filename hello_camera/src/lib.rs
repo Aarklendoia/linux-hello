@@ -323,6 +323,100 @@ pub mod v4l2_backend {
     }
 }
 
+/// Convertir un buffer YUYV en RGB888, en tenant compte du stride (padding par ligne).
+/// `stride` = bytes par ligne tel que retourné par V4L2 (`applied.stride`).
+fn yuyv_to_rgb_strided(data: &[u8], width: u32, height: u32, stride: u32) -> Vec<u8> {
+    let mut rgb = Vec::with_capacity((width * height * 3) as usize);
+    let row_bytes = (width * 2) as usize; // octets utiles par ligne en YUYV
+    let stride = stride as usize;
+
+    for row in 0..height as usize {
+        let row_start = row * stride;
+        let row_end = row_start + row_bytes;
+        if row_end > data.len() {
+            break;
+        }
+        let row_data = &data[row_start..row_end];
+        for chunk in row_data.chunks(4) {
+            if chunk.len() == 4 {
+                let y1 = chunk[0] as i32;
+                let u = chunk[1] as i32 - 128;
+                let y2 = chunk[2] as i32;
+                let v = chunk[3] as i32 - 128;
+                for &y in &[y1, y2] {
+                    rgb.push((y + (1402 * v) / 1000).clamp(0, 255) as u8);
+                    rgb.push((y - (344 * u) / 1000 - (714 * v) / 1000).clamp(0, 255) as u8);
+                    rgb.push((y + (1772 * u) / 1000).clamp(0, 255) as u8);
+                }
+            }
+        }
+    }
+    rgb
+}
+
+/// Capturer `num_frames` frames depuis V4L2 en YUYV et les fournir en RGB via callback.
+///
+/// Ouvre `/dev/video0` (ou le chemin fourni), configure YUYV 640×480, crée **un seul**
+/// stream mmap persistant (plus efficace que d'en créer un par frame), puis appelle
+/// `on_frame(rgb_data, width, height)` pour chaque frame capturée.
+///
+/// Retourne `Ok(())` si au moins une frame a été capturée, `Err` si la caméra n'est
+/// pas disponible ou si aucune frame n'a pu être acquise.
+#[cfg(feature = "v4l2")]
+pub fn capture_rgb_stream_v4l2<F>(
+    device_path: &str,
+    num_frames: u32,
+    timeout_ms: u64,
+    mut on_frame: F,
+) -> Result<(), CameraError>
+where
+    F: FnMut(Vec<u8>, u32, u32),
+{
+    use v4l::buffer::Type;
+    use v4l::io::traits::CaptureStream;
+    use v4l::video::Capture;
+
+    let dev = v4l::Device::with_path(device_path)
+        .map_err(|e| CameraError::NotAvailable(format!("{}: {}", device_path, e)))?;
+
+    // Configurer YUYV 640×480
+    let mut fmt = dev
+        .format()
+        .map_err(|e| CameraError::OpenFailed(e.to_string()))?;
+    fmt.width = 640;
+    fmt.height = 480;
+    fmt.fourcc = v4l::format::FourCC::new(b"YUYV");
+
+    let applied = dev
+        .set_format(&fmt)
+        .map_err(|e| CameraError::OpenFailed(format!("set_format YUYV: {}", e)))?;
+
+    let width = applied.width;
+    let height = applied.height;
+
+    // Un seul stream persistant pour toutes les frames
+    let mut stream = v4l::io::mmap::Stream::with_buffers(&dev, Type::VideoCapture, 4)
+        .map_err(|e| CameraError::CaptureFailed(format!("Erreur création stream: {}", e)))?;
+
+    let start = std::time::Instant::now();
+    let timeout_dur = std::time::Duration::from_millis(timeout_ms);
+
+    for _ in 0..num_frames {
+        if start.elapsed() > timeout_dur {
+            break;
+        }
+
+        let (buf, _meta) = stream
+            .next()
+            .map_err(|e| CameraError::CaptureFailed(format!("Erreur capture: {}", e)))?;
+
+        let rgb = yuyv_to_rgb_strided(buf, width, height, applied.stride);
+        on_frame(rgb, width, height);
+    }
+
+    Ok(())
+}
+
 /// Créer une caméra avec le backend par défaut disponible
 pub fn create_camera(config: CameraConfig) -> Result<Box<dyn CameraBackend>, CameraError> {
     #[cfg(feature = "v4l2")]

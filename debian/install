@@ -5,7 +5,7 @@
 target/release/hello-daemon usr/bin
 
 # PAM module  
-target/release/libpam_linux_hello.so lib/x86_64-linux-gnu/security
+target/release/libpam_linux_hello.so lib/security
 
 # CLI tool
 target/release/linux-hello usr/bin

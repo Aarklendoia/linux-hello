@@ -18,6 +18,7 @@ pub mod dbus_interface;
 pub mod dbus_signals;
 pub mod matcher;
 pub mod pam_helper;
+pub mod preview;
 pub mod storage;
 
 use camera::CameraManager;
