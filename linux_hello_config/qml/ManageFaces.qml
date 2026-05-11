@@ -10,10 +10,11 @@ Kirigami.Page {
     id: manageFacesPage
     title: I18n.tr("manageFaces.title")
 
-    property var appController: null
-
     Layout.fillWidth: true
     Layout.fillHeight: true
+
+    // Recharger la liste à chaque fois que la page devient visible
+    Component.onCompleted: AppController.loadFaces()
 
     ColumnLayout {
         anchors {
@@ -34,21 +35,27 @@ Kirigami.Page {
         ScrollView {
             Layout.fillWidth: true
             Layout.fillHeight: true
+            clip: true
 
             ListView {
                 id: facesListView
-                model: manageFacesPage.appController.facesList
+                model: AppController.facesList
+                clip: true
 
-                delegate: ItemDelegate {
+                delegate: Item {
                     id: faceItem
                     required property var modelData
 
-                    width: manageFacesPage.width - 2 * Kirigami.Units.largeSpacing
+                    width: ListView.view.width
                     height: Kirigami.Units.gridUnit * 4
 
                     RowLayout {
-                        anchors.fill: parent
-                        anchors.margins: Kirigami.Units.smallSpacing
+                        anchors {
+                            left: parent.left
+                            right: parent.right
+                            verticalCenter: parent.verticalCenter
+                            margins: Kirigami.Units.smallSpacing
+                        }
                         spacing: Kirigami.Units.mediumSpacing * 1.5
 
                         // Thumbnail (placeholder)
@@ -75,6 +82,7 @@ Kirigami.Page {
                                 font.weight: Font.Bold
                                 color: Kirigami.Theme.textColor
                                 elide: Text.ElideRight
+                                Layout.fillWidth: true
                             }
 
                             Label {
@@ -90,19 +98,21 @@ Kirigami.Page {
                             }
                         }
 
-                        // Delete button
+                        // Delete button — largeur fixe, toujours à droite
                         Button {
                             text: I18n.tr("manageFaces.deleteBtn")
-                            implicitHeight: Kirigami.Units.gridUnit * 2
+                            Layout.preferredWidth: Kirigami.Units.gridUnit * 6
+                            Layout.preferredHeight: Kirigami.Units.gridUnit * 2
+                            Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
 
-                            onClicked: manageFacesPage.appController.deleteFace(faceItem.modelData.face_id)
+                            onClicked: AppController.deleteFace(faceItem.modelData.face_id)
                         }
                     }
                 }
 
                 // Message if no faces
                 Label {
-                    visible: manageFacesPage.appController.facesList.length === 0
+                    visible: AppController.facesList.length === 0
                     text: I18n.tr("manageFaces.noFaces")
                     color: Kirigami.Theme.disabledTextColor
                     horizontalAlignment: Text.AlignHCenter
@@ -124,14 +134,14 @@ Kirigami.Page {
                 palette.buttonText: Kirigami.Theme.highlightedTextColor
                 palette.button: Kirigami.Theme.highlightColor
 
-                onClicked: manageFacesPage.appController.navigateToEnrollImpl()
+                onClicked: AppController.navigateToEnrollImpl()
             }
 
             Button {
                 text: I18n.tr("manageFaces.backBtn")
                 Layout.fillWidth: true
                 implicitHeight: Kirigami.Units.gridUnit * 2.2
-                onClicked: manageFacesPage.appController.navigateToHomeImpl()
+                onClicked: AppController.navigateToHomeImpl()
             }
         }
     }

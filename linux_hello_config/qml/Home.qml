@@ -7,8 +7,6 @@ import Linux.Hello 1.0
 Kirigami.Page {
     id: homePage
 
-    property var appController: null
-
     title: I18n.tr("home.title")
 
     // Propriétés pour pageStack
@@ -111,7 +109,7 @@ Kirigami.Page {
                 text: I18n.tr("home.registerBtn")
                 Layout.fillWidth: true
                 implicitHeight: Kirigami.Units.gridUnit * 2.5
-                onClicked: homePage.appController.navigateToEnrollImpl()
+                onClicked: AppController.navigateToEnrollImpl()
 
                 palette.buttonText: Kirigami.Theme.highlightedTextColor
                 palette.button: Kirigami.Theme.highlightColor
@@ -121,14 +119,14 @@ Kirigami.Page {
                 text: I18n.tr("home.manageFacesBtn")
                 Layout.fillWidth: true
                 implicitHeight: Kirigami.Units.gridUnit * 2.5
-                onClicked: homePage.appController.navigateToManageFacesImpl()
+                onClicked: AppController.navigateToManageFacesImpl()
             }
 
             Button {
                 text: I18n.tr("home.settingsBtn")
                 Layout.fillWidth: true
                 implicitHeight: Kirigami.Units.gridUnit * 2.5
-                onClicked: homePage.appController.navigateToSettingsImpl()
+                onClicked: AppController.navigateToSettingsImpl()
             }
         }
     }

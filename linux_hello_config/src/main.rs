@@ -19,6 +19,22 @@ fn main() {
     let qml_path = find_qml_path();
 
     let uid = get_current_uid();
+
+    // Interdire plusieurs instances simultanées
+    let lock_path = format!("/tmp/linux-hello-config-{}.lock", uid);
+    if let Ok(content) = std::fs::read_to_string(&lock_path) {
+        if let Ok(pid) = content.trim().parse::<u32>() {
+            if std::path::Path::new(&format!("/proc/{}", pid)).exists() {
+                eprintln!(
+                    "⚠ Linux Hello est déjà ouvert (PID {}). Une seule instance autorisée.",
+                    pid
+                );
+                std::process::exit(0);
+            }
+        }
+    }
+    let _ = std::fs::write(&lock_path, std::process::id().to_string());
+
     let ctrl_port = start_control_server(uid);
     eprintln!("🔌 Serveur de contrôle sur port {}", ctrl_port);
     // Écrire le port dans un fichier lisible depuis QML (Qt.environmentVariable indisponible sur ce build)

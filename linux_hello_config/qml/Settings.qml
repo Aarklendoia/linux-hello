@@ -10,8 +10,6 @@ Kirigami.Page {
     id: settingsPage
     title: I18n.tr("settings.title")
 
-    property var appController: null
-
     // Propriétés pour pageStack
     Layout.fillWidth: true
     Layout.fillHeight: true
@@ -277,7 +275,7 @@ Kirigami.Page {
                 palette.button: Kirigami.Theme.highlightColor
 
                 onClicked: {
-                    settingsPage.appController.saveSettings();
+                    AppController.saveSettings();
                 }
             }
 
@@ -286,7 +284,7 @@ Kirigami.Page {
                 Layout.fillWidth: true
                 implicitHeight: Kirigami.Units.gridUnit * 2.2
                 onClicked: {
-                    settingsPage.appController.navigateToHomeImpl();
+                    AppController.navigateToHomeImpl();
                 }
             }
         }
