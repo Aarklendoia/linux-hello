@@ -3,8 +3,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import QtMultimedia
 import org.kde.kirigami as Kirigami
-
-// qmllint disable unqualified
+import Linux.Hello 1.0
 
 Kirigami.Page {
     id: enrollPage
@@ -14,11 +13,9 @@ Kirigami.Page {
     Layout.fillWidth: true
     Layout.fillHeight: true
 
-    // Au chargement de la page, connecter le lecteur MJPEG
+    // Démarrer le lecteur MJPEG à la création (page créée uniquement quand navigée via URL)
     Component.onCompleted: {
-        console.log("📄 Page Enrollment chargée");
         mjpegPlayer.play();
-        console.log("✓ Lecteur MJPEG démarré");
     }
 
     Component.onDestruction: {
@@ -86,7 +83,7 @@ Kirigami.Page {
 
             Label {
                 id: progressLabel
-                text: I18n.tr("enrollment.progress") + " " + appController.progress + "%"
+                text: I18n.tr("enrollment.progress") + " " + AppController.progress + "%"
                 color: Kirigami.Theme.textColor
             }
 
@@ -114,15 +111,14 @@ Kirigami.Page {
                 text: I18n.tr("enrollment.startBtn")
                 Layout.fillWidth: true
                 implicitHeight: Kirigami.Units.gridUnit * 2.2
-                enabled: !appController.capturing
+                enabled: !AppController.capturing
 
                 palette.buttonText: Kirigami.Theme.highlightedTextColor
                 palette.button: Kirigami.Theme.highlightColor
 
                 onClicked: {
                     console.log("🎬 Bouton Démarrer cliqué");
-                    mainWindow.startCapture();
-                    console.log("✓ startCapture() appelé");
+                    AppController.startCapture();
                 }
             }
 
@@ -130,9 +126,9 @@ Kirigami.Page {
                 text: I18n.tr("enrollment.stopBtn")
                 Layout.fillWidth: true
                 implicitHeight: Kirigami.Units.gridUnit * 2.2
-                enabled: appController.capturing
+                enabled: AppController.capturing
                 onClicked: {
-                    mainWindow.stopCapture();
+                    AppController.stopCapture();
                     previewRect.previewStatus = qsTr("Capture arrêtée");
                 }
             }
@@ -142,7 +138,7 @@ Kirigami.Page {
                 Layout.fillWidth: true
                 implicitHeight: Kirigami.Units.gridUnit * 2.2
                 onClicked: {
-                    mainWindow.navigateToHome();
+                    AppController.navigateToHomeImpl();
                     previewRect.previewStatus = qsTr("Capture annulée");
                 }
             }
@@ -154,12 +150,12 @@ Kirigami.Page {
         id: navigateHomeTimer
         interval: 2000
         repeat: false
-        onTriggered: mainWindow.navigateToHome()
+        onTriggered: AppController.navigateToHomeImpl()
     }
 
     // Connections to app signals
     Connections {
-        target: appController
+        target: AppController
 
         function onAppProgressChanged(value) {
             progressBar.value = value / 100.0;

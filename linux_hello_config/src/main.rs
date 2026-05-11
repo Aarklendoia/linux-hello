@@ -19,6 +19,22 @@ fn main() {
     let qml_path = find_qml_path();
 
     let uid = get_current_uid();
+
+    // Interdire plusieurs instances simultanées
+    let lock_path = format!("/tmp/linux-hello-config-{}.lock", uid);
+    if let Ok(content) = std::fs::read_to_string(&lock_path) {
+        if let Ok(pid) = content.trim().parse::<u32>() {
+            if std::path::Path::new(&format!("/proc/{}", pid)).exists() {
+                eprintln!(
+                    "⚠ Linux Hello est déjà ouvert (PID {}). Une seule instance autorisée.",
+                    pid
+                );
+                std::process::exit(0);
+            }
+        }
+    }
+    let _ = std::fs::write(&lock_path, std::process::id().to_string());
+
     let ctrl_port = start_control_server(uid);
     eprintln!("🔌 Serveur de contrôle sur port {}", ctrl_port);
     // Écrire le port dans un fichier lisible depuis QML (Qt.environmentVariable indisponible sur ce build)
@@ -105,6 +121,27 @@ fn get_current_uid() -> u32 {
         .and_then(|o| String::from_utf8(o.stdout).ok())
         .and_then(|s| s.trim().parse().ok())
         .unwrap_or(1000)
+}
+
+/// Extrait le contenu JSON depuis une sortie busctl renvoyant un type string.
+/// Format busctl : s "[{\"face_id\":\"...\"}]"
+fn extract_busctl_json(output: &str) -> Option<String> {
+    let trimmed = output.trim();
+    let content = trimmed.strip_prefix("s \"")?;
+    let content = content.strip_suffix('"').unwrap_or(content);
+    Some(content.replace("\\\"", "\"").replace("\\\\", "\\"))
+}
+
+/// Extrait un paramètre de la query string de la première ligne HTTP.
+/// Ex: "GET /delete-face?id=abc123 HTTP/1.1" → Some("abc123")
+fn extract_query_param(req: &str, param: &str) -> Option<String> {
+    let line = req.lines().next()?;
+    let search = format!("{}=", param);
+    let pos = line.find(&search)?;
+    let start = pos + search.len();
+    let rest = &line[start..];
+    let end = rest.find(['&', ' ', '\r']).unwrap_or(rest.len());
+    Some(rest[..end].to_string())
 }
 
 /// Extrait le face_id depuis la sortie busctl d'un appel RegisterFace.
@@ -205,6 +242,72 @@ fn handle_ctrl_connection(mut stream: TcpStream, uid: u32) {
         }
     } else if req.contains("/stop-capture") {
         ("200 OK", "STOPPED".to_string())
+    } else if req.contains("/list-faces") {
+        match Command::new("busctl")
+            .args([
+                "--user",
+                "call",
+                "com.linuxhello.FaceAuth",
+                "/com/linuxhello/FaceAuth",
+                "com.linuxhello.FaceAuth",
+                "ListFaces",
+                "u",
+                &uid.to_string(),
+            ])
+            .output()
+        {
+            Ok(out) if out.status.success() => {
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                let json = extract_busctl_json(&stdout).unwrap_or_else(|| "[]".to_string());
+                ("200 OK", json)
+            }
+            Ok(out) => {
+                let err = String::from_utf8_lossy(&out.stderr)
+                    .replace('"', "\\\"")
+                    .replace('\n', " ");
+                eprintln!("✗ ListFaces busctl stderr: {}", err);
+                ("200 OK", "[]".to_string())
+            }
+            Err(e) => {
+                eprintln!("✗ ListFaces spawn error: {}", e);
+                ("200 OK", "[]".to_string())
+            }
+        }
+    } else if req.contains("/delete-face") {
+        let face_id = extract_query_param(&req, "id").unwrap_or_default();
+        let request_json = format!(r#"{{"user_id":{},"face_id":"{}"}}"#, uid, face_id);
+        match Command::new("busctl")
+            .args([
+                "--user",
+                "call",
+                "com.linuxhello.FaceAuth",
+                "/com/linuxhello/FaceAuth",
+                "com.linuxhello.FaceAuth",
+                "DeleteFace",
+                "s",
+                &request_json,
+            ])
+            .output()
+        {
+            Ok(out) if out.status.success() => ("200 OK", r#"{"ok":true}"#.to_string()),
+            Ok(out) => {
+                let err = String::from_utf8_lossy(&out.stderr)
+                    .replace('"', "\\\"")
+                    .replace('\n', " ");
+                eprintln!("✗ DeleteFace busctl stderr: {}", err);
+                (
+                    "500 Internal Server Error",
+                    format!(r#"{{"ok":false,"error":"{}"}}"#, err),
+                )
+            }
+            Err(e) => {
+                eprintln!("✗ DeleteFace spawn error: {}", e);
+                (
+                    "500 Internal Server Error",
+                    format!(r#"{{"ok":false,"error":"{}"}}"#, e),
+                )
+            }
+        }
     } else if req.contains("OPTIONS") {
         ("200 OK", String::new())
     } else {
