@@ -1,3 +1,5 @@
+pragma ComponentBehavior: Bound
+
 import QtQuick
 import QtQuick.Window
 import org.kde.kirigami as Kirigami
@@ -27,6 +29,9 @@ Kirigami.ApplicationWindow {
     // Désactiver les ToolTips complexes de Kirigami pour éviter les binding loops
     property bool showToolTips: false
 
+    // Expose appController pour les pages enfants
+    property alias controller: appController
+
     // Propriétés globales de l'app
     QtObject {
         id: appController
@@ -34,18 +39,7 @@ Kirigami.ApplicationWindow {
         // État de l'application
         property bool capturing: false
         property int progress: 0
-        property var facesList: [
-            {
-                name: "Visage 1",
-                confidence: 92,
-                date: "2026-01-08"
-            },
-            {
-                name: "Visage 2",
-                confidence: 88,
-                date: "2026-01-07"
-            }
-        ]
+        property var facesList: []
 
         // Signaux
         signal appProgressChanged(int value)
@@ -130,9 +124,41 @@ Kirigami.ApplicationWindow {
             console.log("Paramètres sauvegardés");
         }
 
-        function deleteFace(index) {
-            facesList.splice(index, 1);
-            facesList = facesList;  // Trigger update
+        function loadFaces() {
+            console.log("🔄 loadFaces appelé, ctrlPort=", ctrlPort);
+            if (ctrlPort === "0")
+                return;
+            var xhr = new XMLHttpRequest();
+            xhr.open("GET", "http://127.0.0.1:" + ctrlPort + "/list-faces", true);
+            xhr.onreadystatechange = function () {
+                if (xhr.readyState !== XMLHttpRequest.DONE)
+                    return;
+                console.log("🔄 /list-faces status=", xhr.status, "len=", xhr.responseText.length);
+                if (xhr.status === 200) {
+                    try {
+                        var parsed = JSON.parse(xhr.responseText);
+                        console.log("🔄 faces parsées:", Array.isArray(parsed) ? parsed.length : "non-array");
+                        facesList = Array.isArray(parsed) ? parsed : [];
+                        console.log("🔄 facesList.length après assignation:", facesList.length);
+                    } catch (e) {
+                        console.log("✗ Erreur parsing faces:", e);
+                        facesList = [];
+                    }
+                }
+            };
+            xhr.send();
+        }
+
+        function deleteFace(faceId) {
+            if (ctrlPort === "0")
+                return;
+            var xhr = new XMLHttpRequest();
+            xhr.open("GET", "http://127.0.0.1:" + ctrlPort + "/delete-face?id=" + encodeURIComponent(faceId), true);
+            xhr.onreadystatechange = function () {
+                if (xhr.readyState === XMLHttpRequest.DONE && xhr.status === 200)
+                    loadFaces();
+            };
+            xhr.send();
         }
 
         function navigateToHomeImpl() {
@@ -149,6 +175,7 @@ Kirigami.ApplicationWindow {
         }
 
         function navigateToManageFacesImpl() {
+            appController.loadFaces();
             mainWindow.pageStack.replace(manageFacesComponent);
         }
 
@@ -184,8 +211,8 @@ Kirigami.ApplicationWindow {
     function saveSettings() {
         appController.saveSettings();
     }
-    function deleteFace(index) {
-        appController.deleteFace(index);
+    function deleteFace(faceId) {
+        appController.deleteFace(faceId);
     }
     function navigateToHome() {
         appController.navigateToHomeImpl();
@@ -203,24 +230,32 @@ Kirigami.ApplicationWindow {
     // Page d'accueil
     Component {
         id: homeComponent
-        Home {}
+        Home {
+            appController: mainWindow.controller
+        } // qmllint disable missing-property
     }
 
     // Page d'enregistrement
     Component {
         id: enrollComponent
-        Enrollment {}
+        Enrollment {
+            appController: mainWindow.controller
+        } // qmllint disable missing-property
     }
 
     // Page de paramètres
     Component {
         id: settingsComponent
-        Settings {}
+        Settings {
+            appController: mainWindow.controller
+        } // qmllint disable missing-property
     }
 
     // Page de gestion des visages
     Component {
         id: manageFacesComponent
-        ManageFaces {}
+        ManageFaces {
+            appController: mainWindow.controller
+        } // qmllint disable missing-property
     }
 }

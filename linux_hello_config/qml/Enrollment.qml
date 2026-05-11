@@ -4,11 +4,11 @@ import QtQuick.Layouts
 import QtMultimedia
 import org.kde.kirigami as Kirigami
 
-// qmllint disable unqualified
-
 Kirigami.Page {
     id: enrollPage
     title: I18n.tr("enrollment.title")
+
+    property var appController: null
 
     // Propriétés pour pageStack
     Layout.fillWidth: true
@@ -86,7 +86,7 @@ Kirigami.Page {
 
             Label {
                 id: progressLabel
-                text: I18n.tr("enrollment.progress") + " " + appController.progress + "%"
+                text: I18n.tr("enrollment.progress") + " " + enrollPage.appController.progress + "%"
                 color: Kirigami.Theme.textColor
             }
 
@@ -114,15 +114,14 @@ Kirigami.Page {
                 text: I18n.tr("enrollment.startBtn")
                 Layout.fillWidth: true
                 implicitHeight: Kirigami.Units.gridUnit * 2.2
-                enabled: !appController.capturing
+                enabled: !enrollPage.appController.capturing
 
                 palette.buttonText: Kirigami.Theme.highlightedTextColor
                 palette.button: Kirigami.Theme.highlightColor
 
                 onClicked: {
                     console.log("🎬 Bouton Démarrer cliqué");
-                    mainWindow.startCapture();
-                    console.log("✓ startCapture() appelé");
+                    enrollPage.appController.startCapture();
                 }
             }
 
@@ -130,9 +129,9 @@ Kirigami.Page {
                 text: I18n.tr("enrollment.stopBtn")
                 Layout.fillWidth: true
                 implicitHeight: Kirigami.Units.gridUnit * 2.2
-                enabled: appController.capturing
+                enabled: enrollPage.appController.capturing
                 onClicked: {
-                    mainWindow.stopCapture();
+                    enrollPage.appController.stopCapture();
                     previewRect.previewStatus = qsTr("Capture arrêtée");
                 }
             }
@@ -142,7 +141,7 @@ Kirigami.Page {
                 Layout.fillWidth: true
                 implicitHeight: Kirigami.Units.gridUnit * 2.2
                 onClicked: {
-                    mainWindow.navigateToHome();
+                    enrollPage.appController.navigateToHomeImpl();
                     previewRect.previewStatus = qsTr("Capture annulée");
                 }
             }
@@ -154,12 +153,12 @@ Kirigami.Page {
         id: navigateHomeTimer
         interval: 2000
         repeat: false
-        onTriggered: mainWindow.navigateToHome()
+        onTriggered: enrollPage.appController.navigateToHomeImpl()
     }
 
     // Connections to app signals
     Connections {
-        target: appController
+        target: enrollPage.appController
 
         function onAppProgressChanged(value) {
             progressBar.value = value / 100.0;
