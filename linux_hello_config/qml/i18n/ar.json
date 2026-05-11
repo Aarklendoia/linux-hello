@@ -12,7 +12,8 @@
         "action3": "• تكوين إعدادات الأمان",
         "registerBtn": "📷 تسجيل الوجه",
         "manageFacesBtn": "👤 إدارة الوجوه",
-        "settingsBtn": "⚙️ الإعدادات"
+        "settingsBtn": "⚙️ الإعدادات",
+        "testAuthBtn": "🔍 اختبار المصادقة"
     },
     "enrollment": {
         "title": "تسجيل الوجه",
@@ -50,5 +51,31 @@
         "deleteBtn": "🗑️ حذف",
         "registerNewBtn": "+ تسجيل وجه جديد",
         "backBtn": "رجوع"
+    },
+    "testAuth": {
+        "title": "اختبار المصادقة",
+        "subtitle": "اختبار التعرف على الوجه",
+        "context": "السياق:",
+        "score": "درجة التشابه:",
+        "startBtn": "🔍 اختبار المصادقة",
+        "testing": "جارٍ الاختبار...",
+        "ctx": {
+            "gui": "واجهة رسومية",
+            "sudo": "sudo",
+            "login": "تسجيل الدخول",
+            "screenlock": "قفل الشاشة",
+            "sddm": "شاشة الدخول (SDDM)"
+        },
+        "result": {
+            "success": "المصادقة ناجحة",
+            "noMatch": "الوجه غير معروف",
+            "noFace": "لم يتم اكتشاف وجه",
+            "noEnrollment": "لا توجد وجوه مسجلة",
+            "cancelled": "ملغى"
+        },
+        "err": {
+            "daemon": "الخدمة غير متاحة",
+            "unknown": "خطأ غير معروف"
+        }
     }
 }

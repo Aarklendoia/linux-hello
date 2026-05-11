@@ -56,6 +56,10 @@ Kirigami.ApplicationWindow {
         function onNavigateToManageFacesSignal() {
             mainWindow.pageStack.replace(Qt.resolvedUrl("ManageFaces.qml"));
         }
+
+        function onNavigateToTestAuthSignal() {
+            mainWindow.pageStack.replace(Qt.resolvedUrl("TestAuth.qml"));
+        }
     }
 
     // Page d'accueil (seule page pré-créée, pas de ProgressBar)

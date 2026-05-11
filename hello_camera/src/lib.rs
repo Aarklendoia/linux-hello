@@ -357,6 +357,146 @@ fn yuyv_to_rgb_strided(data: &[u8], width: u32, height: u32, stride: u32) -> Vec
 /// Capturer `num_frames` frames depuis V4L2 en YUYV et les fournir en RGB via callback.
 ///
 /// Ouvre `/dev/video0` (ou le chemin fourni), configure YUYV 640×480, crée **un seul**
+/// Résultat d'un scan des caméras disponibles
+#[derive(Debug, Clone)]
+pub struct CameraInventory {
+    /// Device RGB principal (ex: /dev/video0)
+    pub rgb_device: String,
+    /// Device IR si trouvé (ex: /dev/video2 pour Logitech Brio)
+    pub ir_device: Option<String>,
+}
+
+/// Cherche automatiquement les caméras RGB et IR parmi /dev/video0..9.
+///
+/// Critères IR :
+/// - Le nom du device contient "IR" ou "Infrared" (insensible à la casse)
+/// - OU seul le format GREY est supporté (pas de YUYV ni MJPG)
+///
+/// Retourne la première caméra RGB trouvée + la première IR si disponible.
+#[cfg(feature = "v4l2")]
+pub fn scan_cameras() -> CameraInventory {
+    use v4l::video::Capture;
+
+    let mut rgb: Option<String> = None;
+    let mut ir: Option<String> = None;
+
+    for idx in 0..10u8 {
+        let path = format!("/dev/video{}", idx);
+        let Ok(dev) = v4l::Device::with_path(&path) else {
+            continue;
+        };
+
+        // Lire les capabilities pour le nom du device
+        let is_ir_by_name = v4l::Device::query_caps(&dev)
+            .map(|caps| {
+                let card = caps.card.to_lowercase();
+                card.contains("ir") || card.contains("infrared")
+            })
+            .unwrap_or(false);
+
+        // Lire les formats supportés
+        let formats: Vec<String> = dev
+            .enum_formats()
+            .unwrap_or_default()
+            .iter()
+            .map(|f| f.fourcc.str().unwrap_or_default().to_string())
+            .collect();
+
+        let has_grey = formats
+            .iter()
+            .any(|f| f.contains("GREY") || f.contains("Y800"));
+        let has_color = formats
+            .iter()
+            .any(|f| f.contains("YUYV") || f.contains("MJPG") || f.contains("RGB"));
+
+        // Caméra IR : nommée IR ou uniquement GREY
+        let is_ir = is_ir_by_name || (has_grey && !has_color);
+
+        if is_ir && ir.is_none() {
+            tracing::info!(
+                "Caméra IR détectée: {} (formats: {})",
+                path,
+                formats.join(", ")
+            );
+            ir = Some(path);
+        } else if !is_ir && has_color && rgb.is_none() {
+            tracing::info!(
+                "Caméra RGB détectée: {} (formats: {})",
+                path,
+                formats.join(", ")
+            );
+            rgb = Some(path);
+        }
+    }
+
+    CameraInventory {
+        rgb_device: rgb.unwrap_or_else(|| "/dev/video0".to_string()),
+        ir_device: ir,
+    }
+}
+
+#[cfg(not(feature = "v4l2"))]
+pub fn scan_cameras() -> CameraInventory {
+    CameraInventory {
+        rgb_device: "/dev/video0".to_string(),
+        ir_device: None,
+    }
+}
+
+/// Capturer `num_frames` frames en GREY (8-bit grayscale) depuis un device V4L2.
+///
+/// Utilisé pour les caméras IR (ex: Logitech Brio canal infrarouge).
+/// Callback : `on_frame(gray_data: Vec<u8>, width, height)`
+#[cfg(feature = "v4l2")]
+pub fn capture_gray_stream_v4l2<F>(
+    device_path: &str,
+    num_frames: u32,
+    timeout_ms: u64,
+    mut on_frame: F,
+) -> Result<(), CameraError>
+where
+    F: FnMut(Vec<u8>, u32, u32),
+{
+    use v4l::buffer::Type;
+    use v4l::io::traits::CaptureStream;
+    use v4l::video::Capture;
+
+    let dev = v4l::Device::with_path(device_path)
+        .map_err(|e| CameraError::NotAvailable(format!("{}: {}", device_path, e)))?;
+
+    let mut fmt = dev
+        .format()
+        .map_err(|e| CameraError::OpenFailed(e.to_string()))?;
+    fmt.width = 640;
+    fmt.height = 480;
+    fmt.fourcc = v4l::format::FourCC::new(b"GREY");
+
+    let applied = dev
+        .set_format(&fmt)
+        .map_err(|e| CameraError::OpenFailed(format!("set_format GREY: {}", e)))?;
+
+    let width = applied.width;
+    let height = applied.height;
+
+    let mut stream = v4l::io::mmap::Stream::with_buffers(&dev, Type::VideoCapture, 4)
+        .map_err(|e| CameraError::CaptureFailed(format!("Erreur stream GREY: {}", e)))?;
+
+    let start = std::time::Instant::now();
+    let timeout_dur = std::time::Duration::from_millis(timeout_ms);
+
+    for _ in 0..num_frames {
+        if start.elapsed() > timeout_dur {
+            break;
+        }
+        let (buf, _meta) = stream
+            .next()
+            .map_err(|e| CameraError::CaptureFailed(format!("Erreur capture GREY: {}", e)))?;
+        on_frame(buf.to_vec(), width, height);
+    }
+
+    Ok(())
+}
+
 /// stream mmap persistant (plus efficace que d'en créer un par frame), puis appelle
 /// `on_frame(rgb_data, width, height)` pour chaque frame capturée.
 ///

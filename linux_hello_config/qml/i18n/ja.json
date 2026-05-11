@@ -12,7 +12,8 @@
         "action3": "• セキュリティ設定を構成する",
         "registerBtn": "📷 顔を登録",
         "manageFacesBtn": "👤 顔を管理",
-        "settingsBtn": "⚙️ 設定"
+        "settingsBtn": "⚙️ 設定",
+        "testAuthBtn": "🔍 認証テスト"
     },
     "enrollment": {
         "title": "顔登録",
@@ -50,5 +51,31 @@
         "deleteBtn": "🗑️ 削除",
         "registerNewBtn": "+ 新しい顔を登録",
         "backBtn": "戻る"
+    },
+    "testAuth": {
+        "title": "認証テスト",
+        "subtitle": "顔認識テスト",
+        "context": "コンテキスト:",
+        "score": "類似スコア:",
+        "startBtn": "🔍 認証テスト",
+        "testing": "テスト中...",
+        "ctx": {
+            "gui": "グラフィカルインターフェース",
+            "sudo": "sudo",
+            "login": "ログイン",
+            "screenlock": "スクリーンロック",
+            "sddm": "ログイン画面 (SDDM)"
+        },
+        "result": {
+            "success": "認証成功",
+            "noMatch": "顔が認識されませんでした",
+            "noFace": "顔が検出されませんでした",
+            "noEnrollment": "登録済みの顔がありません",
+            "cancelled": "キャンセルされました"
+        },
+        "err": {
+            "daemon": "デーモンが利用できません",
+            "unknown": "不明なエラー"
+        }
     }
 }

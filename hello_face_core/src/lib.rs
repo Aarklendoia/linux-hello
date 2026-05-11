@@ -10,6 +10,13 @@ use std::fmt;
 use thiserror::Error;
 
 pub mod stub_detector;
+pub mod liveness;
+
+#[cfg(feature = "tract")]
+pub mod scrfd_detector;
+
+#[cfg(feature = "tract")]
+pub mod arcface_extractor;
 
 /// Résultat de détection de visage
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -100,11 +107,17 @@ impl fmt::Display for MatchResult {
 /// Erreurs possibles du moteur de reconnaissance
 #[derive(Debug, Error)]
 pub enum FaceError {
+    #[error("Chargement du modèle échoué: {0}")]
+    ModelLoadError(String),
+
     #[error("Détection échouée: {0}")]
     DetectionFailed(String),
 
     #[error("Extraction d'embedding échouée: {0}")]
     EmbeddingFailed(String),
+
+    #[error("Extraction échouée: {0}")]
+    ExtractionFailed(String),
 
     #[error("Frame invalide: {0}")]
     InvalidFrame(String),
@@ -336,6 +349,113 @@ pub mod simple_implementation {
         fn embedding_dimension(&self) -> usize {
             96 // 32 bins par canal RGB
         }
+    }
+}
+
+/// Chemin par défaut du dossier de modèles
+pub fn default_models_dir() -> std::path::PathBuf {
+    // 1. Variable d'environnement définie au build
+    if let Some(p) = option_env!("LINUX_HELLO_MODELS_DIR") {
+        return std::path::PathBuf::from(p);
+    }
+    // 2. XDG_DATA_HOME
+    if let Ok(xdg) = std::env::var("XDG_DATA_HOME") {
+        return std::path::PathBuf::from(xdg).join("linux-hello/models");
+    }
+    // 3. HOME/.local/share
+    if let Ok(home) = std::env::var("HOME") {
+        return std::path::PathBuf::from(home).join(".local/share/linux-hello/models");
+    }
+    std::path::PathBuf::from("/usr/share/linux-hello/models")
+}
+
+/// Crée le détecteur de visages le plus capable disponible.
+///
+/// Si le modèle ONNX est présent et que la feature "tract" est activée,
+/// retourne un `ScrfdDetector`. Sinon, retourne le fallback stub.
+pub fn create_detector(models_dir: &std::path::Path) -> Box<dyn FaceDetector> {
+    #[cfg(feature = "tract")]
+    {
+        let model_path = models_dir.join("det_500m.onnx");
+        if model_path.exists() {
+            match scrfd_detector::ScrfdDetector::load(&model_path) {
+                Ok(det) => {
+                    tracing::info!("Détecteur SCRFD-500M chargé depuis {:?}", model_path);
+                    return Box::new(det);
+                }
+                Err(e) => {
+                    tracing::warn!("Échec chargement SCRFD: {}, fallback stub", e);
+                }
+            }
+        } else {
+            tracing::warn!("Modèle SCRFD absent: {:?}, fallback stub", model_path);
+        }
+    }
+    tracing::info!("Utilisation du détecteur stub (fallback)");
+    scrfd_detector_fallback()
+}
+
+/// Crée l'extracteur d'embeddings le plus capable disponible.
+///
+/// Si le modèle ONNX est présent et que la feature "tract" est activée,
+/// retourne un `ArcFaceExtractor`. Sinon, retourne le fallback stub.
+pub fn create_extractor(models_dir: &std::path::Path) -> Box<dyn EmbeddingExtractor> {
+    #[cfg(feature = "tract")]
+    {
+        let model_path = models_dir.join("w600k_mbf.onnx");
+        if model_path.exists() {
+            match arcface_extractor::ArcFaceExtractor::load(&model_path) {
+                Ok(ext) => {
+                    tracing::info!("Extracteur ArcFace chargé depuis {:?}", model_path);
+                    return Box::new(ext);
+                }
+                Err(e) => {
+                    tracing::warn!("Échec chargement ArcFace: {}, fallback stub", e);
+                }
+            }
+        } else {
+            tracing::warn!("Modèle ArcFace absent: {:?}, fallback stub", model_path);
+        }
+    }
+    tracing::info!("Utilisation de l'extracteur stub (fallback)");
+    arcface_extractor_fallback()
+}
+
+// Fonctions internes pour instancier les fallbacks sans la feature tract
+fn scrfd_detector_fallback() -> Box<dyn FaceDetector> {
+    #[cfg(feature = "tract")]
+    { Box::new(scrfd_detector::ScrfdFallback) }
+    #[cfg(not(feature = "tract"))]
+    { Box::new(stub_detector::StubDetector::default()) }
+}
+
+fn arcface_extractor_fallback() -> Box<dyn EmbeddingExtractor> {
+    #[cfg(feature = "tract")]
+    { Box::new(arcface_extractor::ArcFaceFallback) }
+    #[cfg(not(feature = "tract"))]
+    { Box::new(simple_implementation::SimpleEmbedder) }
+}
+
+#[cfg(test)]
+mod factory_tests {
+    use super::*;
+
+    #[test]
+    fn test_create_detector_fallback() {
+        let tmp = std::path::Path::new("/tmp/nonexistent_models_dir_test");
+        let det = create_detector(tmp);
+        // Doit retourner un détecteur valide même sans modèles
+        let frame = vec![128u8; 640 * 480 * 3];
+        let result = det.detect(&frame, 640, 480, 3);
+        assert!(result.is_ok());
+        assert!(!result.unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_create_extractor_fallback() {
+        let tmp = std::path::Path::new("/tmp/nonexistent_models_dir_test");
+        let ext = create_extractor(tmp);
+        assert!(ext.embedding_dimension() > 0);
     }
 }
 

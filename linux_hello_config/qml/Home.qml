@@ -123,6 +123,13 @@ Kirigami.Page {
             }
 
             Button {
+                text: I18n.tr("home.testAuthBtn")
+                Layout.fillWidth: true
+                implicitHeight: Kirigami.Units.gridUnit * 2.5
+                onClicked: AppController.navigateToTestAuthImpl()
+            }
+
+            Button {
                 text: I18n.tr("home.settingsBtn")
                 Layout.fillWidth: true
                 implicitHeight: Kirigami.Units.gridUnit * 2.5

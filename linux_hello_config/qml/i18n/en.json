@@ -12,7 +12,8 @@
         "action3": "• Configure security settings",
         "registerBtn": "📷 Register Face",
         "manageFacesBtn": "👤 Manage Faces",
-        "settingsBtn": "⚙️ Settings"
+        "settingsBtn": "⚙️ Settings",
+        "testAuthBtn": "🔍 Test Authentication"
     },
     "enrollment": {
         "title": "Face Registration",
@@ -51,5 +52,31 @@
         "deleteBtn": "🗑️ Delete",
         "registerNewBtn": "+ Register New Face",
         "backBtn": "Back"
+    },
+    "testAuth": {
+        "title": "Test Authentication",
+        "subtitle": "Test Face Recognition",
+        "context": "Context:",
+        "score": "Similarity score:",
+        "startBtn": "🔍 Test Authentication",
+        "testing": "Testing...",
+        "ctx": {
+            "gui": "GUI",
+            "sudo": "sudo",
+            "login": "Login",
+            "screenlock": "Screen Lock",
+            "sddm": "Login Screen (SDDM)"
+        },
+        "result": {
+            "success": "Authentication successful",
+            "noMatch": "Face not recognized",
+            "noFace": "No face detected",
+            "noEnrollment": "No enrolled faces found",
+            "cancelled": "Cancelled"
+        },
+        "err": {
+            "daemon": "Daemon unavailable",
+            "unknown": "Unknown error"
+        }
     }
 }

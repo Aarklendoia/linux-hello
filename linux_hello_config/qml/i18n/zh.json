@@ -12,7 +12,8 @@
         "action3": "• 配置安全设置",
         "registerBtn": "📷 注册脸部",
         "manageFacesBtn": "👤 管理脸部",
-        "settingsBtn": "⚙️ 设置"
+        "settingsBtn": "⚙️ 设置",
+        "testAuthBtn": "🔍 测试身份验证"
     },
     "enrollment": {
         "title": "脸部注册",
@@ -50,5 +51,31 @@
         "deleteBtn": "🗑️ 删除",
         "registerNewBtn": "+ 注册新脸部",
         "backBtn": "返回"
+    },
+    "testAuth": {
+        "title": "身份验证测试",
+        "subtitle": "测试人脸识别",
+        "context": "上下文：",
+        "score": "相似度评分：",
+        "startBtn": "🔍 测试身份验证",
+        "testing": "测试中...",
+        "ctx": {
+            "gui": "图形界面",
+            "sudo": "sudo",
+            "login": "登录",
+            "screenlock": "锁屏",
+            "sddm": "登录屏幕 (SDDM)"
+        },
+        "result": {
+            "success": "验证成功",
+            "noMatch": "未识别人脸",
+            "noFace": "未检测到人脸",
+            "noEnrollment": "未找到已注册人脸",
+            "cancelled": "已取消"
+        },
+        "err": {
+            "daemon": "守护进程不可用",
+            "unknown": "未知错误"
+        }
     }
 }

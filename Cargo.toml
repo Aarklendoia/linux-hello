@@ -64,6 +64,10 @@ sqlx = { version = "0.8", features = ["runtime-tokio-native-tls", "sqlite"] }
 sha2 = "0.11"
 rand = "0.10"
 
+# ML inference (pur Rust, zero dépendance native)
+tract-onnx = "0.21"
+tract-core = "0.21"
+
 # System
 libc = "0.2"
 parking_lot = "0.12"
