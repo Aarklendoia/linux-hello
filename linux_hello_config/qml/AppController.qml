@@ -10,6 +10,7 @@ QtObject {
     property var facesList: []
     property string ctrlPort: "0"
     property string lastRegisteredFaceId: ""
+    property var uidNameCache: ({})
 
     // Signaux d'état
     signal appProgressChanged(int value)
@@ -35,6 +36,21 @@ QtObject {
         } else {
             console.log("⚠ Impossible de lire le port de contrôle");
         }
+        // Construire le cache UID → nom de compte depuis /etc/passwd
+        var px = new XMLHttpRequest();
+        px.open("GET", "file:///etc/passwd", false);
+        px.send();
+        var cache = {};
+        px.responseText.split("\n").forEach(function (line) {
+            var parts = line.split(":");
+            if (parts.length >= 3)
+                cache[parseInt(parts[2])] = parts[0];
+        });
+        controller.uidNameCache = cache;
+    }
+
+    function uidToName(uid) {
+        return controller.uidNameCache[uid] || ("UID " + uid);
     }
 
     function startCapture() {

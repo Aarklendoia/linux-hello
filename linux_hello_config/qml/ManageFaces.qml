@@ -45,9 +45,27 @@ Kirigami.Page {
                 delegate: Item {
                     id: faceItem
                     required property var modelData
+                    required property int index
 
                     width: ListView.view.width
                     height: Kirigami.Units.gridUnit * 4
+
+                    readonly property string contextLabel: {
+                        var ctx = modelData.context || "";
+                        if (ctx === "gui")
+                            return qsTr("Interface graphique");
+                        if (ctx === "screenlock")
+                            return qsTr("Écran de verrouillage");
+                        if (ctx === "sudo")
+                            return qsTr("Commande sudo");
+                        if (ctx === "login")
+                            return qsTr("Connexion");
+                        if (ctx === "sddm")
+                            return qsTr("Écran de connexion");
+                        if (ctx === "test")
+                            return qsTr("Test");
+                        return ctx;
+                    }
 
                     RowLayout {
                         anchors {
@@ -78,7 +96,7 @@ Kirigami.Page {
                             Layout.fillWidth: true
 
                             Label {
-                                text: (faceItem.modelData.context || "face") + " — " + (faceItem.modelData.face_id || "").substring(0, 12)
+                                text: AppController.uidToName(faceItem.modelData.user_id) + " — " + faceItem.contextLabel + " #" + (faceItem.index + 1)
                                 font.weight: Font.Bold
                                 color: Kirigami.Theme.textColor
                                 elide: Text.ElideRight
