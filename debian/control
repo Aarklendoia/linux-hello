@@ -68,10 +68,12 @@ Architecture: any
 Depends:
   ${misc:Depends},
   linux-hello-daemon,
-  qml,
-  qml-module-org-kde-kirigami2,
-  qml-module-qtquick-controls2,
-  qml-module-qtquick-layouts
+  qml-qt6,
+  qml6-module-org-kde-kirigami,
+  qml6-module-qtcore,
+  qml6-module-qtquick,
+  qml6-module-qtquick-layouts,
+  qml6-module-qtquick-controls
 Recommends: kde-plasma-desktop
 Description: Configuration GUI for Linux Hello
  Graphical interface for managing Linux Hello facial authentication.

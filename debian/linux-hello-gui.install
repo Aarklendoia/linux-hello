@@ -1,6 +1,8 @@
 # GUI launcher binary
 target/release/linux_hello_config usr/bin
 
+# Application icon — installée par debian/rules avec cp (renommage app-icon.svg → linux-hello.svg)
+
 # Desktop entry
 linux-hello.desktop usr/share/applications
 

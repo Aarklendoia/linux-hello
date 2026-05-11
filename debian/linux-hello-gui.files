@@ -1,0 +1,2 @@
+# Copy QML files to GUI package
+usr/share/qt6/qml/Linux/Hello/* usr/share/qt6/qml/Linux/Hello/

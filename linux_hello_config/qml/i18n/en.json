@@ -18,6 +18,7 @@
         "title": "Face Registration",
         "registerNew": "Register a New Face",
         "cameraPreview": "Camera Preview",
+        "capturing": "Capturing frames...",
         "progress": "Progress:",
         "instructions": "Present your face to the camera. The system will capture multiple angles for better recognition.",
         "startBtn": "Start Capture",

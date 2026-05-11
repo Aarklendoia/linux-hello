@@ -1,0 +1,133 @@
+--- linux-hello-rust/linux_hello_config/qml/Enrollment.qml
++++ linux-hello-rust/linux_hello_config/qml/Enrollment.qml
+@@ -37,21 +37,49 @@
+             color: Kirigami.Theme.textColor
+         }
+         
+-        // Camera preview area - test avec un rectangle coloré QML
++        // Camera preview area
+         Rectangle {
+             Layout.fillWidth: true
+             Layout.preferredHeight: 401
+             id: previewRect
+-            color: "#FF0000"  // Rouge par défaut
++            color: Kirigami.Theme.backgroundColor
+             border.color: Kirigami.Theme.textColor
+             border.width: 2
+             radius: Kirigami.Units.smallSpacing
+-            
+-            Text {
+-                anchors.centerIn: parent
+-                text: "Couleur test: " + previewRect.color
+-                color: "#FFFFFF"
+-                font.pixelSize: 20
++            property string previewStatus: qsTr("Aperçu inactif")
++
++            Image {
++                id: cameraPreview
++                anchors.fill: parent
++                anchors.margins: Kirigami.Units.smallSpacing
++                fillMode: Image.PreserveAspectCrop
++                cache: false
++                smooth: true
++                source: ""
++                onStatusChanged: {
++                    if (status === Image.Ready) {
++                        previewRect.previewStatus = qsTr("Aperçu à jour")
++                    } else if (status === Image.Loading) {
++                        previewRect.previewStatus = qsTr("Chargement en cours…")
++                    }
++                    if (status === Image.Error) {
++                        previewRect.previewStatus = qsTr("Erreur : ") + cameraPreview.errorString
++                    }
++                    console.log("🎬 cameraPreview.status =", status)
++                }
++            }
++
++            Label {
++                anchors.horizontalCenter: parent.horizontalCenter
++                anchors.bottom: parent.bottom
++                anchors.bottomMargin: Kirigami.Units.mediumSpacing
++                text: previewRect.previewStatus
++                color: Kirigami.Theme.textColor
++                font.pixelSize: 16
++                background: Rectangle {
++                    color: "#00000080"
++                    radius: 4
++                }
+             }
+         }
+         
+@@ -104,6 +132,7 @@
+                     console.log("✓ startCapture() appelé")
+                     frameRefreshTimer.start()
+                     console.log("✓ frameRefreshTimer démarré")
++                    refreshPreview()
+                 }
+             }
+             
+@@ -115,6 +144,7 @@
+                 onClicked: {
+                     mainWindow.stopCapture()
+                     frameRefreshTimer.stop()
++                    previewRect.previewStatus = qsTr("Capture arrêtée")
+                 }
+             }
+             
+@@ -125,29 +155,33 @@
+                 onClicked: {
+                     frameRefreshTimer.stop()
+                     mainWindow.navigateToHome()
++                    previewRect.previewStatus = qsTr("Capture annulée")
+                 }
+             }
+         }
+     }
+     
+-    // Timer pour changer les couleurs du preview (test du Timer QML)
++    function refreshPreview() {
++        if (!appController.capturing) {
++            previewRect.previewStatus = qsTr("Capture inactive — appuyez sur \"Démarrer\"")
++            return
++        }
++
++        var timestamp = new Date().getTime()
++        var path = "file:///tmp/linux-hello-preview.jpg?" + timestamp
++        cameraPreview.source = path
++        previewRect.previewStatus = qsTr("Chargement de l'image…")
++        console.log("🔄 Mise à jour de l'aperçu :", path)
++    }
++
++    // Timer pour actualiser l'image toutes les 500 ms
+     Timer {
+         id: frameRefreshTimer
+-        interval: 500  // 2 fps pour voir les changements
+-        running: true  // TOUJOURS LANCÉ
++        interval: 500
++        running: true
+         repeat: true
+-        property int colorIndex: 0
+-        
+-        onTriggered: {
+-            console.log("⏱️ Timer déclenché, index actuel:", colorIndex)
+-            console.log("previewRect existe?", previewRect)
+-            
+-            colorIndex = (colorIndex + 1) % 6
+-            var colors = ["#FF0000", "#FF7700", "#FFFF00", "#00FF00", "#0077FF", "#FF00FF"]
+-            var newColor = colors[colorIndex]
+-            previewRect.color = newColor
+-            console.log("🎨 Couleur changée vers:", newColor)
+-        }
++
++        onTriggered: refreshPreview()
+     }
+     
+     // Connections to app signals
+@@ -169,6 +203,7 @@
+             progressBar.value = 1.0
+             progressLabel.text = I18n.tr("enrollment.progress") + " 100%"
+             frameRefreshTimer.stop()
++            previewRect.previewStatus = qsTr("Capture terminée")
+         }
+     }
+ }

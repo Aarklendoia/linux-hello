@@ -4,13 +4,13 @@ Type=Application
 Name=Linux Hello
 Comment=Biometric Authentication Configuration
 Icon=linux-hello
-Exec=linux-hello-config
+Exec=linux_hello_config
 Categories=System;Settings;Security;
 Keywords=face;recognition;authentication;biometric;
 
 # Window properties
 StartupNotify=true
-StartupWMClass=qml6
+StartupWMClass=linux-hello
 Terminal=false
 NotShowIn=
 
