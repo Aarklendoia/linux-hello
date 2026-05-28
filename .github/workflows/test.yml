@@ -9,7 +9,7 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     
     steps:
       - name: Checkout code
@@ -29,7 +29,8 @@ jobs:
             libclang-dev \
             clang \
             pkg-config \
-            dbus
+            dbus \
+            libonnxruntime1.23
       
       - name: Cache cargo registry
         uses: actions/cache@v5
@@ -49,7 +50,16 @@ jobs:
           path: target
           key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
       
+      - name: Build release binaries (télécharge les modèles ONNX via build.rs)
+        env:
+          ORT_DYLIB_PATH: /usr/lib/x86_64-linux-gnu/libonnxruntime.so.1.23
+        run: |
+          cd $GITHUB_WORKSPACE
+          cargo build --all --release
+      
       - name: Run tests
+        env:
+          ORT_DYLIB_PATH: /usr/lib/x86_64-linux-gnu/libonnxruntime.so.1.23
         run: |
           cd $GITHUB_WORKSPACE
           cargo test --all --release
@@ -58,8 +68,3 @@ jobs:
         run: |
           cd $GITHUB_WORKSPACE
           cargo clippy --all --release -- -D warnings || true
-      
-      - name: Build release binaries
-        run: |
-          cd $GITHUB_WORKSPACE
-          cargo build --all --release
