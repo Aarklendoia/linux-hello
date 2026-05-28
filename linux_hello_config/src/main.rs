@@ -310,6 +310,46 @@ fn handle_ctrl_connection(mut stream: TcpStream, uid: u32) {
         }
     } else if req.contains("OPTIONS") {
         ("200 OK", String::new())
+    } else if req.contains("/test-auth") {
+        // Teste l'authentification sans PAM : appelle Verify via D-Bus et retourne le résultat
+        let context = extract_query_param(&req, "context").unwrap_or_else(|| "gui".to_string());
+        let request_json = format!(
+            r#"{{"user_id":{},"context":"{}","timeout_ms":10000}}"#,
+            uid, context
+        );
+        match Command::new("busctl")
+            .args([
+                "--user",
+                "call",
+                "com.linuxhello.FaceAuth",
+                "/com/linuxhello/FaceAuth",
+                "com.linuxhello.FaceAuth",
+                "Verify",
+                "s",
+                &request_json,
+            ])
+            .output()
+        {
+            Ok(out) if out.status.success() => {
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                // busctl retourne : s "{"Success":...}" — extraire le JSON interne
+                let json = extract_busctl_json(&stdout).unwrap_or_else(|| {
+                    r#"{"result":"Error","message":"Réponse vide"}"#.to_string()
+                });
+                ("200 OK", format!(r#"{{"ok":true,"data":{}}}"#, json))
+            }
+            Ok(out) => {
+                let err = String::from_utf8_lossy(&out.stderr)
+                    .replace('"', "\\\"")
+                    .replace('\n', " ");
+                eprintln!("✗ Verify busctl stderr: {}", err);
+                ("200 OK", format!(r#"{{"ok":false,"error":"{}"}}"#, err))
+            }
+            Err(e) => {
+                eprintln!("✗ Verify spawn error: {}", e);
+                ("200 OK", format!(r#"{{"ok":false,"error":"{}"}}"#, e))
+            }
+        }
     } else {
         ("404 Not Found", String::new())
     };

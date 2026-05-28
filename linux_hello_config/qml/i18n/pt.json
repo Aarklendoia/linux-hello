@@ -12,7 +12,8 @@
         "action3": "• Configurar definições de segurança",
         "registerBtn": "📷 Registrar Rosto",
         "manageFacesBtn": "👤 Gerenciar Rostos",
-        "settingsBtn": "⚙️ Configurações"
+        "settingsBtn": "⚙️ Configurações",
+        "testAuthBtn": "🔍 Testar Autenticação"
     },
     "enrollment": {
         "title": "Registro de Rosto",
@@ -50,5 +51,31 @@
         "deleteBtn": "🗑️ Excluir",
         "registerNewBtn": "+ Registrar Novo Rosto",
         "backBtn": "Voltar"
+    },
+    "testAuth": {
+        "title": "Teste de Autenticação",
+        "subtitle": "Testar Reconhecimento Facial",
+        "context": "Contexto:",
+        "score": "Pontuação de similaridade:",
+        "startBtn": "🔍 Testar Autenticação",
+        "testing": "A testar...",
+        "ctx": {
+            "gui": "Interface gráfica",
+            "sudo": "sudo",
+            "login": "Início de sessão",
+            "screenlock": "Bloqueio de ecrã",
+            "sddm": "Ecrã de login (SDDM)"
+        },
+        "result": {
+            "success": "Autenticação bem-sucedida",
+            "noMatch": "Rosto não reconhecido",
+            "noFace": "Nenhum rosto detetado",
+            "noEnrollment": "Nenhum rosto registado",
+            "cancelled": "Cancelado"
+        },
+        "err": {
+            "daemon": "Serviço indisponível",
+            "unknown": "Erro desconhecido"
+        }
     }
 }

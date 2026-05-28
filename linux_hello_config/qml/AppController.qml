@@ -22,6 +22,7 @@ QtObject {
     signal navigateToEnrollSignal
     signal navigateToSettingsSignal
     signal navigateToManageFacesSignal
+    signal navigateToTestAuthSignal
 
     // Signal interne pour relancer le timer d'animation (qui vit dans main.qml)
     signal restartTimerNeeded
@@ -158,6 +159,40 @@ QtObject {
     function navigateToManageFacesImpl() {
         loadFaces();
         navigateToManageFacesSignal();
+    }
+
+    function navigateToTestAuthImpl() {
+        navigateToTestAuthSignal();
+    }
+
+    // Lance un test d'authentification via /test-auth et appelle callback(ok, data).
+    // data est le VerifyResult JSON parsé (ou un message d'erreur string si !ok).
+    function testAuth(context, callback) {
+        if (ctrlPort === "0") {
+            callback(false, "Daemon non disponible");
+            return;
+        }
+        var xhr = new XMLHttpRequest();
+        xhr.open("GET", "http://127.0.0.1:" + ctrlPort + "/test-auth?context=" + encodeURIComponent(context), true);
+        xhr.onreadystatechange = function () {
+            if (xhr.readyState !== XMLHttpRequest.DONE)
+                return;
+            if (xhr.status === 200) {
+                try {
+                    var resp = JSON.parse(xhr.responseText);
+                    if (resp.ok) {
+                        callback(true, resp.data);
+                    } else {
+                        callback(false, resp.error || "Erreur inconnue");
+                    }
+                } catch (e) {
+                    callback(false, "Réponse invalide: " + xhr.responseText);
+                }
+            } else {
+                callback(false, "Erreur HTTP " + xhr.status);
+            }
+        };
+        xhr.send();
     }
 
     function animateProgress() {

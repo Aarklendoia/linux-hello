@@ -118,6 +118,63 @@ impl FaceMatcher {
         }
     }
 
+    /// Matching avec fusion RGB + score de vivacité IR
+    ///
+    /// `ir_liveness` : score IR dans [0, 1] calculé par `ir_liveness_score()`,
+    ///                 ou `None` si la caméra IR est absente/indisponible.
+    ///
+    /// Score final = 0.7 × score_rgb + 0.3 × ir_liveness  (si IR présent)
+    ///             = score_rgb                             (si pas d'IR)
+    pub fn match_with_liveness(
+        &self,
+        probe: &Embedding,
+        stored: &HashMap<String, Embedding>,
+        context: &str,
+        ir_liveness: Option<f32>,
+    ) -> MatchResult {
+        // D'abord calculer le meilleur score RGB
+        let rgb_result = self.match_embedding(probe, stored, context);
+
+        // Si pas d'IR, retourner le résultat RGB direct
+        let Some(liveness) = ir_liveness else {
+            return rgb_result;
+        };
+
+        let liveness = liveness.clamp(0.0, 1.0);
+        let threshold = self.get_threshold(context);
+
+        // Recalculer tous les scores avec la fusion
+        let fused_scores: HashMap<String, f32> = rgb_result
+            .all_scores
+            .iter()
+            .map(|(id, &rgb_score)| {
+                let fused = 0.7 * rgb_score + 0.3 * liveness;
+                (id.clone(), fused)
+            })
+            .collect();
+
+        let (best_face_id, best_score) = fused_scores
+            .iter()
+            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+            .map(|(id, &s)| (Some(id.clone()), s))
+            .unwrap_or((None, 0.0));
+
+        let matched = best_score >= threshold;
+
+        info!(
+            "Liveness fusion: rgb_best={:.3}, ir_liveness={:.3}, fused={:.3}, matched={}",
+            rgb_result.best_score, liveness, best_score, matched
+        );
+
+        MatchResult {
+            face_id: if matched { best_face_id } else { None },
+            best_score,
+            threshold,
+            all_scores: fused_scores,
+            matched,
+        }
+    }
+
     /// Calculer la similarité cosinus entre deux vecteurs
     fn cosine_similarity(&self, a: &[f32], b: &[f32]) -> f32 {
         if a.is_empty() || b.is_empty() {

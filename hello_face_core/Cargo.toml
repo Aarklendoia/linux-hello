@@ -8,11 +8,20 @@ license.workspace = true
 [dependencies]
 ndarray = { workspace = true, optional = true }
 image = { workspace = true, optional = true }
+tract-onnx = { workspace = true, optional = true }
+tract-core = { workspace = true, optional = true }
 serde = { workspace = true }
 serde_json.workspace = true
 thiserror.workspace = true
 anyhow.workspace = true
+tracing.workspace = true
+
+[build-dependencies]
+# Pour téléchargement des modèles ONNX dans build.rs
+# (dépendances std suffisantes : std::net n'est pas disponible en build.rs pur,
+# on utilisera curl/wget via std::process::Command)
 
 [features]
 default = ["backends"]
-backends = ["ndarray", "image"]
+backends = ["dep:ndarray", "dep:image", "tract"]
+tract = ["dep:tract-onnx", "dep:tract-core", "dep:ndarray", "dep:image"]
