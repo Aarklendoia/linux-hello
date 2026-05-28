@@ -42,9 +42,6 @@ const PAM_ERROR_MSG: c_int = 3;
 // Item type pour récupérer la fonction de conversation
 const PAM_CONV_ITEM: c_int = 5;
 
-// Flag silence
-const PAM_SILENT: c_int = 0x8000;
-
 /// Structure message PAM (voir <security/pam_appl.h>)
 #[repr(C)]
 struct PamMessage {

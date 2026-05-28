@@ -69,7 +69,7 @@ if [[ "${1:-}" == "--remove" ]]; then
     for svc in sudo sudo-i su su-l sddm polkit-1; do
         f="$PAM_DIR/$svc"
         # Chercher le backup le plus récent pour ce service
-        latest_bak=$(ls -t "$PAM_DIR/$svc.pre-linuxhello-"* 2>/dev/null | head -1 || true)
+        latest_bak=$(find "$PAM_DIR" -maxdepth 1 -name "$svc.pre-linuxhello-*" -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2- || true)
         if [[ -n "$latest_bak" ]]; then
             cp "$latest_bak" "$f"
             ok "Restauré : $svc ← $latest_bak"
@@ -154,7 +154,6 @@ configure_service() {
 
     # Construire la ligne à insérer
     local lh_auth="${LH_LINE//%CONTEXT%/$context}"
-    local block="$MARKER_START\n$lh_auth\n$MARKER_END"
 
     # Insérer avant l'anchor
     if insert_before_pattern "$file" "$anchor" "$MARKER_START"; then
