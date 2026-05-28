@@ -68,10 +68,11 @@ async fn main() -> anyhow::Result<()> {
 
     // Démarrer le PAM helper socket (/tmp/hello-pam-<uid>.socket)
     let uid = unsafe { libc::getuid() };
-    if let Err(e) =
-        hello_daemon::pam_helper::start_pam_helper(uid, daemon_arc.clone()).await
-    {
-        warn!("PAM helper socket non démarré: {} (auth PAM biométrique indisponible)", e);
+    if let Err(e) = hello_daemon::pam_helper::start_pam_helper(uid, daemon_arc.clone()).await {
+        warn!(
+            "PAM helper socket non démarré: {} (auth PAM biométrique indisponible)",
+            e
+        );
     } else {
         info!("✓ PAM helper socket: /tmp/hello-pam-{}.socket", uid);
     }
