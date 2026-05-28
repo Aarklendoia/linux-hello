@@ -1,3 +1,2 @@
-# Main package gets nothing - all binaries and files go to subpackages
 usr/bin/hello-daemon
 usr/lib/systemd/user/hello-daemon.service
