@@ -22,7 +22,8 @@ tracing-subscriber.workspace = true
 # Stockage
 sqlx = { workspace = true, features = [
     "sqlite",
-    "runtime-tokio-native-tls",
+    "runtime-tokio",
+    "tls-native-tls",
     "macros",
 ] }
 
