@@ -398,6 +398,7 @@ mod tests {
     use super::*;
 
     #[tokio::test]
+    #[ignore = "Nécessite des modèles ML et une caméra physique"]
     async fn test_camera_manager_creation() {
         let camera = CameraManager::new(5000);
         // Le scan ne doit pas paniquer même sans /dev/video*
