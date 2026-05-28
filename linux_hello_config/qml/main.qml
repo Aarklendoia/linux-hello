@@ -58,7 +58,7 @@ Kirigami.ApplicationWindow {
         }
 
         function onNavigateToTestAuthSignal() {
-            mainWindow.pageStack.replace(Qt.resolvedUrl("TestAuth.qml"));
+            mainWindow.pageStack.push(Qt.resolvedUrl("TestAuth.qml"));
         }
     }
 

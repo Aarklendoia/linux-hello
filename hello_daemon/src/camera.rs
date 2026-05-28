@@ -223,17 +223,19 @@ impl CameraManager {
                         Ok(emb) => return emb,
                         Err(e) => warn!("Extraction embedding frame {}: {}", i, e),
                     }
+                } else {
+                    warn!("Aucun visage détecté dans la frame {}", i);
                 }
 
-                // Fallback : embedding stub si détection/extraction échoue
-                let vector = compute_stub_embedding(&frame.data, frame.width, frame.height);
+                // Aucun visage détecté ou extraction échouée : marqueur vide (qualité 0)
+                // Ne jamais utiliser un embedding fictif qui fausserait la comparaison
                 Embedding {
-                    vector,
+                    vector: vec![],
                     metadata: hello_face_core::EmbeddingMetadata {
-                        model: "pixel-mean-128-fallback".to_string(),
-                        model_version: "0.2.0".to_string(),
+                        model: "no-face".to_string(),
+                        model_version: "0.0.0".to_string(),
                         extracted_at: now_secs + i as u64,
-                        quality_score: 0.50,
+                        quality_score: 0.0,
                     },
                 }
             })
@@ -380,40 +382,6 @@ impl CameraManager {
     }
 }
 
-/// Embedding temporaire (Phase 2 remplacera par ArcFace).
-///
-/// Découpe l'image en 128 blocs et calcule la moyenne de chaque bloc,
-/// produisant un vecteur 128-dim L2-normalisé. Reproductible pour la
-/// même image, ce qui permet le matching entre deux enregistrements.
-fn compute_stub_embedding(data: &[u8], width: u32, height: u32) -> Vec<f32> {
-    const DIMS: usize = 128;
-    let pixels = (width * height) as usize;
-    if pixels == 0 || data.is_empty() {
-        return vec![0.0; DIMS];
-    }
-
-    let block = (pixels / DIMS).max(1);
-    let channels = (data.len() / pixels).max(1);
-
-    let mut vec: Vec<f32> = (0..DIMS)
-        .map(|b| {
-            let start = (b * block * channels).min(data.len());
-            let end = ((b + 1) * block * channels).min(data.len());
-            if start >= end {
-                return 0.0;
-            }
-            data[start..end].iter().map(|&x| x as f32).sum::<f32>() / ((end - start) as f32 * 255.0)
-        })
-        .collect();
-
-    // L2-normalisation
-    let norm = vec.iter().map(|x| x * x).sum::<f32>().sqrt().max(1e-6);
-    for v in &mut vec {
-        *v /= norm;
-    }
-    vec
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -427,11 +395,10 @@ mod tests {
 
     #[test]
     fn test_capture_frames_fallback() {
-        // Tester le fallback stub directement, sans matériel ni runtime async
+        // Vérifier que le padding de frames fonctionne sans matériel
         let num_frames: u32 = 3;
         let mut frames: Vec<Frame> = Vec::new();
 
-        // Simuler ce que fait le fallback interne : padding de frames noires
         for i in 0..num_frames {
             frames.push(Frame {
                 data: vec![0u8; 640 * 480 * 3],
@@ -443,22 +410,7 @@ mod tests {
         }
 
         assert_eq!(frames.len(), 3);
-
-        // Vérifier que compute_stub_embedding produit un vecteur 128-dim valide
-        let emb = compute_stub_embedding(&frames[0].data, 640, 480);
-        assert_eq!(emb.len(), 128);
-    }
-
-    #[test]
-    fn test_stub_embedding_normalized() {
-        let data = vec![128u8; 640 * 480 * 3];
-        let emb = compute_stub_embedding(&data, 640, 480);
-        assert_eq!(emb.len(), 128);
-        let norm: f32 = emb.iter().map(|x| x * x).sum::<f32>().sqrt();
-        assert!(
-            (norm - 1.0).abs() < 1e-4,
-            "Embedding non normalisé: {}",
-            norm
-        );
+        assert_eq!(frames[0].width, 640);
+        assert_eq!(frames[0].height, 480);
     }
 }

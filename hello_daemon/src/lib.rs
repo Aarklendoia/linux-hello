@@ -257,6 +257,12 @@ impl FaceAuthDaemon {
             "Aucune frame capturée".to_string(),
         ))?;
 
+        // Rejeter les frames sans visage détecté (marqueur qualité 0)
+        if probe.vector.is_empty() || probe.metadata.quality_score == 0.0 {
+            info!("Aucun visage détecté dans la frame de vérification");
+            return Ok(VerifyResult::NoFaceDetected);
+        }
+
         // Charger les embeddings stockés
         let mut stored_embeddings = std::collections::HashMap::new();
         for face in &faces {
