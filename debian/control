@@ -28,10 +28,10 @@ Depends:
 Description: Face Authentication System for Linux
  Linux Hello provides facial recognition authentication for:
  .
-
-* sudo authentication
-* screenlock unlock (KDE/GNOME)
-* login screen (future)
+ .
+  * sudo authentication
+  * screenlock unlock (KDE/GNOME)
+  * login screen (future)
  .
  This package includes the daemon and PAM module.
 
@@ -85,8 +85,8 @@ Description: Configuration GUI for Linux Hello
  .
  Features:
  .
-
-* Face registration and management
-* Authentication settings configuration
-* Multi-language support with instant switching
-* System integration with KDE Plasma and GNOME
+ .
+  * Face registration and management
+  * Authentication settings configuration
+  * Multi-language support with instant switching
+  * System integration with KDE Plasma and GNOME
