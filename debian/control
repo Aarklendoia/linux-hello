@@ -2,7 +2,7 @@ Source: linux-hello
 Section: system
 Priority: optional
 Maintainer: Linux Hello Team <dev@linuxhello.local>
-Build-Depends: 
+Build-Depends:
   debhelper-compat (= 13),
   libssl-dev,
   libpam0g-dev,
@@ -14,13 +14,13 @@ Build-Depends:
   qml6-module-qtquick-layouts,
   qml6-module-qtquick-controls
 Standards-Version: 4.6.1
-Homepage: https://github.com/linuxhello/face-auth
-Vcs-Git: https://github.com/linuxhello/face-auth.git
+Homepage: <https://github.com/linuxhello/face-auth>
+Vcs-Git: <https://github.com/linuxhello/face-auth.git>
 Rules-Requires-Root: no
 
 Package: linux-hello
 Architecture: any
-Depends: 
+Depends:
   ${shlibs:Depends},
   ${misc:Depends},
   dbus,
@@ -28,9 +28,10 @@ Depends:
 Description: Face Authentication System for Linux
  Linux Hello provides facial recognition authentication for:
  .
-  * sudo authentication
-  * screenlock unlock (KDE/GNOME)
-  * login screen (future)
+
+* sudo authentication
+* screenlock unlock (KDE/GNOME)
+* login screen (future)
  .
  This package includes the daemon and PAM module.
 
@@ -39,7 +40,8 @@ Architecture: any
 Depends:
   ${shlibs:Depends},
   ${misc:Depends},
-  dbus
+  dbus,
+  libonnxruntime1.23
 Description: Face Authentication Daemon
  The D-Bus service daemon for Linux Hello facial recognition.
  Provides the com.linuxhello.FaceAuth interface.
@@ -82,7 +84,8 @@ Description: Configuration GUI for Linux Hello
  Portuguese, Russian, Japanese, German, French).
  .
  Features:
-  * Face registration and management
-  * Authentication settings configuration
-  * Multi-language support with instant switching
-  * System integration with KDE Plasma and GNOME
+
+* Face registration and management
+* Authentication settings configuration
+* Multi-language support with instant switching
+* System integration with KDE Plasma and GNOME
