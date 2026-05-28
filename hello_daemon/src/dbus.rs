@@ -41,6 +41,21 @@ impl FaceAuthInterface {
             storage_path,
         }
     }
+
+    /// Créer depuis un Arc partagé (permet de partager le daemon avec le PAM helper)
+    pub fn from_arc(
+        daemon: Arc<RwLock<FaceAuthDaemon>>,
+        storage_path: String,
+        connection: Connection,
+    ) -> Self {
+        let signal_emitter = Arc::new(StreamingSignalEmitter::new(Arc::new(connection)));
+        Self {
+            daemon,
+            signal_emitter: Some(signal_emitter),
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            storage_path,
+        }
+    }
 }
 
 #[interface(name = "com.linuxhello.FaceAuth")]

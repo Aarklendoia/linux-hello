@@ -246,22 +246,34 @@ impl FaceAuthDaemon {
             return Ok(VerifyResult::NoEnrollment);
         }
 
-        // Capturer une frame
+        // Capturer 3 frames et prendre le meilleur score
+        const NUM_VERIFY_FRAMES: u32 = 3;
         let capture = self
             .camera
-            .capture_frames(1, request.timeout_ms)
+            .capture_frames(NUM_VERIFY_FRAMES, request.timeout_ms)
             .await
             .map_err(|e| DaemonError::CameraError(e.to_string()))?;
 
-        let probe = capture.embeddings.first().ok_or(DaemonError::CameraError(
-            "Aucune frame capturée".to_string(),
-        ))?;
+        // Filtrer les frames valides (avec visage détecté)
+        let valid_probes: Vec<_> = capture
+            .embeddings
+            .iter()
+            .filter(|e| !e.vector.is_empty() && e.metadata.quality_score > 0.0)
+            .collect();
 
-        // Rejeter les frames sans visage détecté (marqueur qualité 0)
-        if probe.vector.is_empty() || probe.metadata.quality_score == 0.0 {
-            info!("Aucun visage détecté dans la frame de vérification");
+        if valid_probes.is_empty() {
+            info!(
+                "Aucun visage détecté dans les {} frames de vérification",
+                NUM_VERIFY_FRAMES
+            );
             return Ok(VerifyResult::NoFaceDetected);
         }
+
+        info!(
+            "{}/{} frames valides pour la vérification",
+            valid_probes.len(),
+            NUM_VERIFY_FRAMES
+        );
 
         // Charger les embeddings stockés
         let mut stored_embeddings = std::collections::HashMap::new();
@@ -273,20 +285,29 @@ impl FaceAuthDaemon {
             stored_embeddings.insert(face.face_id.clone(), embedding);
         }
 
-        // Matcher
-        let match_result =
-            self.matcher
-                .match_embedding(probe, &stored_embeddings, &request.context);
-
-        if match_result.matched {
-            Ok(VerifyResult::Success {
-                face_id: match_result.face_id.unwrap(),
-                similarity_score: match_result.best_score,
+        // Matcher chaque frame valide, conserver le meilleur résultat
+        let best_result = valid_probes
+            .iter()
+            .map(|probe| {
+                self.matcher
+                    .match_embedding(probe, &stored_embeddings, &request.context)
             })
-        } else if match_result.best_score > 0.0 {
+            .max_by(|a, b| {
+                a.best_score
+                    .partial_cmp(&b.best_score)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .unwrap(); // safe: valid_probes non vide
+
+        if best_result.matched {
+            Ok(VerifyResult::Success {
+                face_id: best_result.face_id.unwrap(),
+                similarity_score: best_result.best_score,
+            })
+        } else if best_result.best_score > 0.0 {
             Ok(VerifyResult::NoMatch {
-                best_score: match_result.best_score,
-                threshold: match_result.threshold,
+                best_score: best_result.best_score,
+                threshold: best_result.threshold,
             })
         } else {
             Ok(VerifyResult::NoFaceDetected)
