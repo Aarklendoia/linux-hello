@@ -154,6 +154,73 @@ fn parse_options(argc: c_int, argv: *const *const c_char) -> PamOptions {
     opts
 }
 
+/// Détecter la langue courante depuis les variables d'environnement PAM.
+/// Retourne le code de langue à 2 lettres (ex: "fr", "de"), ou "en" par défaut.
+fn detect_lang() -> String {
+    for var in &["LC_ALL", "LC_MESSAGES", "LANG", "LANGUAGE"] {
+        if let Ok(val) = std::env::var(var) {
+            let lang = val.split(['.', '_', '@']).next().unwrap_or("en");
+            if lang.len() >= 2 {
+                return lang[..2].to_lowercase();
+            }
+        }
+    }
+    "en".to_string()
+}
+
+/// Traduire un message PAM selon la langue détectée.
+/// Clés reconnues : "looking", "recognized", "not_recognized"
+fn pam_t(key: &str) -> &'static str {
+    let lang = detect_lang();
+    match (lang.as_str(), key) {
+        // Anglais (défaut)
+        (_, "looking") if lang == "en" => "🔍 Look at the camera...",
+        (_, "recognized") if lang == "en" => "✓ Face recognized",
+        (_, "not_recognized") if lang == "en" => "✗ Face not recognized",
+        // Français
+        ("fr", "looking") => "🔍 Regardez vers la caméra...",
+        ("fr", "recognized") => "✓ Visage reconnu",
+        ("fr", "not_recognized") => "✗ Visage non reconnu",
+        // Allemand
+        ("de", "looking") => "🔍 Schauen Sie in die Kamera...",
+        ("de", "recognized") => "✓ Gesicht erkannt",
+        ("de", "not_recognized") => "✗ Gesicht nicht erkannt",
+        // Espagnol
+        ("es", "looking") => "🔍 Mire hacia la cámara...",
+        ("es", "recognized") => "✓ Rostro reconocido",
+        ("es", "not_recognized") => "✗ Rostro no reconocido",
+        // Portugais
+        ("pt", "looking") => "🔍 Olhe para a câmera...",
+        ("pt", "recognized") => "✓ Rosto reconhecido",
+        ("pt", "not_recognized") => "✗ Rosto não reconhecido",
+        // Russe
+        ("ru", "looking") => "🔍 Посмотрите на камеру...",
+        ("ru", "recognized") => "✓ Лицо распознано",
+        ("ru", "not_recognized") => "✗ Лицо не распознано",
+        // Japonais
+        ("ja", "looking") => "🔍 カメラを見てください...",
+        ("ja", "recognized") => "✓ 顔が認識されました",
+        ("ja", "not_recognized") => "✗ 顔が認識されませんでした",
+        // Chinois
+        ("zh", "looking") => "🔍 请看向摄像头...",
+        ("zh", "recognized") => "✓ 人脸已识别",
+        ("zh", "not_recognized") => "✗ 人脸未识别",
+        // Arabe
+        ("ar", "looking") => "🔍 انظر إلى الكاميرا...",
+        ("ar", "recognized") => "✓ تم التعرف على الوجه",
+        ("ar", "not_recognized") => "✗ لم يتم التعرف على الوجه",
+        // Hindi
+        ("hi", "looking") => "🔍 कैमरे की ओर देखें...",
+        ("hi", "recognized") => "✓ चेहरा पहचाना गया",
+        ("hi", "not_recognized") => "✗ चेहरा नहीं पहचाना गया",
+        // Défaut anglais
+        (_, "looking") => "🔍 Look at the camera...",
+        (_, "recognized") => "✓ Face recognized",
+        (_, "not_recognized") => "✗ Face not recognized",
+        _ => "",
+    }
+}
+
 /// Envoyer un message via la PAM conversation (pam_conv).
 /// On envoie même si PAM_SILENT est actif : l'utilisateur doit savoir
 /// que la caméra est en cours d'utilisation (retour biométrique essentiel).
@@ -300,7 +367,7 @@ pub unsafe extern "C" fn pam_sm_authenticate(
     log_pam(&format!("UID de l'utilisateur {}: {}", username, user_id));
 
     // Informer l'utilisateur que la reconnaissance est en cours
-    pam_conv_send(pamh, flags, PAM_TEXT_INFO, "🔍 Regardez vers la caméra...");
+    pam_conv_send(pamh, flags, PAM_TEXT_INFO, pam_t("looking"));
 
     // Créer la requête pour le helper PAM
     let helper_req = PamHelperRequest {
@@ -324,7 +391,7 @@ pub unsafe extern "C" fn pam_sm_authenticate(
                     "helper success user={} face_id={} score={}",
                     username, face_id, similarity_score
                 ));
-                pam_conv_send(pamh, flags, PAM_TEXT_INFO, "✓ Visage reconnu");
+                pam_conv_send(pamh, flags, PAM_TEXT_INFO, pam_t("recognized"));
                 PAM_SUCCESS
             }
             PamHelperResponse::Failure { reason } => {
@@ -336,7 +403,7 @@ pub unsafe extern "C" fn pam_sm_authenticate(
                     "helper failure user={} reason={}",
                     username, reason
                 ));
-                pam_conv_send(pamh, flags, PAM_ERROR_MSG, "✗ Visage non reconnu");
+                pam_conv_send(pamh, flags, PAM_ERROR_MSG, pam_t("not_recognized"));
                 PAM_AUTH_ERR
             }
         },
