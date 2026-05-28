@@ -6,6 +6,7 @@ After=dbus.service
 [Service]
 Type=simple
 ExecStart=/usr/bin/hello-daemon
+Environment=ORT_DYLIB_PATH=/usr/lib/x86_64-linux-gnu/libonnxruntime.so.1.23
 Restart=on-failure
 RestartSec=5s
 

@@ -208,9 +208,14 @@ impl CameraManager {
             .enumerate()
             .map(|(i, frame)| {
                 // 1. Détecter les visages dans la frame
-                let faces = detector
-                    .detect(&frame.data, frame.width, frame.height, 3)
-                    .unwrap_or_default();
+                debug!("Frame {}: {}×{} {} bytes", i, frame.width, frame.height, frame.data.len());
+                let faces = match detector.detect(&frame.data, frame.width, frame.height, 3) {
+                    Ok(f) => f,
+                    Err(e) => {
+                        warn!("Erreur détection SCRFD frame {}: {}", i, e);
+                        vec![]
+                    }
+                };
 
                 // 2. Prendre le visage avec la meilleure confiance
                 let best_face = faces

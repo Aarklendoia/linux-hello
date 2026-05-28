@@ -10,6 +10,7 @@ ndarray = { workspace = true, optional = true }
 image = { workspace = true, optional = true }
 tract-onnx = { workspace = true, optional = true }
 tract-core = { workspace = true, optional = true }
+ort = { workspace = true, optional = true }
 serde = { workspace = true }
 serde_json.workspace = true
 thiserror.workspace = true
@@ -24,4 +25,4 @@ tracing.workspace = true
 [features]
 default = ["backends"]
 backends = ["dep:ndarray", "dep:image", "tract"]
-tract = ["dep:tract-onnx", "dep:tract-core", "dep:ndarray", "dep:image"]
+tract = ["dep:tract-onnx", "dep:tract-core", "dep:ndarray", "dep:image", "dep:ort"]
