@@ -354,19 +354,31 @@ pub mod simple_implementation {
 
 /// Chemin par défaut du dossier de modèles
 pub fn default_models_dir() -> std::path::PathBuf {
-    // 1. Variable d'environnement définie au build
-    if let Some(p) = option_env!("LINUX_HELLO_MODELS_DIR") {
+    // 1. Variable d'environnement runtime (override tests/développement)
+    if let Ok(p) = std::env::var("LINUX_HELLO_MODELS_DIR") {
         return std::path::PathBuf::from(p);
     }
-    // 2. XDG_DATA_HOME
+    // 2. Chemin système (paquet linux-hello-models installé)
+    let system_path = std::path::PathBuf::from("/usr/share/linux-hello/models");
+    if system_path.exists() {
+        return system_path.clone();
+    }
+    // 3. Chemin compilé par build.rs (développement/CI)
+    if let Some(p) = option_env!("LINUX_HELLO_MODELS_DIR") {
+        let path = std::path::PathBuf::from(p);
+        if path.exists() {
+            return path;
+        }
+    }
+    // 4. XDG_DATA_HOME
     if let Ok(xdg) = std::env::var("XDG_DATA_HOME") {
         return std::path::PathBuf::from(xdg).join("linux-hello/models");
     }
-    // 3. HOME/.local/share
+    // 5. HOME/.local/share
     if let Ok(home) = std::env::var("HOME") {
         return std::path::PathBuf::from(home).join(".local/share/linux-hello/models");
     }
-    std::path::PathBuf::from("/usr/share/linux-hello/models")
+    system_path
 }
 
 /// Crée le détecteur de visages le plus capable disponible.
