@@ -25,4 +25,10 @@ tracing.workspace = true
 [features]
 default = ["backends"]
 backends = ["dep:ndarray", "dep:image", "tract"]
-tract = ["dep:tract-onnx", "dep:tract-core", "dep:ndarray", "dep:image", "dep:ort"]
+tract = [
+    "dep:tract-onnx",
+    "dep:tract-core",
+    "dep:ndarray",
+    "dep:image",
+    "dep:ort",
+]

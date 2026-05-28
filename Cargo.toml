@@ -74,7 +74,12 @@ tract-core = "0.21"
 
 # ONNX Runtime via liaison dynamique (libonnxruntime.so.1.23)
 # api-23 correspond à ONNX Runtime 1.23.x installé sur le système
-ort = { version = "2.0.0-rc.12", features = ["load-dynamic", "ndarray", "tracing", "api-23"], default-features = false }
+ort = { version = "2.0.0-rc.12", features = [
+    "load-dynamic",
+    "ndarray",
+    "tracing",
+    "api-23",
+], default-features = false }
 
 # System
 libc = "0.2"

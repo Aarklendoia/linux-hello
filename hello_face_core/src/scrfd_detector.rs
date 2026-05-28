@@ -118,12 +118,10 @@ impl FaceDetector for ScrfdDetector {
                 .lock()
                 .map_err(|e| FaceError::DetectionFailed(format!("mutex: {}", e)))?;
 
-            let outputs = session
-                .run(ort::inputs![input_tensor])
-                .map_err(|e| {
-                    tracing::error!("SCRFD ort.run() échoué: {}", e);
-                    FaceError::DetectionFailed(e.to_string())
-                })?;
+            let outputs = session.run(ort::inputs![input_tensor]).map_err(|e| {
+                tracing::error!("SCRFD ort.run() échoué: {}", e);
+                FaceError::DetectionFailed(e.to_string())
+            })?;
 
             let n_outputs = outputs.len();
             tracing::debug!("SCRFD: {} sorties", n_outputs);
@@ -138,8 +136,8 @@ impl FaceDetector for ScrfdDetector {
             let mut regions = Vec::new();
 
             for (s_idx, &stride) in strides.iter().enumerate() {
-                let score_idx = s_idx;           // 0, 1, 2
-                let bbox_idx = 3 + s_idx;        // 3, 4, 5
+                let score_idx = s_idx; // 0, 1, 2
+                let bbox_idx = 3 + s_idx; // 3, 4, 5
 
                 if bbox_idx >= n_outputs {
                     break;
@@ -172,7 +170,10 @@ impl FaceDetector for ScrfdDetector {
 
                 tracing::debug!(
                     "SCRFD stride={} n={} scores.shape={:?} bboxes.shape={:?}",
-                    stride, n, scores.shape(), bboxes.shape()
+                    stride,
+                    n,
+                    scores.shape(),
+                    bboxes.shape()
                 );
 
                 for i in 0..n_anchors {
@@ -246,7 +247,11 @@ impl FaceDetector for ScrfdDetector {
         }; // lock released here
 
         let regions = self.nms(regions_raw);
-        tracing::debug!("SCRFD: {} visages (conf>{:.2})", regions.len(), self.confidence_threshold);
+        tracing::debug!(
+            "SCRFD: {} visages (conf>{:.2})",
+            regions.len(),
+            self.confidence_threshold
+        );
         Ok(regions)
     }
 

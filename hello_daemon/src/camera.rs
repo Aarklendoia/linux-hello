@@ -208,7 +208,13 @@ impl CameraManager {
             .enumerate()
             .map(|(i, frame)| {
                 // 1. Détecter les visages dans la frame
-                debug!("Frame {}: {}×{} {} bytes", i, frame.width, frame.height, frame.data.len());
+                debug!(
+                    "Frame {}: {}×{} {} bytes",
+                    i,
+                    frame.width,
+                    frame.height,
+                    frame.data.len()
+                );
                 let faces = match detector.detect(&frame.data, frame.width, frame.height, 3) {
                     Ok(f) => f,
                     Err(e) => {
