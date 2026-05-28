@@ -43,7 +43,10 @@ fn download(url: &str, dest: &PathBuf, desc: &str) -> bool {
 
     // Essayer curl d'abord, puis wget
     for (cmd, args) in &[
-        ("curl", vec!["-L", "--silent", "--output", dest.to_str().unwrap(), url]),
+        (
+            "curl",
+            vec!["-L", "--silent", "--output", dest.to_str().unwrap(), url],
+        ),
         ("wget", vec!["-q", "-O", dest.to_str().unwrap(), url]),
     ] {
         if let Ok(status) = Command::new(cmd).args(args).status() {
@@ -53,7 +56,10 @@ fn download(url: &str, dest: &PathBuf, desc: &str) -> bool {
                     println!("cargo:warning=✓ Modèle {} téléchargé", desc);
                     return true;
                 } else {
-                    println!("cargo:warning=✗ Fichier trop petit pour {}, suppression", desc);
+                    println!(
+                        "cargo:warning=✗ Fichier trop petit pour {}, suppression",
+                        desc
+                    );
                     let _ = std::fs::remove_file(dest);
                 }
             }

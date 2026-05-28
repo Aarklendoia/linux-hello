@@ -9,8 +9,8 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use thiserror::Error;
 
-pub mod stub_detector;
 pub mod liveness;
+pub mod stub_detector;
 
 #[cfg(feature = "tract")]
 pub mod scrfd_detector;
@@ -424,16 +424,24 @@ pub fn create_extractor(models_dir: &std::path::Path) -> Box<dyn EmbeddingExtrac
 // Fonctions internes pour instancier les fallbacks sans la feature tract
 fn scrfd_detector_fallback() -> Box<dyn FaceDetector> {
     #[cfg(feature = "tract")]
-    { Box::new(scrfd_detector::ScrfdFallback) }
+    {
+        Box::new(scrfd_detector::ScrfdFallback)
+    }
     #[cfg(not(feature = "tract"))]
-    { Box::new(stub_detector::StubDetector::default()) }
+    {
+        Box::new(stub_detector::StubDetector::default())
+    }
 }
 
 fn arcface_extractor_fallback() -> Box<dyn EmbeddingExtractor> {
     #[cfg(feature = "tract")]
-    { Box::new(arcface_extractor::ArcFaceFallback) }
+    {
+        Box::new(arcface_extractor::ArcFaceFallback)
+    }
     #[cfg(not(feature = "tract"))]
-    { Box::new(simple_implementation::SimpleEmbedder) }
+    {
+        Box::new(simple_implementation::SimpleEmbedder)
+    }
 }
 
 #[cfg(test)]
