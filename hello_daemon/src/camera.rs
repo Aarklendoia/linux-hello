@@ -63,6 +63,14 @@ impl CameraManager {
     /// Créer un gestionnaire caméra en scannant les devices disponibles
     pub fn new(default_timeout_ms: u64) -> Self {
         let inventory = hello_camera::scan_cameras();
+        Self::new_with_inventory(default_timeout_ms, inventory)
+    }
+
+    /// Créer un gestionnaire caméra à partir d'un inventaire déjà résolu
+    pub fn new_with_inventory(
+        default_timeout_ms: u64,
+        inventory: hello_camera::CameraInventory,
+    ) -> Self {
         info!(
             "Inventaire caméras: RGB={}, IR={}",
             inventory.rgb_device,
@@ -417,12 +425,29 @@ fn compute_stub_embedding(data: &[u8], width: u32, height: u32) -> Vec<f32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tokio::time::{timeout, Duration};
 
     #[tokio::test]
     async fn test_camera_manager_creation() {
-        let camera = CameraManager::new(5000);
-        // Le scan ne doit pas paniquer même sans /dev/video*
+        let inventory = hello_camera::CameraInventory {
+            rgb_device: "/dev/video0".to_string(),
+            ir_device: None,
+        };
+        let camera = CameraManager::new_with_inventory(5000, inventory);
+        // Test déterministe: pas de scan matériel
         assert!(!camera.rgb_device.is_empty());
+    }
+
+    #[tokio::test]
+    #[ignore = "integration matérielle opt-in"]
+    async fn test_camera_manager_creation_hardware_scan_opt_in() {
+        // Garde-fou de durée pour éviter un blocage infini.
+        let created = timeout(
+            Duration::from_secs(3),
+            tokio::task::spawn_blocking(|| CameraManager::new(5000)),
+        )
+        .await;
+        assert!(created.is_ok(), "scan caméra dépassé (>3s)");
     }
 
     #[test]
