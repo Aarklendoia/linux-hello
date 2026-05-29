@@ -441,13 +441,15 @@ mod tests {
     #[tokio::test]
     #[ignore = "integration matérielle opt-in"]
     async fn test_camera_manager_creation_hardware_scan_opt_in() {
-        // Garde-fou de durée pour éviter un blocage infini.
+        // Protection temporelle pour éviter un blocage infini.
         let created = timeout(
             Duration::from_secs(3),
             tokio::task::spawn_blocking(|| CameraManager::new(5000)),
         )
-        .await;
-        assert!(created.is_ok(), "scan caméra dépassé (>3s)");
+        .await
+        .expect("Le scan de caméra a dépassé le délai de 3 secondes")
+        .expect("La tâche de scan caméra a paniqué");
+        assert!(!created.rgb_device.is_empty());
     }
 
     #[test]
