@@ -1,3 +1,5 @@
-# Files intentionally not included in any package
+# Files intentionally not included via dh_install (managed by override_dh_install or not packaged)
 usr/share/doc/linux-hello-gui/changelog.Debian.gz
 usr/share/doc/linux-hello-gui/copyright
+# QML files installés manuellement via cp dans override_dh_install (debian/rules)
+usr/share/qt6/qml/Linux/Hello/*

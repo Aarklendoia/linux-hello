@@ -9,3 +9,4 @@ linux-hello.desktop usr/share/applications
 # GUI Documentation
 I18N_IMPLEMENTATION.md usr/share/doc/linux-hello-gui
 INTERNATIONALIZATION_FINAL_REPORT.md usr/share/doc/linux-hello-gui
+# QML files (copie réalisée via override_dh_install dans debian/rules)

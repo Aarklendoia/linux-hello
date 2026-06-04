@@ -1,3 +1,23 @@
+linux-hello (1.0.2-1) unstable; urgency=medium
+
+  * Ajoute le paquet linux-hello-models avec les modèles ONNX (det_500m, w600k_mbf)
+  * Installe les modèles dans /usr/share/linux-hello/models/ (accès système)
+  * Priorise /usr/share/linux-hello/models/ dans la recherche de modèles à l'exécution
+  * Ajoute linux-hello-models comme dépendance de linux-hello et linux-hello-daemon
+
+ -- Linux Hello Team <dev@linuxhello.local>  Wed, 28 May 2026 14:00:00 +0200
+
+linux-hello (1.0.1-1) unstable; urgency=medium
+
+  * Remplace tract-onnx par ort 2.0.0-rc.12 (api-23) pour la détection SCRFD-500M
+  * Corrige l'indexation des sorties SCRFD (groupées par type, pas par stride)
+  * Ajoute ORT_DYLIB_PATH au service systemd pour le chargement dynamique libonnxruntime
+  * Ajoute dépendance runtime libonnxruntime1.23
+  * Supprime le fallback stub embedding dans le pipeline de production
+  * Corrige le bouton retour dans la page TestAuth de l'interface GUI
+
+ -- Linux Hello Team <dev@linuxhello.local>  Wed, 28 May 2026 10:30:00 +0200
+
 linux-hello (1.0.0-1) unstable; urgency=high
 
   * Initial release of Linux Hello face authentication system

@@ -7,6 +7,8 @@ use hello_daemon::{dbus::FaceAuthInterface, DaemonConfig, FaceAuthDaemon};
 use std::path::PathBuf;
 use tracing::{error, info, warn};
 
+extern crate libc;
+
 #[derive(Parser, Debug)]
 #[command(name = "hello-daemon")]
 #[command(about = "Linux Hello - Daemon d'authentification faciale", long_about = None)]
@@ -53,11 +55,26 @@ async fn main() -> anyhow::Result<()> {
 
     // Créer le daemon
     let daemon = FaceAuthDaemon::new(config)?;
+    let storage_path = daemon.config().storage_path.to_string_lossy().into_owned();
 
     if daemon.config().root_mode {
         info!("Mode root activé - accessible pour tous les utilisateurs");
     } else {
         warn!("Mode user - accessible uniquement pour l'utilisateur courant");
+    }
+
+    // Envelopper dans Arc<RwLock> pour partage avec le PAM helper
+    let daemon_arc = std::sync::Arc::new(tokio::sync::RwLock::new(daemon));
+
+    // Démarrer le PAM helper socket (/tmp/hello-pam-<uid>.socket)
+    let uid = unsafe { libc::getuid() };
+    if let Err(e) = hello_daemon::pam_helper::start_pam_helper(uid, daemon_arc.clone()).await {
+        warn!(
+            "PAM helper socket non démarré: {} (auth PAM biométrique indisponible)",
+            e
+        );
+    } else {
+        info!("✓ PAM helper socket: /tmp/hello-pam-{}.socket", uid);
     }
 
     // Démarrer le serveur MJPEG pour la preview GUI (flux vidéo temps réel)
@@ -71,7 +88,7 @@ async fn main() -> anyhow::Result<()> {
         e
     })?;
 
-    let iface = FaceAuthInterface::new_with_connection(daemon, connection.clone());
+    let iface = FaceAuthInterface::from_arc(daemon_arc, storage_path, connection.clone());
 
     connection
         .request_name("com.linuxhello.FaceAuth")

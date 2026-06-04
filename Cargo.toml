@@ -15,6 +15,14 @@ opt-level = 3
 lto = true
 codegen-units = 1
 
+# Profil CI : compilation rapide, pas d'optimisations release
+# Évite le timeout d'1h causé par LTO + codegen-units=1
+[profile.ci]
+inherits = "test"
+opt-level = 1
+lto = false
+codegen-units = 16
+
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
@@ -71,6 +79,15 @@ rand = "0.10"
 # ML inference (pur Rust, zero dépendance native)
 tract-onnx = "0.21"
 tract-core = "0.21"
+
+# ONNX Runtime via liaison dynamique (libonnxruntime.so.1.23)
+# api-23 correspond à ONNX Runtime 1.23.x installé sur le système
+ort = { version = "2.0.0-rc.12", features = [
+    "load-dynamic",
+    "ndarray",
+    "tracing",
+    "api-23",
+], default-features = false }
 
 # System
 libc = "0.2"

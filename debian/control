@@ -2,7 +2,7 @@ Source: linux-hello
 Section: system
 Priority: optional
 Maintainer: Linux Hello Team <dev@linuxhello.local>
-Build-Depends: 
+Build-Depends:
   debhelper-compat (= 13),
   libssl-dev,
   libpam0g-dev,
@@ -14,19 +14,21 @@ Build-Depends:
   qml6-module-qtquick-layouts,
   qml6-module-qtquick-controls
 Standards-Version: 4.6.1
-Homepage: https://github.com/linuxhello/face-auth
-Vcs-Git: https://github.com/linuxhello/face-auth.git
+Homepage: <https://github.com/linuxhello/face-auth>
+Vcs-Git: <https://github.com/linuxhello/face-auth.git>
 Rules-Requires-Root: no
 
 Package: linux-hello
 Architecture: any
-Depends: 
+Depends:
   ${shlibs:Depends},
   ${misc:Depends},
   dbus,
-  systemd
+  systemd,
+  linux-hello-models
 Description: Face Authentication System for Linux
  Linux Hello provides facial recognition authentication for:
+ .
  .
   * sudo authentication
   * screenlock unlock (KDE/GNOME)
@@ -34,12 +36,27 @@ Description: Face Authentication System for Linux
  .
  This package includes the daemon and PAM module.
 
+Package: linux-hello-models
+Architecture: all
+Depends:
+  ${misc:Depends}
+Description: ONNX models for Linux Hello face authentication
+ This package contains the ONNX neural network models required by Linux Hello
+ for face detection and embedding extraction.
+ .
+ Models installed in /usr/share/linux-hello/models/:
+ .
+  * det_500m.onnx — SCRFD-500M face detector (~500 KB)
+  * w600k_mbf.onnx — ArcFace MobileNetV3 face embedding (~2.5 MB)
+
 Package: linux-hello-daemon
 Architecture: any
 Depends:
   ${shlibs:Depends},
   ${misc:Depends},
-  dbus
+  dbus,
+  libonnxruntime1.23,
+  linux-hello-models
 Description: Face Authentication Daemon
  The D-Bus service daemon for Linux Hello facial recognition.
  Provides the com.linuxhello.FaceAuth interface.
@@ -82,6 +99,8 @@ Description: Configuration GUI for Linux Hello
  Portuguese, Russian, Japanese, German, French).
  .
  Features:
+ .
+ .
   * Face registration and management
   * Authentication settings configuration
   * Multi-language support with instant switching

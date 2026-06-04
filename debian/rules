@@ -45,6 +45,13 @@ override_dh_auto_install:
 	cp $(CURDIR)/sudo-linux-hello.pam $(CURDIR)/debian/tmp/usr/share/doc/linux-hello/
 	cp $(CURDIR)/kde-screenlock-linux-hello.pam $(CURDIR)/debian/tmp/usr/share/doc/linux-hello/
 	
+	# Install ONNX models (téléchargés par build.rs pendant cargo build --release)
+	mkdir -p $(CURDIR)/debian/tmp/usr/share/linux-hello/models
+	cp "$${XDG_DATA_HOME:-$(HOME)/.local/share}/linux-hello/models/det_500m.onnx" \
+	   $(CURDIR)/debian/tmp/usr/share/linux-hello/models/
+	cp "$${XDG_DATA_HOME:-$(HOME)/.local/share}/linux-hello/models/w600k_mbf.onnx" \
+	   $(CURDIR)/debian/tmp/usr/share/linux-hello/models/
+
 	# Install example config
 	mkdir -p $(CURDIR)/debian/tmp/etc/linux-hello
 	cp $(CURDIR)/linux-hello.config.toml.example $(CURDIR)/debian/tmp/etc/linux-hello/config.toml.example

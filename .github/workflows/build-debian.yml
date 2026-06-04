@@ -11,15 +11,13 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    container:
-      image: debian:bookworm
     
     steps:
       - name: Checkout code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
       
       - name: Cache Rust installations
-        uses: actions/cache@v5
+        uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/bin
@@ -32,8 +30,8 @@ jobs:
       
       - name: Install build dependencies
         run: |
-          apt-get update
-          apt-get install -y \
+          sudo apt-get update
+          sudo apt-get install -y \
             build-essential \
             debhelper \
             devscripts \
@@ -47,15 +45,18 @@ jobs:
             libclang-dev \
             clang \
             pkg-config \
-            curl
+            curl \
+            qt6-base-dev \
+            qt6-declarative-dev \
+            qml6-module-qtquick \
+            qml6-module-qtquick-controls \
+            qml6-module-qtquick-layouts
       
       - name: Install Rust
-        run: |
-          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
-          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+        uses: dtolnay/rust-toolchain@stable
       
       - name: Cache Cargo build outputs
-        uses: actions/cache@v5
+        uses: actions/cache@v4
         with:
           path: target
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
@@ -78,7 +79,7 @@ jobs:
           lintian *.deb || true
       
       - name: Upload artifacts
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: debian-packages
           path: |
@@ -89,7 +90,7 @@ jobs:
       
       - name: Create Release (on tag)
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@v2
         with:
           files: |
             *.deb

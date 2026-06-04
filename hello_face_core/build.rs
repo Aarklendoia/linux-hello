@@ -45,7 +45,15 @@ fn download(url: &str, dest: &PathBuf, desc: &str) -> bool {
     for (cmd, args) in &[
         (
             "curl",
-            vec!["-L", "--silent", "--output", dest.to_str().unwrap(), url],
+            vec![
+                "-L",
+                "--silent",
+                "--max-time",
+                "30",
+                "--output",
+                dest.to_str().unwrap(),
+                url,
+            ],
         ),
         ("wget", vec!["-q", "-O", dest.to_str().unwrap(), url]),
     ] {
@@ -74,6 +82,14 @@ fn download(url: &str, dest: &PathBuf, desc: &str) -> bool {
 }
 
 fn main() {
+    // En CI, sauter le téléchargement des modèles (le stub sera utilisé).
+    if std::env::var("LINUX_HELLO_NO_MODEL_DOWNLOAD").is_ok() {
+        println!("cargo:warning=⚠ LINUX_HELLO_NO_MODEL_DOWNLOAD défini, téléchargement ignoré");
+        println!("cargo:rustc-env=LINUX_HELLO_MODELS_DIR=/tmp/linux-hello-models-ci");
+        println!("cargo:rerun-if-changed=build.rs");
+        return;
+    }
+
     let dir = models_dir();
 
     if let Err(e) = std::fs::create_dir_all(&dir) {

@@ -20,8 +20,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json.workspace = true
 anyhow.workspace = true
 thiserror.workspace = true
-tracing.workspace = true
-tracing-subscriber = { workspace = true, features = ["env-filter"] }
+# tracing supprimé: dans une .so PAM, les macros tracing sans subscriber initialisé causent un segfault
 
 # Runtime async pour PAM (attention: PAM n'est pas async)
 tokio = { workspace = true, features = ["rt-multi-thread"] }
