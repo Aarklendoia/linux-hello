@@ -8,15 +8,9 @@ use crate::{Embedding, EmbeddingExtractor, EmbeddingMetadata, FaceError, FaceReg
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+// tract 0.23 : SimplePlan a été renommé TypedRunnableModel
 #[cfg(feature = "tract")]
-type TractPlan = tract_onnx::prelude::SimplePlan<
-    tract_onnx::prelude::TypedFact,
-    Box<dyn tract_onnx::prelude::TypedOp>,
-    tract_onnx::prelude::Graph<
-        tract_onnx::prelude::TypedFact,
-        Box<dyn tract_onnx::prelude::TypedOp>,
-    >,
->;
+type TractPlan = tract_onnx::prelude::TypedRunnableModel;
 
 /// Extracteur ArcFace MobileNetV3 (w600k_mbf)
 #[cfg(feature = "tract")]

@@ -77,8 +77,8 @@ sha2 = "0.11"
 rand = "0.10"
 
 # ML inference (pur Rust, zero dépendance native)
-tract-onnx = "0.21"
-tract-core = "0.21"
+tract-onnx = "0.23"
+tract-core = "0.23"
 
 # ONNX Runtime via liaison dynamique (libonnxruntime.so.1.23)
 # api-23 correspond à ONNX Runtime 1.23.x installé sur le système
