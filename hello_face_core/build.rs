@@ -45,7 +45,15 @@ fn download(url: &str, dest: &PathBuf, desc: &str) -> bool {
     for (cmd, args) in &[
         (
             "curl",
-            vec!["-L", "--silent", "--max-time", "30", "--output", dest.to_str().unwrap(), url],
+            vec![
+                "-L",
+                "--silent",
+                "--max-time",
+                "30",
+                "--output",
+                dest.to_str().unwrap(),
+                url,
+            ],
         ),
         ("wget", vec!["-q", "-O", dest.to_str().unwrap(), url]),
     ] {
