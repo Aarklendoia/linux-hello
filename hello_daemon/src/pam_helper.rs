@@ -127,7 +127,11 @@ async fn handle_pam_request(
                 "PAM helper: connexion refusée — peer uid={} demande user_id={}",
                 uid, req.user_id
             );
-            return reject(stream, "Unauthorized: peer uid does not match requested user_id").await;
+            return reject(
+                stream,
+                "Unauthorized: peer uid does not match requested user_id",
+            )
+            .await;
         }
     }
 
