@@ -289,8 +289,12 @@ impl FaceAuthDaemon {
         let best_result = valid_probes
             .iter()
             .map(|probe| {
-                self.matcher
-                    .match_with_liveness(probe, &stored_embeddings, &request.context, capture.ir_liveness)
+                self.matcher.match_with_liveness(
+                    probe,
+                    &stored_embeddings,
+                    &request.context,
+                    capture.ir_liveness,
+                )
             })
             .max_by(|a, b| {
                 a.best_score
