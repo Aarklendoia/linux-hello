@@ -8,15 +8,9 @@ use crate::{Embedding, EmbeddingExtractor, EmbeddingMetadata, FaceError, FaceReg
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+// tract 0.23 : into_runnable() retourne Arc<SimplePlan<...>>, run() est sur Arc
 #[cfg(feature = "tract")]
-type TractPlan = tract_onnx::prelude::SimplePlan<
-    tract_onnx::prelude::TypedFact,
-    Box<dyn tract_onnx::prelude::TypedOp>,
-    tract_onnx::prelude::Graph<
-        tract_onnx::prelude::TypedFact,
-        Box<dyn tract_onnx::prelude::TypedOp>,
-    >,
->;
+type TractPlan = std::sync::Arc<tract_onnx::prelude::TypedRunnableModel>;
 
 /// Extracteur ArcFace MobileNetV3 (w600k_mbf)
 #[cfg(feature = "tract")]
@@ -126,7 +120,7 @@ impl EmbeddingExtractor for ArcFaceExtractor {
             .map_err(|e| FaceError::ExtractionFailed(e.to_string()))?;
 
         let raw = outputs[0]
-            .to_array_view::<f32>()
+            .to_plain_array_view::<f32>()
             .map_err(|e| FaceError::ExtractionFailed(e.to_string()))?;
 
         let mut vector: Vec<f32> = raw.iter().copied().collect();
