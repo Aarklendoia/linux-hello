@@ -120,7 +120,7 @@ impl EmbeddingExtractor for ArcFaceExtractor {
             .map_err(|e| FaceError::ExtractionFailed(e.to_string()))?;
 
         let raw = outputs[0]
-            .to_array_view::<f32>()
+            .to_plain_array_view::<f32>()
             .map_err(|e| FaceError::ExtractionFailed(e.to_string()))?;
 
         let mut vector: Vec<f32> = raw.iter().copied().collect();
