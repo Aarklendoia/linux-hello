@@ -3,7 +3,6 @@
 
 #[cfg(test)]
 mod gui_integration_tests {
-    use std::time::Instant;
 
     /// Test 1: Screen Navigation
     /// Vérifier que les écrans se changent correctement
@@ -137,17 +136,16 @@ mod gui_integration_tests {
         let duration_ms = 1000.0f32;
         let frame_time_ms = 16.0f32; // 60fps
 
-        println!("Animating from {:.2} to {:.2} over {:.0}ms", 
+        println!("Animating from {:.2} to {:.2} over {:.0}ms",
             animated_value, target_value, duration_ms);
 
-        let start = Instant::now();
+        // Simule les frames sans dormir (interpolation linéaire basée sur l'elapsed simulé)
+        let total_frames = (duration_ms / frame_time_ms).ceil() as usize + 1;
         let mut frames = 0;
 
-        while animated_value < target_value {
-            let elapsed_ms = start.elapsed().as_secs_f32() * 1000.0;
+        for frame in 0..total_frames {
+            let elapsed_ms = frame as f32 * frame_time_ms;
             let progress = (elapsed_ms / duration_ms).min(1.0);
-            
-            // Linear interpolation
             animated_value = progress;
             frames += 1;
 
@@ -158,9 +156,6 @@ mod gui_integration_tests {
             if animated_value >= target_value {
                 break;
             }
-
-            // Simulate frame timing
-            std::thread::sleep(std::time::Duration::from_millis(1));
         }
 
         println!("  Final: value = {:.3} ({} frames)", animated_value, frames);

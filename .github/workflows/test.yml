@@ -10,14 +10,15 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    
+    timeout-minutes: 30
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
+
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
-      
+
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -30,40 +31,35 @@ jobs:
             clang \
             pkg-config \
             dbus
-      
+
       - name: Cache cargo registry
         uses: actions/cache@v4
         with:
           path: ~/.cargo/registry
           key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
-      
+
       - name: Cache cargo index
         uses: actions/cache@v4
         with:
           path: ~/.cargo/git
           key: ${{ runner.os }}-cargo-git-${{ hashFiles('**/Cargo.lock') }}
-      
+
       - name: Cache cargo build
         uses: actions/cache@v4
         with:
           path: target
-          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
-      
-      - name: Build release binaries (télécharge les modèles ONNX via build.rs)
-        env:
-          ORT_DYLIB_PATH: /usr/lib/x86_64-linux-gnu/libonnxruntime.so.1.23
-        run: |
-          cd $GITHUB_WORKSPACE
-          cargo build --all --release
-      
+          key: ${{ runner.os }}-cargo-build-target-ci-${{ hashFiles('**/Cargo.lock') }}
+
       - name: Run tests
+        # Utilise le profil CI (pas --release) pour éviter LTO + codegen-units=1
+        # qui rendent la compilation >1h. Les tests ne nécessitent pas les
+        # optimisations release pour être corrects.
         env:
-          ORT_DYLIB_PATH: /usr/lib/x86_64-linux-gnu/libonnxruntime.so.1.23
+          # Pas de ORT_DYLIB_PATH : le fallback stub est utilisé si libonnxruntime absent
+          LINUX_HELLO_NO_MODEL_DOWNLOAD: "1"
         run: |
-          cd $GITHUB_WORKSPACE
-          cargo test --all --release
-      
+          cargo test --all --profile ci
+
       - name: Run clippy
         run: |
-          cd $GITHUB_WORKSPACE
-          cargo clippy --all --release -- -D warnings || true
+          cargo clippy --all -- -D warnings || true
