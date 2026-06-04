@@ -15,7 +15,9 @@ set -euo pipefail
 
 # ── Constantes ──────────────────────────────────────────────────────────────
 SOURCE_SO="$(dirname "$(readlink -f "$0")")/target/release/libpam_linux_hello.so"
-PAM_MODULE="/lib/x86_64-linux-gnu/security/pam_linux_hello.so"
+# Détecter l'architecture dynamiquement pour supporter x86_64, arm64, etc.
+_MULTIARCH="$(dpkg-architecture -qDEB_HOST_MULTIARCH 2>/dev/null || gcc -dumpmachine 2>/dev/null || echo "x86_64-linux-gnu")"
+PAM_MODULE="/lib/${_MULTIARCH}/security/pam_linux_hello.so"
 PAM_DIR="/etc/pam.d"
 TIMESTAMP="$(date +%s)"
 # Ligne linux-hello à insérer (avec suffisant = fallback mot de passe garanti)

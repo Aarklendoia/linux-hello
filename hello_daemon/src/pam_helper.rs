@@ -50,11 +50,12 @@ pub async fn start_pam_helper(
     let listener = UnixListener::bind(&socket_path)?;
     info!("PAM Helper listening on {}", socket_path);
 
-    // Permissions 0o666 pour que root puisse se connecter
+    // 0o600 : seul le propriétaire (daemon user) et root (PAM module) peuvent se connecter.
+    // Root bypasse les permissions Unix, donc 0o600 suffit pour le flux normal.
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(&socket_path, fs::Permissions::from_mode(0o666))?;
+        fs::set_permissions(&socket_path, fs::Permissions::from_mode(0o600))?;
     }
 
     tokio::spawn(async move {
@@ -79,11 +80,32 @@ pub async fn start_pam_helper(
     Ok(())
 }
 
+/// Envoyer une réponse d'échec et fermer le stream.
+async fn reject(
+    mut stream: tokio::net::UnixStream,
+    reason: &str,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let response = PamHelperResponse::Failure {
+        reason: reason.to_string(),
+    };
+    let json = serde_json::to_string(&response)?;
+    stream.write_all(json.as_bytes()).await?;
+    stream.shutdown().await?;
+    Ok(())
+}
+
 /// Traiter une connexion PAM entrante
 async fn handle_pam_request(
     mut stream: tokio::net::UnixStream,
     daemon: std::sync::Arc<tokio::sync::RwLock<crate::FaceAuthDaemon>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    // Récupérer l'UID du processus connectant avant de lire quoi que ce soit.
+    // Cela évite qu'un attaquant forge un user_id différent du sien.
+    #[cfg(unix)]
+    let peer_uid: Option<u32> = stream.peer_cred().ok().map(|c| c.uid());
+    #[cfg(not(unix))]
+    let peer_uid: Option<u32> = None;
+
     // Lire tout ce que le client envoie (il fait shutdown(Write) après)
     let mut buf = Vec::new();
     stream.read_to_end(&mut buf).await?;
@@ -96,6 +118,18 @@ async fn handle_pam_request(
     debug!("PAM Helper reçu: {}", request_json);
 
     let req: PamHelperRequest = serde_json::from_str(&request_json)?;
+
+    // Valider le pair : seuls root (uid=0) et l'utilisateur cible peuvent demander
+    // une vérification. Empêche qu'un processus tiers usurpe un autre user_id.
+    if let Some(uid) = peer_uid {
+        if uid != 0 && uid != req.user_id {
+            error!(
+                "PAM helper: connexion refusée — peer uid={} demande user_id={}",
+                uid, req.user_id
+            );
+            return reject(stream, "Unauthorized: peer uid does not match requested user_id").await;
+        }
+    }
 
     let verify_req = VerifyRequest {
         user_id: req.user_id,
