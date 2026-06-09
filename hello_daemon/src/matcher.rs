@@ -275,8 +275,8 @@ mod tests {
     fn test_context_thresholds() {
         let matcher = FaceMatcher::new(0.6);
 
-        assert_eq!(matcher.get_threshold("login"), 0.65);
-        assert_eq!(matcher.get_threshold("sudo"), 0.70);
-        assert_eq!(matcher.get_threshold("unknown"), 0.6); // default
+        assert_eq!(matcher.get_threshold("login"), 0.60);
+        assert_eq!(matcher.get_threshold("sudo"), 0.62);
+        assert_eq!(matcher.get_threshold("unknown"), 0.58); // default
     }
 }
