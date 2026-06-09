@@ -191,7 +191,10 @@ impl FaceAuthDaemon {
                 *a /= norm;
             }
         }
-        info!("Enrollment: {} frames moyennées en 1 embedding", valid.len());
+        info!(
+            "Enrollment: {} frames moyennées en 1 embedding",
+            valid.len()
+        );
         let best = valid
             .iter()
             .max_by(|a, b| {

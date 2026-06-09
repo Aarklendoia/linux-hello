@@ -160,7 +160,10 @@ impl FaceMatcher {
 
         if liveness < LIVENESS_GATE {
             // Signal IR trop faible pour être un vrai visage (photo, spoofing)
-            info!("Liveness gate: REFUSÉ (score {:.3} < {:.2})", liveness, LIVENESS_GATE);
+            info!(
+                "Liveness gate: REFUSÉ (score {:.3} < {:.2})",
+                liveness, LIVENESS_GATE
+            );
             let threshold = self.get_threshold(context);
             return MatchResult {
                 face_id: None,
