@@ -19,6 +19,17 @@ systemd-tmpfiles --create /usr/lib/tmpfiles.d/linux-hello.conf 2>/dev/null || \
     mkdir -p /run/hello-pam && chmod 1777 /run/hello-pam || true
 echo "✓ Socket directory /run/hello-pam/ ready"
 
+# Installer l'overlay QML du lock screen KDE via dpkg-divert.
+# dpkg-divert déplace le fichier de plasma-workspace (renommé .distrib) et met le nôtre à sa place.
+# Lors d'une mise à jour de plasma-workspace, dpkg voit la dérivation et n'écrase pas notre fichier.
+PLASMA_QML="/usr/share/plasma/shells/org.kde.plasma.desktop/contents/lockscreen/MainBlock.qml"
+LINUX_HELLO_QML="/usr/share/linux-hello/lockscreen/MainBlock.qml"
+if [ -f "$LINUX_HELLO_QML" ] && [ -f "$PLASMA_QML" ]; then
+    dpkg-divert --package linux-hello --rename --add "$PLASMA_QML" 2>/dev/null || true
+    cp "$LINUX_HELLO_QML" "$PLASMA_QML"
+    echo "✓ Lock screen QML overlay installé"
+fi
+
 # Activer et lancer le daemon pour l'utilisateur qui a lancé l'installation
 TARGET_USER="${SUDO_USER}"
 if [ -z "$TARGET_USER" ]; then

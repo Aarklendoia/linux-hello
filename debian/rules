@@ -10,8 +10,9 @@ export PATH:=$(HOME)/.cargo/bin:$(PATH)
 	dh $@
 
 override_dh_auto_clean:
-	# Don't use make distclean, let cargo clean handle it
-	cargo clean
+	# Ne pas effacer le cache cargo : préserve la compilation incrémentale.
+	# En CI, le répertoire target est absent de toute façon (clone propre).
+	true
 
 override_dh_auto_build:
 	cargo build --release --verbose
@@ -49,6 +50,12 @@ override_dh_auto_install:
 	cp $(CURDIR)/sudo-linux-hello.pam $(CURDIR)/debian/tmp/usr/share/doc/linux-hello/
 	cp $(CURDIR)/kde-screenlock-linux-hello.pam $(CURDIR)/debian/tmp/usr/share/doc/linux-hello/
 	
+	# Overlay QML du lock screen KDE : stocké dans /usr/share/linux-hello/lockscreen/.
+	# Le postinst l'installe à sa place via dpkg-divert.
+	mkdir -p $(CURDIR)/debian/tmp/usr/share/linux-hello/lockscreen
+	cp $(CURDIR)/qml/lockscreen/MainBlock.qml \
+	   $(CURDIR)/debian/tmp/usr/share/linux-hello/lockscreen/
+
 	# Install ONNX models (téléchargés par build.rs pendant cargo build --release)
 	mkdir -p $(CURDIR)/debian/tmp/usr/share/linux-hello/models
 	cp "$${XDG_DATA_HOME:-$(HOME)/.local/share}/linux-hello/models/det_500m.onnx" \
