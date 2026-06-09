@@ -122,7 +122,7 @@ fn normalize_roi(gray: &[u8], w: u32, x1: u32, y1: u32, x2: u32, y2: u32) -> Vec
     }
 
     for v in roi.iter_mut() {
-        *v = (((*v as u32 - mn as u32) * 255 / range as u32) as u8);
+        *v = ((*v as u32 - mn as u32) * 255 / range as u32) as u8;
     }
     roi
 }

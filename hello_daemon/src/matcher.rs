@@ -42,6 +42,7 @@ impl FaceMatcher {
         // Thresholds plus stricts pour les contextes sensibles
         context_thresholds.insert("login".to_string(), 0.65);
         context_thresholds.insert("sudo".to_string(), 0.70);
+        context_thresholds.insert("polkit".to_string(), 0.65);
         context_thresholds.insert("sddm".to_string(), 0.65);
         context_thresholds.insert("screenlock".to_string(), 0.60);
         context_thresholds.insert("test".to_string(), 0.50);

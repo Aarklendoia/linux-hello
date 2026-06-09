@@ -41,11 +41,12 @@ pub async fn start_pam_helper(
     uid: u32,
     daemon: std::sync::Arc<tokio::sync::RwLock<crate::FaceAuthDaemon>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // XDG_RUNTIME_DIR (/run/user/<uid>) : répertoire dédié à l'utilisateur,
-    // mode 0700, supprimé à la déconnexion. Plus sûr que /tmp (world-writable).
-    let runtime_dir = std::env::var("XDG_RUNTIME_DIR")
-        .unwrap_or_else(|_| format!("/run/user/{}", uid));
-    let socket_path = format!("{}/hello-pam.socket", runtime_dir);
+    // /run/hello-pam/ est créé par systemd-tmpfiles (mode 1777, sticky) :
+    //   - le daemon user (uid=1000) peut y créer sa socket
+    //   - polkitd (PrivateTmp=yes) peut y accéder : /run n'est pas isolé par PrivateTmp
+    //   - sudo-rs (uid=65534) et root peuvent s'y connecter
+    // La sécurité repose sur peer_cred dans handle_pam_request, pas sur le chemin.
+    let socket_path = format!("/run/hello-pam/{}.socket", uid);
 
     // Nettoyer l'ancienne socket (crash précédent ou mise à jour)
     let _ = fs::remove_file(&socket_path);
@@ -54,12 +55,14 @@ pub async fn start_pam_helper(
     let listener = UnixListener::bind(&socket_path)?;
     info!("PAM Helper listening on {}", socket_path);
 
-    // 0o600 : seul le propriétaire (daemon user) et root (PAM module) peuvent se connecter.
-    // Root bypasse les permissions Unix, donc 0o600 suffit pour le flux normal.
+    // 0o666 : accessible à tous les processus (polkitd, sudo-rs, etc.).
+    // La sécurité repose sur la validation peer_cred dans handle_pam_request :
+    // seuls root, l'utilisateur cible et nobody (sudo-rs) peuvent obtenir une réponse.
+    // Un processus tiers peut se connecter mais sera rejeté avec "Unauthorized".
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(&socket_path, fs::Permissions::from_mode(0o600))?;
+        fs::set_permissions(&socket_path, fs::Permissions::from_mode(0o666))?;
     }
 
     tokio::spawn(async move {
@@ -124,14 +127,22 @@ async fn handle_pam_request(
     let req: PamHelperRequest = serde_json::from_str(&request_json)?;
 
     // Valider le pair :
-    // - uid=0 (root) : sudo classique, polkit
-    // - uid=req.user_id : appel direct de l'utilisateur (CLI, GUI)
-    // - uid=65534 (nobody) : sudo-rs exécute le module PAM dans un sous-processus
-    //   sandboxé en nobody pour l'isolation. L'accès physique au socket
-    //   (/run/user/<uid>/, mode 0700) suffit comme barrière externe.
+    // - uid=0      (root)    : sudo classique
+    // - uid=user   (edtech)  : appel direct CLI/GUI
+    // - uid=65534  (nobody)  : sudo-rs sandbox
+    // - uid=polkitd          : pkexec et dialogues graphiques polkit
     const NOBODY: u32 = 65534;
+    let polkitd_uid: u32 = std::fs::read_to_string("/etc/passwd")
+        .ok()
+        .and_then(|s| {
+            s.lines()
+                .find(|l| l.starts_with("polkitd:"))
+                .and_then(|l| l.split(':').nth(2))
+                .and_then(|u| u.parse().ok())
+        })
+        .unwrap_or(987);
     if let Some(uid) = peer_uid {
-        if uid != 0 && uid != req.user_id && uid != NOBODY {
+        if uid != 0 && uid != req.user_id && uid != NOBODY && uid != polkitd_uid {
             error!(
                 "PAM helper: connexion refusée — peer uid={} demande user_id={}",
                 uid, req.user_id
