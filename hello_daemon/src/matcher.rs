@@ -36,15 +36,16 @@ pub struct FaceMatcher {
 
 impl FaceMatcher {
     /// Créer un nouveau matcher
-    pub fn new(default_threshold: f32) -> Self {
+    pub fn new(_default_threshold: f32) -> Self {
+        let default_threshold = 0.58;
         let mut context_thresholds = HashMap::new();
 
         // Thresholds plus stricts pour les contextes sensibles
-        context_thresholds.insert("login".to_string(), 0.65);
-        context_thresholds.insert("sudo".to_string(), 0.70);
-        context_thresholds.insert("polkit".to_string(), 0.65);
-        context_thresholds.insert("sddm".to_string(), 0.65);
-        context_thresholds.insert("screenlock".to_string(), 0.60);
+        context_thresholds.insert("login".to_string(), 0.60);
+        context_thresholds.insert("sudo".to_string(), 0.62);
+        context_thresholds.insert("polkit".to_string(), 0.60);
+        context_thresholds.insert("sddm".to_string(), 0.60);
+        context_thresholds.insert("screenlock".to_string(), 0.55);
         context_thresholds.insert("test".to_string(), 0.50);
 
         Self {

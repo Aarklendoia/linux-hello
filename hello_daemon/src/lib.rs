@@ -162,10 +162,49 @@ impl FaceAuthDaemon {
             .await
             .map_err(|e| DaemonError::CameraError(e.to_string()))?;
 
-        // Sélectionner la meilleure embedding (pour MVP: la première)
-        let embedding = capture.embeddings.first().ok_or(DaemonError::CameraError(
-            "Aucune frame capturée".to_string(),
-        ))?;
+        // Moyenner tous les embeddings valides, puis normaliser.
+        // Un embedding moyen représente le "centre" du visage de l'utilisateur
+        // et donne des scores de similarité plus stables lors de l'authentification.
+        let valid: Vec<_> = capture
+            .embeddings
+            .iter()
+            .filter(|e| !e.vector.is_empty() && e.metadata.quality_score > 0.0)
+            .collect();
+        if valid.is_empty() {
+            return Err(DaemonError::CameraError("Aucun visage détecté".to_string()));
+        }
+        let dim = valid[0].vector.len();
+        let mut avg = vec![0.0f32; dim];
+        for e in &valid {
+            for (a, v) in avg.iter_mut().zip(e.vector.iter()) {
+                *a += v;
+            }
+        }
+        let n = valid.len() as f32;
+        for a in avg.iter_mut() {
+            *a /= n;
+        }
+        // Normaliser (requis pour similarité cosinus)
+        let norm: f32 = avg.iter().map(|x| x * x).sum::<f32>().sqrt();
+        if norm > 0.0 {
+            for a in avg.iter_mut() {
+                *a /= norm;
+            }
+        }
+        info!("Enrollment: {} frames moyennées en 1 embedding", valid.len());
+        let best = valid
+            .iter()
+            .max_by(|a, b| {
+                a.metadata
+                    .quality_score
+                    .partial_cmp(&b.metadata.quality_score)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .unwrap();
+        let embedding = &hello_face_core::Embedding {
+            vector: avg,
+            metadata: best.metadata.clone(),
+        };
 
         // Générer un ID unique pour ce visage
         use std::time::{SystemTime, UNIX_EPOCH};
@@ -246,8 +285,8 @@ impl FaceAuthDaemon {
             return Ok(VerifyResult::NoEnrollment);
         }
 
-        // Capturer 3 frames et prendre le meilleur score
-        const NUM_VERIFY_FRAMES: u32 = 3;
+        // Capturer 5 frames et prendre le meilleur score
+        const NUM_VERIFY_FRAMES: u32 = 5;
         let capture = self
             .camera
             .capture_frames(NUM_VERIFY_FRAMES, request.timeout_ms)
