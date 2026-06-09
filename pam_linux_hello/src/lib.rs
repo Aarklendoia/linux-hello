@@ -101,7 +101,7 @@ impl Default for PamOptions {
     fn default() -> Self {
         Self {
             context: "default".to_string(),
-            timeout_ms: 5000,
+            timeout_ms: 30000,
             similarity_threshold: 0.6,
             confirm: false,
             debug: false,
