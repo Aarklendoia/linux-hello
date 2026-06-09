@@ -66,7 +66,7 @@ async fn main() -> anyhow::Result<()> {
     // Envelopper dans Arc<RwLock> pour partage avec le PAM helper
     let daemon_arc = std::sync::Arc::new(tokio::sync::RwLock::new(daemon));
 
-    // Démarrer le PAM helper socket (/tmp/hello-pam-<uid>.socket)
+    // Démarrer le PAM helper socket (/run/hello-pam/<uid>.socket)
     let uid = unsafe { libc::getuid() };
     if let Err(e) = hello_daemon::pam_helper::start_pam_helper(uid, daemon_arc.clone()).await {
         warn!(
@@ -74,7 +74,19 @@ async fn main() -> anyhow::Result<()> {
             e
         );
     } else {
-        info!("✓ PAM helper socket: /tmp/hello-pam-{}.socket", uid);
+        info!("✓ PAM helper socket: /run/hello-pam/{}.socket", uid);
+    }
+
+    // Démarrer la surveillance du verrouillage d'écran (déverrouillage automatique par visage)
+    if let Err(e) =
+        hello_daemon::screenlock::start_screenlock_watcher(daemon_arc.clone(), uid).await
+    {
+        warn!(
+            "Surveillance écran non démarrée: {} (déverrouillage automatique indisponible)",
+            e
+        );
+    } else {
+        info!("✓ Surveillance verrouillage d'écran active");
     }
 
     // Démarrer le serveur MJPEG pour la preview GUI (flux vidéo temps réel)

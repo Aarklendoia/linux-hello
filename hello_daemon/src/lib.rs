@@ -19,6 +19,7 @@ pub mod dbus_signals;
 pub mod matcher;
 pub mod pam_helper;
 pub mod preview;
+pub mod screenlock;
 pub mod storage;
 
 use camera::CameraManager;
