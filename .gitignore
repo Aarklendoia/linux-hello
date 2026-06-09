@@ -39,6 +39,7 @@ debian/.debhelper/
 debian/libpam-linux-hello*/
 debian/linux-hello-daemon/
 debian/linux-hello-gui/
+debian/linux-hello-models/
 debian/linux-hello-tools/
 debian/linux-hello/
 debian/*.substvars
