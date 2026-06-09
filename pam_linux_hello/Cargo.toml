@@ -10,23 +10,12 @@ crate-type = ["cdylib"]
 name = "pam_linux_hello"
 path = "src/lib.rs"
 
+# Dépendances minimales : pas de tokio, pas de hello_daemon/hello_face_core.
+# Un cdylib PAM chargé dans sudo (rust-sudo-rs) ne doit embarquer aucun runtime
+# async — leurs atexit handlers conflictuent avec le runtime Rust de l'hôte
+# et provoquent un SIGSEGV à la sortie du processus.
 [dependencies]
-hello_face_core = { path = "../hello_face_core" }
-hello_daemon = { path = "../hello_daemon" }
-
-pam-sys.workspace = true
-zbus = { workspace = true, features = ["tokio"] }
 serde = { version = "1", features = ["derive"] }
 serde_json.workspace = true
-anyhow.workspace = true
-thiserror.workspace = true
-# tracing supprimé: dans une .so PAM, les macros tracing sans subscriber initialisé causent un segfault
-
-# Runtime async pour PAM (attention: PAM n'est pas async)
-tokio = { workspace = true, features = ["rt-multi-thread"] }
-
-# Parsing options PAM
-shlex = "2.0"
-
-# System
 libc.workspace = true
+

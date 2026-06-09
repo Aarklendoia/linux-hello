@@ -35,6 +35,10 @@ override_dh_auto_install:
 	# Install systemd user service
 	mkdir -p $(CURDIR)/debian/tmp/usr/lib/systemd/user
 	cp $(CURDIR)/hello-daemon.service $(CURDIR)/debian/tmp/usr/lib/systemd/user/
+
+	# Install systemd tmpfiles.d (crée /run/hello-pam/ au boot, sticky+world-writable)
+	mkdir -p $(CURDIR)/debian/tmp/usr/lib/tmpfiles.d
+	printf 'd /run/hello-pam 1777 root root -\n' > $(CURDIR)/debian/tmp/usr/lib/tmpfiles.d/linux-hello.conf
 	
 	# Install documentation
 	mkdir -p $(CURDIR)/debian/tmp/usr/share/doc/linux-hello

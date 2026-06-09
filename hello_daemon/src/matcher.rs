@@ -36,14 +36,16 @@ pub struct FaceMatcher {
 
 impl FaceMatcher {
     /// Créer un nouveau matcher
-    pub fn new(default_threshold: f32) -> Self {
+    pub fn new(_default_threshold: f32) -> Self {
+        let default_threshold = 0.58;
         let mut context_thresholds = HashMap::new();
 
         // Thresholds plus stricts pour les contextes sensibles
-        context_thresholds.insert("login".to_string(), 0.65);
-        context_thresholds.insert("sudo".to_string(), 0.70);
-        context_thresholds.insert("sddm".to_string(), 0.65);
-        context_thresholds.insert("screenlock".to_string(), 0.60);
+        context_thresholds.insert("login".to_string(), 0.60);
+        context_thresholds.insert("sudo".to_string(), 0.62);
+        context_thresholds.insert("polkit".to_string(), 0.60);
+        context_thresholds.insert("sddm".to_string(), 0.60);
+        context_thresholds.insert("screenlock".to_string(), 0.55);
         context_thresholds.insert("test".to_string(), 0.50);
 
         Self {
@@ -118,13 +120,17 @@ impl FaceMatcher {
         }
     }
 
-    /// Matching avec fusion RGB + score de vivacité IR
+    /// Matching avec filtre de vivacité IR indépendant
     ///
-    /// `ir_liveness` : score IR dans [0, 1] calculé par `ir_liveness_score()`,
-    ///                 ou `None` si la caméra IR est absente/indisponible.
+    /// Architecture en deux étapes séparées :
+    ///   1. Filtre vivacité : ir_liveness >= LIVENESS_GATE → vrai visage confirmé
+    ///   2. Reconnaissance  : rgb_score >= threshold → bonne personne confirmée
     ///
-    /// Score final = 0.7 × score_rgb + 0.3 × ir_liveness  (si IR présent)
-    ///             = score_rgb                             (si pas d'IR)
+    /// Si ir_liveness < LIVENESS_GATE, on retourne un échec anti-spoofing.
+    /// Si ir_liveness est None (pas de caméra IR), on n'applique pas le filtre.
+    ///
+    /// Cette séparation évite que la qualité du signal IR pénalise le score
+    /// de reconnaissance, et réciproquement.
     pub fn match_with_liveness(
         &self,
         probe: &Embedding,
@@ -132,47 +138,44 @@ impl FaceMatcher {
         context: &str,
         ir_liveness: Option<f32>,
     ) -> MatchResult {
+        // Seuil du filtre vivacité, indépendant du seuil de reconnaissance.
+        // 0.20 est calibré pour accepter les caméras IR à faible signal tout en
+        // bloquant les photos (texture quasi nulle → score < 0.10).
+        const LIVENESS_GATE: f32 = 0.20;
+
         // D'abord calculer le meilleur score RGB
         let rgb_result = self.match_embedding(probe, stored, context);
 
-        // Si pas d'IR, retourner le résultat RGB direct
         let Some(liveness) = ir_liveness else {
+            // Pas de caméra IR → on ne peut pas vérifier la vivacité, on accepte
             return rgb_result;
         };
 
         let liveness = liveness.clamp(0.0, 1.0);
-        let threshold = self.get_threshold(context);
-
-        // Recalculer tous les scores avec la fusion
-        let fused_scores: HashMap<String, f32> = rgb_result
-            .all_scores
-            .iter()
-            .map(|(id, &rgb_score)| {
-                let fused = 0.7 * rgb_score + 0.3 * liveness;
-                (id.clone(), fused)
-            })
-            .collect();
-
-        let (best_face_id, best_score) = fused_scores
-            .iter()
-            .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
-            .map(|(id, &s)| (Some(id.clone()), s))
-            .unwrap_or((None, 0.0));
-
-        let matched = best_score >= threshold;
 
         info!(
-            "Liveness fusion: rgb_best={:.3}, ir_liveness={:.3}, fused={:.3}, matched={}",
-            rgb_result.best_score, liveness, best_score, matched
+            "Liveness gate: ir_liveness={:.3}, gate={:.2}, rgb_best={:.3}, rgb_matched={}",
+            liveness, LIVENESS_GATE, rgb_result.best_score, rgb_result.matched
         );
 
-        MatchResult {
-            face_id: if matched { best_face_id } else { None },
-            best_score,
-            threshold,
-            all_scores: fused_scores,
-            matched,
+        if liveness < LIVENESS_GATE {
+            // Signal IR trop faible pour être un vrai visage (photo, spoofing)
+            info!(
+                "Liveness gate: REFUSÉ (score {:.3} < {:.2})",
+                liveness, LIVENESS_GATE
+            );
+            let threshold = self.get_threshold(context);
+            return MatchResult {
+                face_id: None,
+                best_score: rgb_result.best_score,
+                threshold,
+                all_scores: rgb_result.all_scores,
+                matched: false,
+            };
         }
+
+        // Vivacité confirmée → le résultat RGB fait foi
+        rgb_result
     }
 
     /// Calculer la similarité cosinus entre deux vecteurs
@@ -275,8 +278,8 @@ mod tests {
     fn test_context_thresholds() {
         let matcher = FaceMatcher::new(0.6);
 
-        assert_eq!(matcher.get_threshold("login"), 0.65);
-        assert_eq!(matcher.get_threshold("sudo"), 0.70);
-        assert_eq!(matcher.get_threshold("unknown"), 0.6); // default
+        assert_eq!(matcher.get_threshold("login"), 0.60);
+        assert_eq!(matcher.get_threshold("sudo"), 0.62);
+        assert_eq!(matcher.get_threshold("unknown"), 0.58); // default
     }
 }

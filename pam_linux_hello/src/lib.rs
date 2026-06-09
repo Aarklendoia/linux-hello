@@ -9,6 +9,12 @@
 //! auth include system-login
 //! ```
 
+// Utiliser l'allocateur système (libc malloc) au lieu de l'allocateur Rust.
+// Évite le conflit entre deux runtimes Rust quand le .so est chargé par
+// un binaire Rust (rust-sudo-rs) : les deux partagent le même malloc système.
+#[global_allocator]
+static ALLOCATOR: std::alloc::System = std::alloc::System;
+
 use serde::{Deserialize, Serialize};
 use std::ffi::CStr;
 use std::fs::OpenOptions;
@@ -101,7 +107,7 @@ impl Default for PamOptions {
     fn default() -> Self {
         Self {
             context: "default".to_string(),
-            timeout_ms: 5000,
+            timeout_ms: 30000,
             similarity_threshold: 0.6,
             confirm: false,
             debug: false,
@@ -113,12 +119,12 @@ impl Default for PamOptions {
 fn parse_options(argc: c_int, argv: *const *const c_char) -> PamOptions {
     let mut opts = PamOptions::default();
 
-    if argc <= 1 || argv.is_null() {
+    if argc <= 0 || argv.is_null() {
         return opts;
     }
 
     unsafe {
-        for i in 1..argc as usize {
+        for i in 0..argc as usize {
             let arg_ptr = *argv.add(i);
             if arg_ptr.is_null() {
                 continue;
@@ -532,18 +538,27 @@ enum PamHelperResponse {
 }
 
 /// Appeler le helper PAM via socket Unix créée par le daemon utilisateur.
-/// Le daemon écoute sur /tmp/hello-pam-<uid>.socket avec 0o666.
+/// Chemin : /tmp/hello-pam-<uid>.socket (/tmp est 1777, accessible à tous les processus).
+/// La sécurité repose sur peer_cred côté daemon (pas sur les permissions du chemin).
 fn call_pam_helper_sync(req: &PamHelperRequest) -> Result<PamHelperResponse, String> {
     use std::io::{Read, Write};
     use std::os::unix::net::UnixStream;
 
-    let socket_path = format!("/tmp/hello-pam-{}.socket", req.user_id);
+    // /run/hello-pam/ est créé par systemd-tmpfiles (mode 1777, sticky).
+    // /run n'est pas affecté par PrivateTmp=yes de polkitd (contrairement à /tmp).
+    let socket_path = format!("/run/hello-pam/{}.socket", req.user_id);
     log_pam(&format!("Connecting to socket: {}", socket_path));
 
+    // Timeout de connexion court : si le daemon est down, on échoue vite
+    // et le mot de passe prend le relais sans attendre 30s.
+    // connect() sur socket Unix est immédiat : ECONNREFUSED si le daemon est down,
+    // succès instantané sinon. Pas besoin de timeout de connexion.
     let mut stream = UnixStream::connect(&socket_path)
         .map_err(|e| format!("Socket {} inaccessible: {}", socket_path, e))?;
 
-    // Timeout = timeout de reconnaissance + 2s de marge réseau
+    // Timeout de lecture = durée de reconnaissance + 2s de marge.
+    // Si le daemon crashe en cours de verify(), le stream se ferme et read_to_end
+    // retourne immédiatement avec données vides → Err → PAM_IGNORE → mot de passe.
     stream
         .set_read_timeout(Some(std::time::Duration::from_millis(
             req.timeout_ms + 2000,
@@ -633,6 +648,6 @@ mod tests {
         // Créer des arguments de test
         let opts = PamOptions::default();
         assert_eq!(opts.context, "default");
-        assert_eq!(opts.timeout_ms, 5000);
+        assert_eq!(opts.timeout_ms, 30000);
     }
 }

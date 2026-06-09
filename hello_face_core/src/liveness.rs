@@ -36,47 +36,103 @@ pub fn ir_liveness_score(gray_frame: &[u8], w: u32, h: u32, face: &FaceRegion) -
         return 0.5; // ROI trop petite → pas de décision
     }
 
-    // 1. Variance du Laplacien dans la ROI
-    //    Mesure la richesse des contours/textures (nette = variance élevée)
-    let laplacian_var = laplacian_variance(gray_frame, w, h, x1, y1, x2, y2);
+    // Normaliser les pixels de la ROI vers [0, 255].
+    // Rend l'algorithme indépendant du niveau d'exposition de la caméra IR
+    // (ex: caméra sans illuminateur actif → valeurs brutes ~30, Brio → ~120).
+    let normalized = normalize_roi(gray_frame, w, x1, y1, x2, y2);
+    let norm_frame: &[u8] = &normalized;
+    let norm_w = x2 - x1;
+    let norm_h = y2 - y1;
 
-    // 2. Variance de l'intensité IR dans la ROI
-    //    Un vrai visage a une distribution thermique relativement uniforme
-    //    (variance modérée). Une photo a soit trop peu (papier plat)
-    //    soit trop (reflets).
-    let (mean, intensity_var) = intensity_stats(gray_frame, w, x1, y1, x2, y2);
+    // Si la plage dynamique est trop faible, l'image IR est inutilisable
+    // (caméra hors champ, obturateur fermé, absence totale de signal).
+    // On retourne 0.5 = pas de décision plutôt que de pénaliser.
+    let raw_range = {
+        let mut mn = 255u8;
+        let mut mx = 0u8;
+        for y in y1..y2 {
+            for x in x1..x2 {
+                let v = gray_frame[(y * w + x) as usize];
+                mn = mn.min(v);
+                mx = mx.max(v);
+            }
+        }
+        mx.saturating_sub(mn)
+    };
+    if raw_range < 5 {
+        tracing::debug!(
+            "Liveness IR: plage dynamique trop faible ({}), pas de décision",
+            raw_range
+        );
+        return 0.5;
+    }
 
-    // 3. Score de gradient moyen (texture de peau vs papier lisse)
-    let gradient_score = gradient_mean(gray_frame, w, h, x1, y1, x2, y2);
+    // Travailler sur les pixels normalisés (ROI extraite, coordonnées locales)
+    let norm_x1 = 0u32;
+    let norm_y1 = 0u32;
+    let norm_x2 = norm_w;
+    let norm_y2 = norm_h;
 
-    tracing::debug!(
-        "Liveness IR: laplacian_var={:.1}, intensity_var={:.1}, mean={:.1}, gradient={:.3}",
-        laplacian_var,
-        intensity_var,
-        mean,
-        gradient_score
+    // 1. Variance du Laplacien — mesure la richesse de texture
+    let laplacian_var = laplacian_variance(
+        norm_frame, norm_w, norm_h, norm_x1, norm_y1, norm_x2, norm_y2,
     );
 
-    // Pondération empirique :
-    //   - Laplacian variance élevée = texture riche = vrai visage
-    //     Seuils calibrés Logitech Brio IR 640×480 :
-    //       < 20  → très lisse = photo imprimée
-    //       > 200 → riche = vrai visage
-    let lap_score = sigmoid_score(laplacian_var, 20.0, 200.0);
+    // 2. Stats d'intensité normalisées (mean ≈ 128 après normalisation)
+    let (mean, intensity_var) =
+        intensity_stats(norm_frame, norm_w, norm_x1, norm_y1, norm_x2, norm_y2);
 
-    //   - Intensité IR moyenne entre 60–200 (valeur thermique typique peau)
-    //     < 30 ou > 230 = artefact probable
-    let thermal_score = gaussian_score(mean, 120.0, 60.0);
+    // 3. Gradient moyen
+    let gradient_score = gradient_mean(
+        norm_frame, norm_w, norm_h, norm_x1, norm_y1, norm_x2, norm_y2,
+    );
 
-    //   - Variance d'intensité modérée (20–120) = distribution naturelle
-    let var_score = gaussian_score(intensity_var, 70.0, 50.0);
+    tracing::debug!(
+        "Liveness IR: raw_range={}, laplacian_var={:.1}, intensity_var={:.1}, mean={:.1}, gradient={:.3}",
+        raw_range, laplacian_var, intensity_var, mean, gradient_score
+    );
 
-    //   - Gradient moyen positif = textures existantes
-    let grad_score = sigmoid_score(gradient_score * 255.0, 10.0, 80.0);
+    // Seuils calibrés sur pixels normalisés [0-255] :
+    //   Laplacian variance : < 50 → lisse (photo) ; > 500 → texturé (vrai visage)
+    let lap_score = sigmoid_score(laplacian_var, 50.0, 500.0);
 
-    // Score final pondéré
+    //   Intensité moyenne normalisée : attendue ~128. Trop uniforme = artefact.
+    let thermal_score = gaussian_score(mean, 128.0, 60.0);
+
+    //   Variance d'intensité normalisée : modérée (500–3000) = distribution naturelle
+    let var_score = gaussian_score(intensity_var, 1500.0, 1000.0);
+
+    //   Gradient : > 0.04 = textures présentes
+    let grad_score = sigmoid_score(gradient_score * 255.0, 10.0, 60.0);
+
     let score = 0.40 * lap_score + 0.20 * thermal_score + 0.15 * var_score + 0.25 * grad_score;
     score.clamp(0.0, 1.0)
+}
+
+/// Extrait la ROI et normalise les pixels vers [0, 255] (étirement de contraste).
+fn normalize_roi(gray: &[u8], w: u32, x1: u32, y1: u32, x2: u32, y2: u32) -> Vec<u8> {
+    let mut roi: Vec<u8> = Vec::with_capacity(((x2 - x1) * (y2 - y1)) as usize);
+    let mut mn = 255u8;
+    let mut mx = 0u8;
+
+    for y in y1..y2 {
+        for x in x1..x2 {
+            let v = gray[(y * w + x) as usize];
+            roi.push(v);
+            mn = mn.min(v);
+            mx = mx.max(v);
+        }
+    }
+
+    let range = mx.saturating_sub(mn);
+    if range == 0 {
+        return roi; // image uniforme, pas de normalisation possible
+    }
+
+    for v in roi.iter_mut() {
+        *v = ((*v as u32 - mn as u32) * 255 / range as u32) as u8;
+    }
+    roi
 }
 
 /// Calcule la variance du filtre Laplacien 3×3 sur la ROI

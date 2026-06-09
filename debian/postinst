@@ -14,6 +14,11 @@ chmod 700 "$STORAGE_DIR" 2>/dev/null || true
 
 echo "✓ Daemon service installed"
 
+# Créer /run/hello-pam/ immédiatement (sera recréé au boot par systemd-tmpfiles)
+systemd-tmpfiles --create /usr/lib/tmpfiles.d/linux-hello.conf 2>/dev/null || \
+    mkdir -p /run/hello-pam && chmod 1777 /run/hello-pam || true
+echo "✓ Socket directory /run/hello-pam/ ready"
+
 # Activer et lancer le daemon pour l'utilisateur qui a lancé l'installation
 TARGET_USER="${SUDO_USER}"
 if [ -z "$TARGET_USER" ]; then

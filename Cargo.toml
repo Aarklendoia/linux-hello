@@ -14,6 +14,10 @@ resolver = "2"
 opt-level = 3
 lto = true
 codegen-units = 1
+# abort : pas de dépilage à la sortie. Pour le daemon : crash immédiat → redémarrage systemd.
+# Pour pam_linux_hello (cdylib) : évite les atexit handlers Rust qui conflictuent
+# avec le runtime hôte (rust-sudo-rs) et provoquent un SIGSEGV.
+panic = "abort"
 
 # Profil CI : compilation rapide, pas d'optimisations release
 # Évite le timeout d'1h causé par LTO + codegen-units=1
