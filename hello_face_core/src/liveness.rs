@@ -60,7 +60,10 @@ pub fn ir_liveness_score(gray_frame: &[u8], w: u32, h: u32, face: &FaceRegion) -
         mx.saturating_sub(mn)
     };
     if raw_range < 5 {
-        tracing::debug!("Liveness IR: plage dynamique trop faible ({}), pas de décision", raw_range);
+        tracing::debug!(
+            "Liveness IR: plage dynamique trop faible ({}), pas de décision",
+            raw_range
+        );
         return 0.5;
     }
 
@@ -71,13 +74,18 @@ pub fn ir_liveness_score(gray_frame: &[u8], w: u32, h: u32, face: &FaceRegion) -
     let norm_y2 = norm_h;
 
     // 1. Variance du Laplacien — mesure la richesse de texture
-    let laplacian_var = laplacian_variance(norm_frame, norm_w, norm_h, norm_x1, norm_y1, norm_x2, norm_y2);
+    let laplacian_var = laplacian_variance(
+        norm_frame, norm_w, norm_h, norm_x1, norm_y1, norm_x2, norm_y2,
+    );
 
     // 2. Stats d'intensité normalisées (mean ≈ 128 après normalisation)
-    let (mean, intensity_var) = intensity_stats(norm_frame, norm_w, norm_x1, norm_y1, norm_x2, norm_y2);
+    let (mean, intensity_var) =
+        intensity_stats(norm_frame, norm_w, norm_x1, norm_y1, norm_x2, norm_y2);
 
     // 3. Gradient moyen
-    let gradient_score = gradient_mean(norm_frame, norm_w, norm_h, norm_x1, norm_y1, norm_x2, norm_y2);
+    let gradient_score = gradient_mean(
+        norm_frame, norm_w, norm_h, norm_x1, norm_y1, norm_x2, norm_y2,
+    );
 
     tracing::debug!(
         "Liveness IR: raw_range={}, laplacian_var={:.1}, intensity_var={:.1}, mean={:.1}, gradient={:.3}",
