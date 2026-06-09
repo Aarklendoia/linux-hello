@@ -532,18 +532,31 @@ enum PamHelperResponse {
 }
 
 /// Appeler le helper PAM via socket Unix créée par le daemon utilisateur.
-/// Le daemon écoute sur /tmp/hello-pam-<uid>.socket avec 0o666.
+/// Chemin principal : /run/user/<uid>/hello-pam.socket (XDG_RUNTIME_DIR, mode 0600)
+/// Fallback       : /tmp/hello-pam-<uid>.socket (compatibilité ancienne version)
 fn call_pam_helper_sync(req: &PamHelperRequest) -> Result<PamHelperResponse, String> {
     use std::io::{Read, Write};
     use std::os::unix::net::UnixStream;
 
-    let socket_path = format!("/tmp/hello-pam-{}.socket", req.user_id);
+    let primary = format!("/run/user/{}/hello-pam.socket", req.user_id);
+    let fallback = format!("/tmp/hello-pam-{}.socket", req.user_id);
+    let socket_path = if std::path::Path::new(&primary).exists() {
+        primary
+    } else {
+        fallback
+    };
     log_pam(&format!("Connecting to socket: {}", socket_path));
 
+    // Timeout de connexion court : si le daemon est down, on échoue vite
+    // et le mot de passe prend le relais sans attendre 30s.
+    // connect() sur socket Unix est immédiat : ECONNREFUSED si le daemon est down,
+    // succès instantané sinon. Pas besoin de timeout de connexion.
     let mut stream = UnixStream::connect(&socket_path)
         .map_err(|e| format!("Socket {} inaccessible: {}", socket_path, e))?;
 
-    // Timeout = timeout de reconnaissance + 2s de marge réseau
+    // Timeout de lecture = durée de reconnaissance + 2s de marge.
+    // Si le daemon crashe en cours de verify(), le stream se ferme et read_to_end
+    // retourne immédiatement avec données vides → Err → PAM_IGNORE → mot de passe.
     stream
         .set_read_timeout(Some(std::time::Duration::from_millis(
             req.timeout_ms + 2000,

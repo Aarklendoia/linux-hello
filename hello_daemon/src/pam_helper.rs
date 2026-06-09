@@ -41,9 +41,13 @@ pub async fn start_pam_helper(
     uid: u32,
     daemon: std::sync::Arc<tokio::sync::RwLock<crate::FaceAuthDaemon>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let socket_path = format!("/tmp/hello-pam-{}.socket", uid);
+    // XDG_RUNTIME_DIR (/run/user/<uid>) : répertoire dédié à l'utilisateur,
+    // mode 0700, supprimé à la déconnexion. Plus sûr que /tmp (world-writable).
+    let runtime_dir = std::env::var("XDG_RUNTIME_DIR")
+        .unwrap_or_else(|_| format!("/run/user/{}", uid));
+    let socket_path = format!("{}/hello-pam.socket", runtime_dir);
 
-    // Nettoyer l'ancienne socket
+    // Nettoyer l'ancienne socket (crash précédent ou mise à jour)
     let _ = fs::remove_file(&socket_path);
 
     // tokio::net::UnixListener : entièrement async, pas de problème EAGAIN
@@ -119,10 +123,15 @@ async fn handle_pam_request(
 
     let req: PamHelperRequest = serde_json::from_str(&request_json)?;
 
-    // Valider le pair : seuls root (uid=0) et l'utilisateur cible peuvent demander
-    // une vérification. Empêche qu'un processus tiers usurpe un autre user_id.
+    // Valider le pair :
+    // - uid=0 (root) : sudo classique, polkit
+    // - uid=req.user_id : appel direct de l'utilisateur (CLI, GUI)
+    // - uid=65534 (nobody) : sudo-rs exécute le module PAM dans un sous-processus
+    //   sandboxé en nobody pour l'isolation. L'accès physique au socket
+    //   (/run/user/<uid>/, mode 0700) suffit comme barrière externe.
+    const NOBODY: u32 = 65534;
     if let Some(uid) = peer_uid {
-        if uid != 0 && uid != req.user_id {
+        if uid != 0 && uid != req.user_id && uid != NOBODY {
             error!(
                 "PAM helper: connexion refusée — peer uid={} demande user_id={}",
                 uid, req.user_id

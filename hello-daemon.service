@@ -8,17 +8,20 @@ Type=simple
 ExecStart=/usr/bin/hello-daemon
 Environment=ORT_DYLIB_PATH=/usr/lib/x86_64-linux-gnu/libonnxruntime.so.1.23
 Restart=on-failure
-RestartSec=5s
+RestartSec=2s
+# Arrêter les tentatives si le daemon crashe 5 fois en 60s (évite une boucle infinie).
+# Le module PAM bascule sur le mot de passe, donc la sécurité reste assurée.
+StartLimitIntervalSec=60s
+StartLimitBurst=5
 
 # Security settings
-PrivateTmp=yes
 ProtectSystem=strict
 ProtectHome=yes
 NoNewPrivileges=true
-ReadWritePaths=/home/%u/.local/share/linux-hello
+ReadWritePaths=/home/%u/.local/share/linux-hello %t
 
 # Timeout settings
-TimeoutStartSec=10
+TimeoutStartSec=15
 TimeoutStopSec=5
 
 # Logging
