@@ -25,6 +25,7 @@ Depends:
   ${misc:Depends},
   dbus,
   systemd,
+  libonnxruntime1.23,
   linux-hello-models
 Description: Face Authentication System for Linux
  Linux Hello provides facial recognition authentication for:
@@ -49,24 +50,12 @@ Description: ONNX models for Linux Hello face authentication
   * det_500m.onnx — SCRFD-500M face detector (~500 KB)
   * w600k_mbf.onnx — ArcFace MobileNetV3 face embedding (~2.5 MB)
 
-Package: linux-hello-daemon
-Architecture: any
-Depends:
-  ${shlibs:Depends},
-  ${misc:Depends},
-  dbus,
-  libonnxruntime1.23,
-  linux-hello-models
-Description: Face Authentication Daemon
- The D-Bus service daemon for Linux Hello facial recognition.
- Provides the com.linuxhello.FaceAuth interface.
-
 Package: libpam-linux-hello
 Architecture: any
 Depends:
   ${shlibs:Depends},
   ${misc:Depends},
-  linux-hello-daemon,
+  linux-hello,
   libpam-runtime
 Description: PAM module for Linux Hello
  This PAM module integrates Linux Hello facial recognition
@@ -83,8 +72,9 @@ Description: Command-line tools for Linux Hello
 Package: linux-hello-gui
 Architecture: any
 Depends:
+  ${shlibs:Depends},
   ${misc:Depends},
-  linux-hello-daemon,
+  linux-hello,
   qml-qt6,
   qml6-module-org-kde-kirigami,
   qml6-module-qtcore,

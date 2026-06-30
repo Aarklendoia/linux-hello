@@ -1,3 +1,14 @@
+linux-hello (1.0.3-1) unstable; urgency=medium
+
+  * Supprime le paquet vide linux-hello-daemon (jamais alimenté par
+    aucun .install, contrairement à ce que ses dépendants déclaraient) ;
+    libpam-linux-hello et linux-hello-gui dépendent désormais de linux-
+    hello, qui contient réellement le démon. Ajoute libonnxruntime1.23
+    comme dépendance explicite de linux-hello (chargé via
+    dlopen/ORT_DYLIB_PATH, donc invisible à dpkg-shlibdeps).
+
+ -- Linux Hello Team <dev@linuxhello.local>  Tue, 30 Jun 2026 13:45:40 +0200
+
 linux-hello (1.0.2-1) unstable; urgency=medium
 
   * Ajoute le paquet linux-hello-models avec les modèles ONNX (det_500m, w600k_mbf)
