@@ -2,7 +2,7 @@
 
 #[cfg(test)]
 mod tests {
-    /// Helper: calcule un step d'interpolation sans dépendre du temps réel.
+    /// Helper: computes an interpolation step without depending on real time.
     fn animate_step(current: f32, target: f32, elapsed_ms: f32, duration_ms: f32) -> f32 {
         if (current - target).abs() <= 0.001 {
             return current;
@@ -20,7 +20,7 @@ mod tests {
         const ANIMATION_DURATION: f32 = 300.0; // ms
         const TICK_MS: f32 = 16.0;
 
-        // Simulate 5 animation ticks at 16ms each (80ms total) — sans dormir
+        // Simulate 5 animation ticks at 16ms each (80ms total) — without sleeping
         for _ in 0..5 {
             animated_progress = animate_step(animated_progress, progress_target, TICK_MS, ANIMATION_DURATION);
         }
@@ -41,7 +41,7 @@ mod tests {
         const ANIMATION_DURATION: f32 = 100.0;
         const TICK_MS: f32 = 16.0;
 
-        // Simulate 500 ticks at 16ms each — sans dormir (était ~8s de sleep réel)
+        // Simulate 500 ticks at 16ms each — without sleeping (was ~8s of real sleep)
         for iteration in 0..500 {
             animated_progress = animate_step(animated_progress, progress_target, TICK_MS, ANIMATION_DURATION);
 
@@ -67,7 +67,7 @@ mod tests {
         const ANIMATION_DURATION: f32 = 300.0;
         const TICK_MS: f32 = 16.0;
 
-        // Simulate 200 ticks — sans dormir (était ~3.2s de sleep réel)
+        // Simulate 200 ticks — without sleeping (was ~3.2s of real sleep)
         for iteration in 0..200 {
             animated_progress = animate_step(animated_progress, progress_target, TICK_MS, ANIMATION_DURATION);
 
@@ -99,10 +99,10 @@ mod tests {
         assert_eq!(animated_progress, 0.0, "Should be clamped to min");
     }
 
-    /// Valide que thread::sleep respecte les intervalles du scheduler OS.
-    /// Ce test ne teste pas notre logique — ignoré en CI, à lancer manuellement.
+    /// Validates that thread::sleep respects OS scheduler intervals.
+    /// This test does not test our logic — ignored in CI, run manually.
     #[test]
-    #[ignore = "valide le scheduler OS, pas la logique applicative — lancer manuellement"]
+    #[ignore = "validates OS scheduler, not application logic — run manually"]
     fn test_animation_tick_timing() {
         use std::time::{Duration, Instant};
         const TICK_INTERVAL_MS: u64 = 16;

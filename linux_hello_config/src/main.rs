@@ -1,11 +1,11 @@
-//! Linux Hello - Configuration GUI pour KDE/Wayland
+//! Linux Hello - Configuration GUI for KDE/Wayland
 //!
-//! Lanceur simple Qt6/QML qui:
-//! - Lance le moteur QML via qml6
-//! - Affiche l'interface de configuration
-//! - Intègre l'aperçu vidéo live du daemon
+//! Simple Qt6/QML launcher that:
+//! - Launches the QML engine via qml6
+//! - Displays the configuration interface
+//! - Integrates the daemon's live video preview
 //!
-//! Le daemon (hello_daemon) exporte les frames via D-Bus
+//! The daemon (hello_daemon) exports frames via D-Bus
 
 use std::env;
 use std::io::{Read, Write};
@@ -15,18 +15,18 @@ use std::process::Command;
 use std::thread;
 
 fn main() {
-    // Déterminer le chemin QML
+    // Determine the QML path
     let qml_path = find_qml_path();
 
     let uid = get_current_uid();
 
-    // Interdire plusieurs instances simultanées
+    // Prevent multiple simultaneous instances
     let lock_path = format!("/tmp/linux-hello-config-{}.lock", uid);
     if let Ok(content) = std::fs::read_to_string(&lock_path) {
         if let Ok(pid) = content.trim().parse::<u32>() {
             if std::path::Path::new(&format!("/proc/{}", pid)).exists() {
                 eprintln!(
-                    "⚠ Linux Hello est déjà ouvert (PID {}). Une seule instance autorisée.",
+                    "⚠ Linux Hello is already open (PID {}). Only one instance is allowed.",
                     pid
                 );
                 std::process::exit(0);
@@ -36,15 +36,15 @@ fn main() {
     let _ = std::fs::write(&lock_path, std::process::id().to_string());
 
     let ctrl_port = start_control_server(uid);
-    eprintln!("🔌 Serveur de contrôle sur port {}", ctrl_port);
-    // Écrire le port dans un fichier lisible depuis QML (Qt.environmentVariable indisponible sur ce build)
+    eprintln!("🔌 Control server on port {}", ctrl_port);
+    // Write the port to a file readable from QML (Qt.environmentVariable unavailable on this build)
     let _ = std::fs::write("/tmp/linux-hello-ctrl.port", ctrl_port.to_string());
 
-    // Configurer les chemins d'import QML
+    // Configure the QML import paths
     let qml_import_paths = [
         "/usr/lib/x86_64-linux-gnu/qt6/qml",  // Qt6 modules
-        "/usr/share/qt6/qml",                 // Qt6 standards
-        "/usr/share/linux-hello/qml-modules", // Modules custom
+        "/usr/share/qt6/qml",                 // Standard Qt6 modules
+        "/usr/share/linux-hello/qml-modules", // Custom modules
     ]
     .join(":");
 
@@ -54,7 +54,7 @@ fn main() {
     ]
     .join(":");
 
-    // Lancer qml6
+    // Launch qml6
     let mut cmd = Command::new("qml6");
     cmd.arg("-name")
         .arg("linux-hello")
@@ -83,7 +83,7 @@ fn main() {
             let _ = child.wait();
         }
         Err(e) => {
-            eprintln!("❌ Erreur lors du lancement: {}", e);
+            eprintln!("❌ Error while launching: {}", e);
             std::process::exit(1);
         }
     }
@@ -103,7 +103,7 @@ fn find_qml_path() -> String {
         }
     }
 
-    // Fallback vers le répertoire de développement
+    // Fallback to the development directory
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
     PathBuf::from(&manifest_dir)
         .join("qml")
@@ -112,7 +112,7 @@ fn find_qml_path() -> String {
         .to_string()
 }
 
-/// Retourne l'UID de l'utilisateur courant.
+/// Returns the current user's UID.
 fn get_current_uid() -> u32 {
     Command::new("id")
         .arg("-u")
@@ -123,8 +123,8 @@ fn get_current_uid() -> u32 {
         .unwrap_or(1000)
 }
 
-/// Extrait le contenu JSON depuis une sortie busctl renvoyant un type string.
-/// Format busctl : s "[{\"face_id\":\"...\"}]"
+/// Extracts the JSON content from a busctl output returning a string type.
+/// busctl format: s "[{\"face_id\":\"...\"}]"
 fn extract_busctl_json(output: &str) -> Option<String> {
     let trimmed = output.trim();
     let content = trimmed.strip_prefix("s \"")?;
@@ -132,8 +132,8 @@ fn extract_busctl_json(output: &str) -> Option<String> {
     Some(content.replace("\\\"", "\"").replace("\\\\", "\\"))
 }
 
-/// Extrait un paramètre de la query string de la première ligne HTTP.
-/// Ex: "GET /delete-face?id=abc123 HTTP/1.1" → Some("abc123")
+/// Extracts a parameter from the query string of the first HTTP line.
+/// E.g.: "GET /delete-face?id=abc123 HTTP/1.1" → Some("abc123")
 fn extract_query_param(req: &str, param: &str) -> Option<String> {
     let line = req.lines().next()?;
     let search = format!("{}=", param);
@@ -144,8 +144,8 @@ fn extract_query_param(req: &str, param: &str) -> Option<String> {
     Some(rest[..end].to_string())
 }
 
-/// Extrait le face_id depuis la sortie busctl d'un appel RegisterFace.
-/// Format busctl : s "{\"face_id\":\"face_1000_xxx\", ...}"
+/// Extracts the face_id from the busctl output of a RegisterFace call.
+/// busctl format: s "{\"face_id\":\"face_1000_xxx\", ...}"
 fn extract_face_id_from_busctl(output: &str) -> Option<String> {
     let key = "face_id\":\"";
     let start = output.find(key)? + key.len();
@@ -154,12 +154,11 @@ fn extract_face_id_from_busctl(output: &str) -> Option<String> {
     Some(rest[..end].to_string())
 }
 
-/// Démarre un serveur HTTP multi-threadé sur 127.0.0.1 (port alloué par l'OS).
-/// Chaque connexion est traitée dans un thread dédié.
-/// Retourne le port attribué.
+/// Starts a multi-threaded HTTP server on 127.0.0.1 (port allocated by the OS).
+/// Each connection is handled in a dedicated thread.
+/// Returns the assigned port.
 fn start_control_server(uid: u32) -> u16 {
-    let listener =
-        TcpListener::bind("127.0.0.1:0").expect("Impossible de démarrer le serveur de contrôle");
+    let listener = TcpListener::bind("127.0.0.1:0").expect("Unable to start the control server");
     let port = listener.local_addr().unwrap().port();
 
     thread::spawn(move || {
@@ -171,14 +170,14 @@ fn start_control_server(uid: u32) -> u16 {
     port
 }
 
-/// Traite une connexion HTTP entrante dans son propre thread.
+/// Handles an incoming HTTP connection in its own thread.
 fn handle_ctrl_connection(mut stream: TcpStream, uid: u32) {
     let mut buf = [0u8; 2048];
     let n = stream.read(&mut buf).unwrap_or(0);
     let req = String::from_utf8_lossy(&buf[..n]);
 
     let (status, body): (&str, String) = if req.contains("/start-capture") {
-        // Non-bloquant : lance la capture preview en arrière-plan
+        // Non-blocking: launches the preview capture in the background
         let _ = Command::new("busctl")
             .args([
                 "--user",
@@ -195,7 +194,7 @@ fn handle_ctrl_connection(mut stream: TcpStream, uid: u32) {
             .spawn();
         ("200 OK", "OK".to_string())
     } else if req.contains("/register-face") {
-        // Bloquant : attend la fin de l'enregistrement et retourne le face_id
+        // Blocking: waits for the enrollment to finish and returns the face_id
         let request_json = format!(
             r#"{{"user_id":{},"context":"gui","timeout_ms":10000,"num_samples":5}}"#,
             uid
@@ -311,7 +310,7 @@ fn handle_ctrl_connection(mut stream: TcpStream, uid: u32) {
     } else if req.contains("OPTIONS") {
         ("200 OK", String::new())
     } else if req.contains("/test-auth") {
-        // Teste l'authentification sans PAM : appelle Verify via D-Bus et retourne le résultat
+        // Tests authentication without PAM: calls Verify via D-Bus and returns the result
         let context = extract_query_param(&req, "context").unwrap_or_else(|| "gui".to_string());
         let request_json = format!(
             r#"{{"user_id":{},"context":"{}","timeout_ms":10000}}"#,
@@ -332,9 +331,9 @@ fn handle_ctrl_connection(mut stream: TcpStream, uid: u32) {
         {
             Ok(out) if out.status.success() => {
                 let stdout = String::from_utf8_lossy(&out.stdout);
-                // busctl retourne : s "{"Success":...}" — extraire le JSON interne
+                // busctl returns: s "{"Success":...}" — extract the inner JSON
                 let json = extract_busctl_json(&stdout).unwrap_or_else(|| {
-                    r#"{"result":"Error","message":"Réponse vide"}"#.to_string()
+                    r#"{"result":"Error","message":"Empty response"}"#.to_string()
                 });
                 ("200 OK", format!(r#"{{"ok":true,"data":{}}}"#, json))
             }

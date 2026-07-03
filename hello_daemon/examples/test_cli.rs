@@ -1,6 +1,6 @@
-//! Test CLI du daemon - appels directs aux APIs
+//! Daemon test CLI - direct API calls
 //!
-//! Simule les interactions avec le daemon sans D-Bus
+//! Simulates interactions with the daemon without D-Bus
 
 use clap::{Parser, Subcommand};
 use hello_daemon::{DaemonConfig, FaceAuthDaemon};
@@ -9,51 +9,51 @@ use tracing::info;
 
 #[derive(Parser)]
 #[command(name = "hello-test")]
-#[command(about = "Test client pour daemon linux-hello")]
+#[command(about = "Test client for the linux-hello daemon")]
 struct Cli {
-    /// Chemin du stockage (doit correspondre au daemon)
+    /// Storage path (must match the daemon)
     #[arg(short, long, default_value = "./hello-test")]
     storage: PathBuf,
 
     #[command(subcommand)]
     command: Commands,
 
-    /// Mode debug
+    /// Debug mode
     #[arg(short, long)]
     debug: bool,
 }
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Enregistrer un nouveau visage
+    /// Register a new face
     Register {
-        /// UID utilisateur
+        /// User UID
         user_id: u32,
-        /// Contexte (login, sudo, screenlock, etc.)
+        /// Context (login, sudo, screenlock, etc.)
         #[arg(default_value = "test")]
         context: String,
     },
 
-    /// Vérifier l'identité d'un utilisateur
+    /// Verify a user's identity
     Verify {
-        /// UID utilisateur
+        /// User UID
         user_id: u32,
-        /// Contexte
+        /// Context
         #[arg(default_value = "test")]
         context: String,
     },
 
-    /// Lister les visages enregistrés
+    /// List registered faces
     List {
-        /// UID utilisateur
+        /// User UID
         user_id: u32,
     },
 
-    /// Supprimer un visage
+    /// Delete a face
     Delete {
-        /// UID utilisateur
+        /// User UID
         user_id: u32,
-        /// Face ID à supprimer (optionnel, sinon tous)
+        /// Face ID to delete (optional, otherwise all)
         face_id: Option<String>,
     },
 }
@@ -71,10 +71,10 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
 
-    info!("Test client Linux Hello");
-    info!("Stockage: {}", cli.storage.display());
+    info!("Linux Hello test client");
+    info!("Storage: {}", cli.storage.display());
 
-    // Créer config et daemon
+    // Create config and daemon
     let config = DaemonConfig {
         storage_path: cli.storage.clone(),
         root_mode: false,
@@ -85,13 +85,10 @@ async fn main() -> anyhow::Result<()> {
 
     let daemon = FaceAuthDaemon::new(config)?;
 
-    // Exécuter commande
+    // Execute command
     match cli.command {
         Commands::Register { user_id, context } => {
-            info!(
-                "Enregistrement pour user_id={}, context={}",
-                user_id, context
-            );
+            info!("Registering for user_id={}, context={}", user_id, context);
 
             let request = hello_daemon::dbus_interface::RegisterFaceRequest {
                 user_id,
@@ -102,18 +99,18 @@ async fn main() -> anyhow::Result<()> {
 
             match daemon.register_face(request).await {
                 Ok(response_json) => {
-                    println!("\n✓ Enregistrement réussi!");
-                    println!("Réponse: {}", response_json);
+                    println!("\n✓ Registration successful!");
+                    println!("Response: {}", response_json);
                 }
                 Err(e) => {
-                    eprintln!("\n✗ Erreur enregistrement: {}", e);
+                    eprintln!("\n✗ Registration error: {}", e);
                     return Err(e.into());
                 }
             }
         }
 
         Commands::Verify { user_id, context } => {
-            info!("Vérification pour user_id={}, context={}", user_id, context);
+            info!("Verifying for user_id={}, context={}", user_id, context);
 
             let request = hello_daemon::dbus_interface::VerifyRequest {
                 user_id,
@@ -123,8 +120,8 @@ async fn main() -> anyhow::Result<()> {
 
             match daemon.verify(request).await {
                 Ok(result) => {
-                    println!("\n✓ Vérification complète");
-                    println!("Résultat: {}", result);
+                    println!("\n✓ Verification complete");
+                    println!("Result: {}", result);
                     match result {
                         hello_daemon::dbus_interface::VerifyResult::Success {
                             face_id,
@@ -137,48 +134,48 @@ async fn main() -> anyhow::Result<()> {
                             best_score,
                             threshold,
                         } => {
-                            println!("  Meilleur score: {:.4}", best_score);
-                            println!("  Seuil requis: {:.4}", threshold);
+                            println!("  Best score: {:.4}", best_score);
+                            println!("  Required threshold: {:.4}", threshold);
                         }
                         hello_daemon::dbus_interface::VerifyResult::NoEnrollment => {
-                            println!("  Aucun visage enregistré pour cet utilisateur");
+                            println!("  No face registered for this user");
                         }
                         _ => {}
                     }
                 }
                 Err(e) => {
-                    eprintln!("\n✗ Erreur vérification: {}", e);
+                    eprintln!("\n✗ Verification error: {}", e);
                     return Err(e.into());
                 }
             }
         }
 
         Commands::List { user_id } => {
-            info!("Listing visages pour user_id={}", user_id);
+            info!("Listing faces for user_id={}", user_id);
 
             match daemon.list_faces(user_id).await {
                 Ok(faces_json) => {
-                    println!("\n✓ Visages enregistrés:");
+                    println!("\n✓ Registered faces:");
                     println!("{}", faces_json);
                 }
                 Err(e) => {
-                    eprintln!("\n✗ Erreur listing: {}", e);
+                    eprintln!("\n✗ Listing error: {}", e);
                     return Err(e.into());
                 }
             }
         }
 
         Commands::Delete { user_id, face_id } => {
-            info!("Suppression user_id={}, face_id={:?}", user_id, face_id);
+            info!("Deleting user_id={}, face_id={:?}", user_id, face_id);
 
             let request = hello_daemon::dbus_interface::DeleteFaceRequest { user_id, face_id };
 
             match daemon.delete_face(request).await {
                 Ok(_) => {
-                    println!("\n✓ Suppression réussie!");
+                    println!("\n✓ Deletion successful!");
                 }
                 Err(e) => {
-                    eprintln!("\n✗ Erreur suppression: {}", e);
+                    eprintln!("\n✗ Deletion error: {}", e);
                     return Err(e.into());
                 }
             }

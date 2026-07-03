@@ -1,98 +1,98 @@
-# linux_hello_config - Configuration GUI KDE/Wayland
+# linux_hello_config - KDE/Wayland Configuration GUI
 
 ## 📌 Description
 
-Interface graphique native KDE/Wayland pour la configuration et l'enregistrement de visages dans le système Linux Hello.
+Native KDE/Wayland graphical interface for configuring and enrolling faces in the Linux Hello system.
 
-## ✨ Fonctionnalités
+## ✨ Features
 
-### Actuellement Implémenté (MVP)
+### Currently Implemented (MVP)
 
-- ✅ Application GUI basique avec Iced
-- ✅ Navigation entre 4 écrans principaux
-- ✅ Structure de configuration
-- ✅ Types pour streaming D-Bus
+- ✅ Basic GUI application with Iced
+- ✅ Navigation between 4 main screens
+- ✅ Configuration structure
+- ✅ Types for D-Bus streaming
 
-### En Cours de Développement
+### Under Development
 
-- 🚧 Écran d'enregistrement avec preview en direct
-- 🚧 Détection de visage (stub → YOLO)
-- 🚧 Affichage bounding box et barre progression
-- 🚧 Communication D-Bus avec daemon
+- 🚧 Enrollment screen with live preview
+- 🚧 Face detection (stub → YOLO)
+- 🚧 Bounding box and progress bar display
+- 🚧 D-Bus communication with daemon
 
-### Futur
+### Future
 
-- 📋 Écran de paramètres avancés
-- 📋 Gestion des visages enregistrés
-- 📋 Intégration KDE theme
-- 📋 Notifications système
+- 📋 Advanced settings screen
+- 📋 Management of enrolled faces
+- 📋 KDE theme integration
+- 📋 System notifications
 
-## 🎨 Écrans
+## 🎨 Screens
 
-### 1. Home (Accueil)
+### 1. Home
 
-Menu principal avec accès à:
+Main menu with access to:
 
-- Enregistrer nouveau visage
-- Paramètres
-- Gestion des visages
+- Enroll new face
+- Settings
+- Face management
 
-### 2. Enrollment (Enregistrement)
+### 2. Enrollment
 
 ```
 ┌─────────────────────────────┐
-│  Preview Caméra (640×480)   │
+│  Camera Preview (640×480)   │
 │  ┌───────────────────────┐  │
-│  │   █████████████████   │  │ ← Frame RGB + détection
-│  │   █ O   O        █    │  │   Carré vert si visage
-│  │   █       █      █    │  │   détecté
+│  │   █████████████████   │  │ ← RGB frame + detection
+│  │   █ O   O        █    │  │   Green square if face
+│  │   █       █      █    │  │   detected
 │  │   █     └─┘      █    │  │
 │  │   █████████████████   │  │
 │  └───────────────────────┘  │
 │                             │
-│  Progression: ████░░░ 5/30  │ ← Barre progression
-│  Qualité: 0.85              │
+│  Progress: ████░░░ 5/30     │ ← Progress bar
+│  Quality: 0.85              │
 │                             │
-│  [Démarrer]  [Arrêter]     │
+│  [Start]  [Stop]           │
 └─────────────────────────────┘
 ```
 
-### 3. Settings (Paramètres)
+### 3. Settings
 
-- Nombre de frames
+- Number of frames
 - Timeout
-- Seuils de confiance/qualité
-- Device caméra
+- Confidence/quality thresholds
+- Camera device
 
-### 4. Manage Faces (Gestion)
+### 4. Manage Faces
 
-- Liste des visages
-- Actions: supprimer, renommer
-- Détails: date, qualité
+- List of faces
+- Actions: delete, rename
+- Details: date, quality
 
-## 🔧 Architecture Technique
+## 🔧 Technical Architecture
 
-### Framework UI
+### UI Framework
 
-- **Iced 0.12** - Framework UI moderne Rust
+- **Iced 0.12** - Modern Rust UI framework
   - Cross-platform (Linux, macOS, Windows)
-  - Wayland natif
+  - Native Wayland
   - GPU-accelerated (wgpu)
   
-### Rendu
+### Rendering
 
-- **pixels 0.13** - Pixel buffer pour affichage frames RGB
-- **image 0.24** - Traitement et manipulation images
+- **pixels 0.13** - Pixel buffer for RGB frame display
+- **image 0.24** - Image processing and manipulation
 
 ### Communication
 
 - **zbus** - D-Bus client
 - **tokio** - Async runtime
 
-## 📦 Dépendances Principales
+## 📦 Main Dependencies
 
 ```toml
-iced = "0.12"           # Framework UI
+iced = "0.12"           # UI Framework
 pixels = "0.13"         # Pixel rendering
 zbus = "4.4"            # D-Bus
 tokio = "1.36"          # Async
@@ -102,13 +102,13 @@ tracing                 # Logging
 
 ## 🚀 Building & Running
 
-### Compiler
+### Build
 
 ```bash
 cargo build --release -p linux_hello_config
 ```
 
-### Lancer
+### Run
 
 ```bash
 ./target/release/linux_hello_config
@@ -120,81 +120,81 @@ cargo build --release -p linux_hello_config
 cargo test -p linux_hello_config
 ```
 
-## 📋 Plan d'Implémentation (Phases)
+## 📋 Implementation Plan (Phases)
 
 ### Phase 1: Foundation ✅
 
-- [x] Structure projet Cargo
-- [x] Types streaming et config
-- [x] Skeleton GUI avec navigation
-- [x] Modules modules ui, preview, config
+- [x] Cargo project structure
+- [x] Streaming and config types
+- [x] GUI skeleton with navigation
+- [x] ui, preview, config modules
 
-### Phase 2: Streaming D-Bus 🚧
+### Phase 2: D-Bus Streaming 🚧
 
-- [ ] Modifier CameraManager pour streaming async
-- [ ] Émettre signaux D-Bus depuis daemon
-- [ ] Écouter signaux dans GUI (subscription Iced)
-- [ ] Afficher frames en temps réel
+- [ ] Modify CameraManager for async streaming
+- [ ] Emit D-Bus signals from daemon
+- [ ] Listen for signals in GUI (Iced subscription)
+- [ ] Display frames in real time
 
-### Phase 3: Détection Visage 🚧
+### Phase 3: Face Detection 🚧
 
-- [ ] Intégrer détecteur réel (YOLO ou RetinaFace)
-- [ ] Dessiner bounding box sur frames
-- [ ] Afficher barre progression
-- [ ] Indicateurs qualité/confiance
+- [ ] Integrate real detector (YOLO or RetinaFace)
+- [ ] Draw bounding box on frames
+- [ ] Display progress bar
+- [ ] Quality/confidence indicators
 
-### Phase 4: Écrans Complets
+### Phase 4: Complete Screens
 
-- [ ] Implémentation complète Settings
-- [ ] Implémentation complète Manage Faces
-- [ ] Affichage liste visages enregistrés
-- [ ] Actions supprimer/éditer
+- [ ] Full Settings implementation
+- [ ] Full Manage Faces implementation
+- [ ] Display list of enrolled faces
+- [ ] Delete/edit actions
 
-### Phase 5: Polish & Intégration
+### Phase 5: Polish & Integration
 
-- [ ] Theme KDE integration
-- [ ] Notifications système
-- [ ] Gestion erreurs complète
-- [ ] Localisation (i18n)
-- [ ] Tests d'intégration E2E
+- [ ] KDE theme integration
+- [ ] System notifications
+- [ ] Complete error handling
+- [ ] Localization (i18n)
+- [ ] E2E integration tests
 
-## 🎯 État Actuel
+## 🎯 Current State
 
-- **Compilation**: ✅ Succès (avec warnings mineurs)
-- **Tests unitaires**: ✅ 23/23 passant
-- **Code organisation**: ✅ Modulaire et extensible
-- **GUI opérationnelle**: 🟡 Skeleton seulement
-- **D-Bus intégration**: 🔴 À venir
+- **Compilation**: ✅ Success (with minor warnings)
+- **Unit tests**: ✅ 23/23 passing
+- **Code organization**: ✅ Modular and extensible
+- **Operational GUI**: 🟡 Skeleton only
+- **D-Bus integration**: 🔴 Coming soon
 
 ## 📊 Benchmarks
 
-### Performance Ciblée
+### Target Performance
 
-- Frame rate: 30fps capturée, 30fps affichée
-- Latence capture→affichage: <100ms
-- Détection: <5ms par frame (stub)
-- Mémoire: <50MB pour session capture
+- Frame rate: 30fps captured, 30fps displayed
+- Capture→display latency: <100ms
+- Detection: <5ms per frame (stub)
+- Memory: <50MB for capture session
 
 ## 🤝 Contribution
 
-Pour étendre cette GUI:
+To extend this GUI:
 
-1. **Ajouter écran**: Créer module dans `src/screens/`
-2. **Ajouter widget**: Implémenter dans `src/ui/`
-3. **Modifier comportement**: Éditer `Message` enum
-4. **Tester**: Ajouter tests unitaires
+1. **Add a screen**: Create a module in `src/screens/`
+2. **Add a widget**: Implement in `src/ui/`
+3. **Modify behavior**: Edit the `Message` enum
+4. **Test**: Add unit tests
 
-## 📚 Références
+## 📚 References
 
 - [Iced Documentation](https://docs.rs/iced/)
-- [D-Bus D-feet Tool](https://wiki.gnome.org/Apps/DFeet) - Inspecter D-Bus
+- [D-Bus D-feet Tool](https://wiki.gnome.org/Apps/DFeet) - Inspect D-Bus
 - [RetinaFace](https://github.com/deepinsight/retinaface) - Face detection
 - [YOLOv8-Face](https://github.com/akanametov/yolov8-face) - Alternative YOLO
 
 ## 📞 Support
 
-Pour des questions ou bugs:
+For questions or bugs:
 
-- Consulter `GUI_ARCHITECTURE.md` pour détails techniques
-- Vérifier logs D-Bus: `journalctl -u dbus`
-- Tester daemon: `./target/debug/hello-daemon --debug`
+- See `../docs/GUI_ARCHITECTURE.md` for technical details
+- Check D-Bus logs: `journalctl -u dbus`
+- Test the daemon: `./target/debug/hello-daemon --debug`

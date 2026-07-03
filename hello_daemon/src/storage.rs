@@ -1,89 +1,88 @@
-//! Gestion persistante du stockage des embeddings faciales
+//! Persistent storage management for face embeddings
 //!
-//! - SQLite pour métadonnées (user_id, face_id, quality_score, registered_at)
-//! - Fichiers JSON pour les embeddings (pour flexibilité)
+//! - SQLite for metadata (user_id, face_id, quality_score, registered_at)
+//! - JSON files for embeddings (for flexibility)
 
 use crate::{DaemonError, FaceRecord};
 use hello_face_core::Embedding;
 use std::path::{Path, PathBuf};
 use tracing::{debug, info};
 
-/// Gestionnaire de stockage des visages
+/// Face storage manager
 pub struct FaceStorage {
-    /// Répertoire racine de stockage
+    /// Root storage directory
     base_path: PathBuf,
 
-    /// Chemin vers la DB SQLite
+    /// Path to the SQLite DB
     #[allow(dead_code)]
     db_path: PathBuf,
 }
 
 impl FaceStorage {
-    /// Créer un nouveau gestionnaire de stockage
+    /// Create a new storage manager
     pub fn new(base_path: impl AsRef<Path>) -> Result<Self, DaemonError> {
         let base_path = base_path.as_ref().to_path_buf();
 
-        // Créer la structure de répertoires
-        std::fs::create_dir_all(&base_path).map_err(|e| {
-            DaemonError::StorageError(format!("Création répertoire échouée: {}", e))
-        })?;
+        // Create the directory structure
+        std::fs::create_dir_all(&base_path)
+            .map_err(|e| DaemonError::StorageError(format!("Directory creation failed: {}", e)))?;
 
         let db_path = base_path.join("faces.db");
 
         let storage = Self { base_path, db_path };
 
-        // Initialiser la DB si elle n'existe pas
+        // Initialize the DB if it doesn't exist
         storage.init_db()?;
 
         Ok(storage)
     }
 
-    /// Initialiser la structure SQLite
+    /// Initialize the SQLite structure
     fn init_db(&self) -> Result<(), DaemonError> {
-        // Créer le répertoire embeddings
+        // Create the embeddings directory
         let embeddings_dir = self.base_path.join("embeddings");
         std::fs::create_dir_all(&embeddings_dir)
-            .map_err(|e| DaemonError::StorageError(format!("Création embeddings dir: {}", e)))?;
+            .map_err(|e| DaemonError::StorageError(format!("Embeddings dir creation: {}", e)))?;
 
-        // Pour maintenant, on utilise des fichiers JSON
-        // La migration vers SQLite se fera plus tard avec sqlx async
-        info!("Stockage initialisé à: {}", self.base_path.display());
+        // For now we use JSON files
+        // Migration to SQLite will happen later with sqlx async
+        info!("Storage initialized at: {}", self.base_path.display());
 
         Ok(())
     }
 
-    /// Sauvegarder un nouveau visage enregistré
+    /// Save a newly registered face
     pub fn save_face(&self, record: &FaceRecord, embedding: &Embedding) -> Result<(), DaemonError> {
-        // Vérifier permissions du répertoire user
+        // Check permissions of the user directory
         let user_dir = self.user_dir(record.user_id)?;
         std::fs::create_dir_all(&user_dir)
-            .map_err(|e| DaemonError::StorageError(format!("Création user dir: {}", e)))?;
+            .map_err(|e| DaemonError::StorageError(format!("User dir creation: {}", e)))?;
 
-        // Sauvegarder métadonnées dans un fichier JSON
+        // Save metadata to a JSON file
         let metadata_path = user_dir.join(format!("{}.meta.json", record.face_id));
         let metadata_json =
             serde_json::to_string_pretty(&record).map_err(DaemonError::JsonError)?;
 
         std::fs::write(&metadata_path, metadata_json)
-            .map_err(|e| DaemonError::StorageError(format!("Écriture métadonnées: {}", e)))?;
+            .map_err(|e| DaemonError::StorageError(format!("Metadata write: {}", e)))?;
 
-        // Sauvegarder embedding
+        // Save the embedding
         let embedding_path = user_dir.join(format!("{}.embedding.json", record.face_id));
         let embedding_json =
             serde_json::to_string_pretty(&embedding).map_err(DaemonError::JsonError)?;
 
         std::fs::write(&embedding_path, embedding_json)
-            .map_err(|e| DaemonError::StorageError(format!("Écriture embedding: {}", e)))?;
+            .map_err(|e| DaemonError::StorageError(format!("Embedding write: {}", e)))?;
 
         debug!(
-            "Visage sauvegardé: user_id={}, face_id={}",
+            "Face saved: user_id={}, face_id={}",
             record.user_id, record.face_id
         );
 
         Ok(())
     }
 
-    /// Charger un embedding par face_id
+    /// Load an embedding by face_id
     pub fn load_face_embedding(
         &self,
         user_id: u32,
@@ -93,7 +92,7 @@ impl FaceStorage {
         let embedding_path = user_dir.join(format!("{}.embedding.json", face_id));
 
         let content = std::fs::read_to_string(&embedding_path)
-            .map_err(|e| DaemonError::StorageError(format!("Lecture embedding: {}", e)))?;
+            .map_err(|e| DaemonError::StorageError(format!("Embedding read: {}", e)))?;
 
         let embedding: hello_face_core::Embedding =
             serde_json::from_str(&content).map_err(DaemonError::JsonError)?;
@@ -101,7 +100,7 @@ impl FaceStorage {
         Ok(embedding)
     }
 
-    /// Lister tous les visages d'un utilisateur
+    /// List all faces of a user
     pub fn list_user_faces(&self, user_id: u32) -> Result<Vec<FaceRecord>, DaemonError> {
         let user_dir = self.user_dir(user_id)?;
 
@@ -112,13 +111,13 @@ impl FaceStorage {
         let mut faces = Vec::new();
 
         for entry in std::fs::read_dir(&user_dir)
-            .map_err(|e| DaemonError::StorageError(format!("Lecture user dir: {}", e)))?
+            .map_err(|e| DaemonError::StorageError(format!("User dir read: {}", e)))?
         {
             let entry =
-                entry.map_err(|e| DaemonError::StorageError(format!("Entrée dir: {}", e)))?;
+                entry.map_err(|e| DaemonError::StorageError(format!("Dir entry: {}", e)))?;
             let path = entry.path();
 
-            // Chercher les fichiers .meta.json
+            // Look for .meta.json files
             if path
                 .file_name()
                 .and_then(|n| n.to_str())
@@ -126,7 +125,7 @@ impl FaceStorage {
                 .unwrap_or(false)
             {
                 let content = std::fs::read_to_string(&path)
-                    .map_err(|e| DaemonError::StorageError(format!("Lecture meta: {}", e)))?;
+                    .map_err(|e| DaemonError::StorageError(format!("Meta read: {}", e)))?;
 
                 let record: FaceRecord =
                     serde_json::from_str(&content).map_err(DaemonError::JsonError)?;
@@ -138,7 +137,7 @@ impl FaceStorage {
         Ok(faces)
     }
 
-    /// Supprimer un visage
+    /// Delete a face
     pub fn delete_face(&self, user_id: u32, face_id: &str) -> Result<(), DaemonError> {
         let user_dir = self.user_dir(user_id)?;
 
@@ -147,39 +146,39 @@ impl FaceStorage {
 
         if meta_path.exists() {
             std::fs::remove_file(&meta_path)
-                .map_err(|e| DaemonError::StorageError(format!("Suppression meta: {}", e)))?;
+                .map_err(|e| DaemonError::StorageError(format!("Meta deletion: {}", e)))?;
         }
 
         if emb_path.exists() {
             std::fs::remove_file(&emb_path)
-                .map_err(|e| DaemonError::StorageError(format!("Suppression embedding: {}", e)))?;
+                .map_err(|e| DaemonError::StorageError(format!("Embedding deletion: {}", e)))?;
         }
 
-        debug!("Visage supprimé: user_id={}, face_id={}", user_id, face_id);
+        debug!("Face deleted: user_id={}, face_id={}", user_id, face_id);
 
         Ok(())
     }
 
-    /// Supprimer tous les visages d'un utilisateur
+    /// Delete all faces of a user
     pub fn delete_all_faces(&self, user_id: u32) -> Result<(), DaemonError> {
         let user_dir = self.user_dir(user_id)?;
 
         if user_dir.exists() {
             std::fs::remove_dir_all(&user_dir)
-                .map_err(|e| DaemonError::StorageError(format!("Suppression user dir: {}", e)))?;
+                .map_err(|e| DaemonError::StorageError(format!("User dir deletion: {}", e)))?;
         }
 
-        debug!("Tous les visages supprimés pour user_id={}", user_id);
+        debug!("All faces deleted for user_id={}", user_id);
 
         Ok(())
     }
 
-    /// Obtenir le répertoire de l'utilisateur
+    /// Get the user's directory
     fn user_dir(&self, user_id: u32) -> Result<PathBuf, DaemonError> {
         let user_dir = self.base_path.join(format!("users/{}", user_id));
 
-        // Vérifier qu'on ne sort pas du base_path (sécurité)
-        // Utiliser une approche plus simple: vérifier que le chemin normalisé commence par base_path
+        // Verify we don't escape base_path (security)
+        // Use a simpler approach: check that the normalized path starts with base_path
         let normalized_user = user_dir.canonicalize().ok();
         let normalized_base = self.base_path.canonicalize().ok();
 
@@ -193,8 +192,8 @@ impl FaceStorage {
                 }
             }
             _ => {
-                // Si le chemin n'existe pas encore, faire une vérification simple
-                // Vérifier que "../" n'est pas dans le chemin
+                // If the path doesn't exist yet, do a simple check
+                // Verify that "../" is not in the path
                 let user_str = user_dir.to_string_lossy();
                 if user_str.contains("..") {
                     return Err(DaemonError::AccessDenied(format!(

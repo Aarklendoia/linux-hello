@@ -1,18 +1,18 @@
-//! Extracteur d'embeddings ArcFace MobileNetV3 via tract-onnx
+//! ArcFace MobileNetV3 embedding extractor via tract-onnx
 //!
-//! Modèle : w600k_mbf.onnx (ArcFace entraîné sur WebFace600K)
-//! Input  : RGB 112×112, normalisé mean=127.5/std=128.0, format CHW
-//! Output : vecteur 512-dim L2-normalisé
+//! Model  : w600k_mbf.onnx (ArcFace trained on WebFace600K)
+//! Input  : RGB 112x112, normalized mean=127.5/std=128.0, CHW format
+//! Output : L2-normalized 512-dim vector
 
 use crate::{Embedding, EmbeddingExtractor, EmbeddingMetadata, FaceError, FaceRegion};
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-// tract 0.23 : into_runnable() retourne Arc<SimplePlan<...>>, run() est sur Arc
+// tract 0.23: into_runnable() returns Arc<SimplePlan<...>>, run() is on Arc
 #[cfg(feature = "tract")]
 type TractPlan = std::sync::Arc<tract_onnx::prelude::TypedRunnableModel>;
 
-/// Extracteur ArcFace MobileNetV3 (w600k_mbf)
+/// ArcFace MobileNetV3 extractor (w600k_mbf)
 #[cfg(feature = "tract")]
 pub struct ArcFaceExtractor {
     model: TractPlan,
@@ -20,7 +20,7 @@ pub struct ArcFaceExtractor {
 
 #[cfg(feature = "tract")]
 impl ArcFaceExtractor {
-    /// Charger le modèle ArcFace depuis un fichier .onnx
+    /// Load the ArcFace model from an .onnx file
     pub fn load(model_path: &Path) -> Result<Self, FaceError> {
         use tract_onnx::prelude::*;
 
@@ -37,17 +37,14 @@ impl ArcFaceExtractor {
             .into_runnable()
             .map_err(|e| FaceError::ModelLoadError(format!("ArcFace runnable: {}", e)))?;
 
-        tracing::info!(
-            "Modèle ArcFace (w600k_mbf) chargé: {}",
-            model_path.display()
-        );
+        tracing::info!("ArcFace model (w600k_mbf) loaded: {}", model_path.display());
         Ok(Self { model })
     }
 
-    /// Aligner et recadrer le visage en patch 112×112 RGB
+    /// Align and crop the face into a 112x112 RGB patch
     ///
-    /// Utilise la bounding box de SCRFD. Si des landmarks sont disponibles,
-    /// une transformation affine (5 points) sera appliquée à terme.
+    /// Uses the SCRFD bounding box. If landmarks are available,
+    /// an affine transform (5 points) will eventually be applied.
     fn align_face(
         &self,
         face: &FaceRegion,
@@ -58,7 +55,7 @@ impl ArcFaceExtractor {
         const SIZE: usize = 112;
         let (bx, by, bw, bh) = face.bounding_box;
 
-        // Cadrer avec marge de 20%
+        // Crop with a 20% margin
         let margin_x = (bw as f32 * 0.1) as u32;
         let margin_y = (bh as f32 * 0.1) as u32;
         let x1 = bx.saturating_sub(margin_x);
@@ -68,7 +65,7 @@ impl ArcFaceExtractor {
         let crop_w = (x2 - x1).max(1);
         let crop_h = (y2 - y1).max(1);
 
-        // Redimensionner le crop à 112×112 et normaliser en CHW
+        // Resize the crop to 112x112 and normalize into CHW
         let mut tensor = vec![0.0f32; 3 * SIZE * SIZE];
 
         for dy in 0..SIZE {
@@ -105,7 +102,9 @@ impl EmbeddingExtractor for ArcFaceExtractor {
         use tract_onnx::prelude::*;
 
         if channels != 3 || frame_data.is_empty() {
-            return Err(FaceError::InvalidFrame("Attendu RGB 3 canaux".to_string()));
+            return Err(FaceError::InvalidFrame(
+                "Expected RGB 3 channels".to_string(),
+            ));
         }
 
         let aligned = self.align_face(face_region, frame_data, width, height);
@@ -125,14 +124,14 @@ impl EmbeddingExtractor for ArcFaceExtractor {
 
         let mut vector: Vec<f32> = raw.iter().copied().collect();
 
-        // L2-normalisation (le modèle peut retourner des vecteurs non normalisés)
+        // L2 normalization (the model may return unnormalized vectors)
         let norm: f32 = vector.iter().map(|x| x * x).sum::<f32>().sqrt().max(1e-6);
         for v in &mut vector {
             *v /= norm;
         }
 
-        // Score de qualité : norme du vecteur pré-normalisation
-        // (plus c'est élevé, plus le visage est net / bien cadré)
+        // Quality score: norm of the vector before normalization
+        // (the higher it is, the sharper / better-framed the face)
         let quality = (norm / 20.0).clamp(0.0, 1.0);
 
         let now = SystemTime::now()
@@ -141,7 +140,7 @@ impl EmbeddingExtractor for ArcFaceExtractor {
             .as_secs();
 
         tracing::debug!(
-            "ArcFace: embedding 512-dim extrait, qualité={:.3}, confiance={:.3}",
+            "ArcFace: 512-dim embedding extracted, quality={:.3}, confidence={:.3}",
             quality,
             face_region.confidence
         );
@@ -170,7 +169,7 @@ impl EmbeddingExtractor for ArcFaceExtractor {
     }
 }
 
-/// Extracteur stub utilisé en fallback si le modèle ONNX n'est pas disponible
+/// Stub extractor used as a fallback if the ONNX model is not available
 pub struct ArcFaceFallback;
 
 impl EmbeddingExtractor for ArcFaceFallback {
@@ -182,7 +181,7 @@ impl EmbeddingExtractor for ArcFaceFallback {
         height: u32,
         _channels: u32,
     ) -> Result<Embedding, FaceError> {
-        // Embedding reproductible basé sur les pixels du crop visage
+        // Reproducible embedding based on the face crop pixels
         let (bx, by, bw, bh) = face_region.bounding_box;
         let mut vector = vec![0.0f32; 512];
 

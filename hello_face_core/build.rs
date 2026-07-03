@@ -1,33 +1,30 @@
-//! build.rs pour hello_face_core
+//! build.rs for hello_face_core
 //!
-//! Télécharge les modèles ONNX si absents :
+//! Downloads the ONNX models if missing:
 //!   - det_500m.onnx  (SCRFD-500M, ~500 KB)
 //!   - w600k_mbf.onnx (ArcFace MobileNetV3, ~2.5 MB)
 //!
-//! Les modèles sont stockés dans ~/.local/share/linux-hello/models/
-//! (ou /var/lib/linux-hello/models/ en mode root).
+//! Models are stored in ~/.local/share/linux-hello/models/
+//! (or /var/lib/linux-hello/models/ in root mode).
 //!
-//! Si le téléchargement échoue, le build continue normalement —
-//! le code Rust tombera automatiquement sur le fallback stub.
+//! If the download fails, the build continues normally —
+//! the Rust code will automatically fall back to the stub.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const MODELS: &[(&str, &str, &str)] = &[
-    (
-        "det_500m.onnx",
-        "https://github.com/deepinsight/insightface/releases/download/v0.7/det_500m.onnx",
-        "detection SCRFD-500M",
-    ),
-    (
-        "w600k_mbf.onnx",
-        "https://github.com/deepinsight/insightface/releases/download/v0.7/w600k_mbf.onnx",
-        "embedding ArcFace MobileNetV3",
-    ),
+// det_500m.onnx and w600k_mbf.onnx are no longer published as individual assets
+// since release v0.7: they are packaged in the buffalo_sc.zip archive.
+const MODEL_PACK_URL: &str =
+    "https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_sc.zip";
+
+const MODELS: &[(&str, &str)] = &[
+    ("det_500m.onnx", "detection SCRFD-500M"),
+    ("w600k_mbf.onnx", "embedding ArcFace MobileNetV3"),
 ];
 
 fn models_dir() -> PathBuf {
-    // Utiliser XDG_DATA_HOME ou fallback HOME
+    // Use XDG_DATA_HOME or fall back to HOME
     let base = std::env::var("XDG_DATA_HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|_| {
@@ -38,10 +35,10 @@ fn models_dir() -> PathBuf {
     base.join("linux-hello/models")
 }
 
-fn download(url: &str, dest: &PathBuf, desc: &str) -> bool {
-    println!("cargo:warning=Téléchargement modèle {}: {}", desc, url);
+fn download_pack(url: &str, dest: &Path) -> bool {
+    println!("cargo:warning=Downloading model pack: {}", url);
 
-    // Essayer curl d'abord, puis wget
+    // Try curl first, then wget
     for (cmd, args) in &[
         (
             "curl",
@@ -49,7 +46,7 @@ fn download(url: &str, dest: &PathBuf, desc: &str) -> bool {
                 "-L",
                 "--silent",
                 "--max-time",
-                "30",
+                "60",
                 "--output",
                 dest.to_str().unwrap(),
                 url,
@@ -59,32 +56,56 @@ fn download(url: &str, dest: &PathBuf, desc: &str) -> bool {
     ] {
         if let Ok(status) = Command::new(cmd).args(args).status() {
             if status.success() {
-                // Vérifier que le fichier a une taille minimale (>10KB = pas une page d'erreur)
-                if dest.metadata().map(|m| m.len() > 10_000).unwrap_or(false) {
-                    println!("cargo:warning=✓ Modèle {} téléchargé", desc);
+                // Check that the file has a minimum size (>1MB = not an error page)
+                if dest
+                    .metadata()
+                    .map(|m| m.len() > 1_000_000)
+                    .unwrap_or(false)
+                {
+                    println!("cargo:warning=✓ Model pack downloaded");
                     return true;
-                } else {
-                    println!(
-                        "cargo:warning=✗ Fichier trop petit pour {}, suppression",
-                        desc
-                    );
-                    let _ = std::fs::remove_file(dest);
                 }
             }
         }
+        let _ = std::fs::remove_file(dest);
     }
 
-    println!(
-        "cargo:warning=⚠ Impossible de télécharger {} - le fallback stub sera utilisé",
-        desc
-    );
+    println!("cargo:warning=⚠ Failed to download the model pack - stub fallback will be used");
     false
 }
 
+fn extract_from_pack(zip_path: &Path, filename: &str, dest: &Path, desc: &str) -> bool {
+    let dir = dest.parent().unwrap();
+    let status = Command::new("unzip")
+        .args([
+            "-o",
+            "-j",
+            zip_path.to_str().unwrap(),
+            filename,
+            "-d",
+            dir.to_str().unwrap(),
+        ])
+        .status();
+
+    if matches!(status, Ok(s) if s.success())
+        && dest.metadata().map(|m| m.len() > 10_000).unwrap_or(false)
+    {
+        println!("cargo:warning=✓ Model {} extracted", desc);
+        true
+    } else {
+        println!(
+            "cargo:warning=⚠ Failed to extract {} - stub fallback will be used",
+            desc
+        );
+        let _ = std::fs::remove_file(dest);
+        false
+    }
+}
+
 fn main() {
-    // En CI, sauter le téléchargement des modèles (le stub sera utilisé).
+    // In CI, skip downloading the models (the stub will be used).
     if std::env::var("LINUX_HELLO_NO_MODEL_DOWNLOAD").is_ok() {
-        println!("cargo:warning=⚠ LINUX_HELLO_NO_MODEL_DOWNLOAD défini, téléchargement ignoré");
+        println!("cargo:warning=⚠ LINUX_HELLO_NO_MODEL_DOWNLOAD set, download skipped");
         println!("cargo:rustc-env=LINUX_HELLO_MODELS_DIR=/tmp/linux-hello-models-ci");
         println!("cargo:rerun-if-changed=build.rs");
         return;
@@ -94,25 +115,41 @@ fn main() {
 
     if let Err(e) = std::fs::create_dir_all(&dir) {
         println!(
-            "cargo:warning=⚠ Impossible de créer le dossier modèles {}: {}",
+            "cargo:warning=⚠ Failed to create models directory {}: {}",
             dir.display(),
             e
         );
         return;
     }
 
-    for (filename, url, desc) in MODELS {
-        let dest = dir.join(filename);
-        if dest.exists() {
-            println!("cargo:warning=✓ Modèle {} déjà présent", desc);
-        } else {
-            download(url, &dest, desc);
+    // A zero-size file is a leftover from a failed download: retry it.
+    let present = |filename: &str| {
+        dir.join(filename)
+            .metadata()
+            .map(|m| m.len() > 0)
+            .unwrap_or(false)
+    };
+
+    let missing: Vec<_> = MODELS.iter().filter(|(f, _)| !present(f)).collect();
+
+    if missing.is_empty() {
+        for (_, desc) in MODELS {
+            println!("cargo:warning=✓ Model {} already present", desc);
         }
+    } else {
+        let zip_path = std::env::temp_dir().join("linux-hello-buffalo_sc.zip");
+        if download_pack(MODEL_PACK_URL, &zip_path) {
+            for (filename, desc) in &missing {
+                let dest = dir.join(filename);
+                extract_from_pack(&zip_path, filename, &dest, desc);
+            }
+        }
+        let _ = std::fs::remove_file(&zip_path);
     }
 
-    // Exposer le chemin des modèles comme variable d'environnement de compile
+    // Expose the models path as a compile-time environment variable
     println!("cargo:rustc-env=LINUX_HELLO_MODELS_DIR={}", dir.display());
 
-    // Re-exécuter si les modèles changent
+    // Re-run if the models change
     println!("cargo:rerun-if-changed=build.rs");
 }

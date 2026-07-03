@@ -1,62 +1,62 @@
-//! Gestion du streaming de capture depuis le daemon
+//! Capture streaming management from the daemon
 //!
-//! Module pour recevoir et traiter les frames en temps réel
+//! Module for receiving and processing frames in real time
 
 use serde::{Deserialize, Serialize};
 
-/// Événement de frame reçu du daemon
+/// Frame event received from the daemon
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CaptureFrame {
-    /// Numéro de la frame (0-indexed)
+    /// Frame number (0-indexed)
     pub frame_number: u32,
 
-    /// Nombre total de frames attendues
+    /// Total number of expected frames
     pub total_frames: u32,
 
-    /// Données RGB brutes (640×480×3 ou autre)
+    /// Raw RGB data (640×480×3 or other)
     pub frame_data: Vec<u8>,
 
-    /// Largeur de l'image
+    /// Image width
     pub width: u32,
 
-    /// Hauteur de l'image
+    /// Image height
     pub height: u32,
 
-    /// Un visage a-t-il été détecté?
+    /// Was a face detected?
     pub face_detected: bool,
 
-    /// Bounding box si visage détecté
+    /// Bounding box if a face was detected
     pub face_box: Option<FaceBox>,
 
-    /// Score de qualité (0.0-1.0)
+    /// Quality score (0.0-1.0)
     pub quality_score: f32,
 
-    /// Timestamp de capture (ms)
+    /// Capture timestamp (ms)
     pub timestamp_ms: u64,
 }
 
-/// Bounding box d'un visage détecté
+/// Bounding box of a detected face
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FaceBox {
-    /// Position X en pixels
+    /// X position in pixels
     pub x: u32,
-    /// Position Y en pixels
+    /// Y position in pixels
     pub y: u32,
-    /// Largeur du box en pixels
+    /// Box width in pixels
     pub width: u32,
-    /// Hauteur du box en pixels
+    /// Box height in pixels
     pub height: u32,
-    /// Score de confiance (0.0-1.0)
+    /// Confidence score (0.0-1.0)
     pub confidence: f32,
 }
 
 impl FaceBox {
-    /// Vérifier si un point est dans le bounding box
+    /// Check whether a point is inside the bounding box
     pub fn contains(&self, px: u32, py: u32) -> bool {
         px >= self.x && px < self.x + self.width && py >= self.y && py < self.y + self.height
     }
 
-    /// Retourner le centre du bounding box
+    /// Return the center of the bounding box
     pub fn center(&self) -> (u32, u32) {
         (
             self.x + self.width / 2,
@@ -64,7 +64,7 @@ impl FaceBox {
         )
     }
 
-    /// Calculer le pourcentage de completion basé sur la frame
+    /// Calculate the completion percentage based on the frame
     pub fn completion_percent(&self, frame_num: u32, total_frames: u32) -> f32 {
         if total_frames == 0 {
             0.0

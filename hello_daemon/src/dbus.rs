@@ -1,6 +1,6 @@
-//! Surface D-Bus pour FaceAuthDaemon
+//! D-Bus surface for FaceAuthDaemon
 //!
-//! Wrapper qui expose les opérations du daemon via D-Bus
+//! Wrapper that exposes the daemon's operations via D-Bus
 
 use crate::dbus_interface::{DeleteFaceRequest, RegisterFaceRequest, VerifyRequest};
 use crate::dbus_signals::StreamingSignalEmitter;
@@ -10,7 +10,7 @@ use tokio::sync::RwLock;
 use tracing::{debug, error, info};
 use zbus::{interface, Connection};
 
-/// Wrapper D-Bus autour du daemon
+/// D-Bus wrapper around the daemon
 pub struct FaceAuthInterface {
     daemon: Arc<RwLock<FaceAuthDaemon>>,
     signal_emitter: Option<Arc<StreamingSignalEmitter>>,
@@ -19,7 +19,7 @@ pub struct FaceAuthInterface {
 }
 
 impl FaceAuthInterface {
-    /// Créer une nouvelle interface sans émetteur de signaux (compatible arrière)
+    /// Create a new interface without a signal emitter (backward compatible)
     pub fn new(daemon: FaceAuthDaemon) -> Self {
         let storage_path = daemon.config().storage_path.to_string_lossy().into_owned();
         Self {
@@ -30,7 +30,7 @@ impl FaceAuthInterface {
         }
     }
 
-    /// Créer une nouvelle interface avec émetteur de signaux D-Bus
+    /// Create a new interface with a D-Bus signal emitter
     pub fn new_with_connection(daemon: FaceAuthDaemon, connection: Connection) -> Self {
         let storage_path = daemon.config().storage_path.to_string_lossy().into_owned();
         let signal_emitter = Arc::new(StreamingSignalEmitter::new(Arc::new(connection)));
@@ -42,7 +42,7 @@ impl FaceAuthInterface {
         }
     }
 
-    /// Créer depuis un Arc partagé (permet de partager le daemon avec le PAM helper)
+    /// Create from a shared Arc (allows sharing the daemon with the PAM helper)
     pub fn from_arc(
         daemon: Arc<RwLock<FaceAuthDaemon>>,
         storage_path: String,
@@ -60,13 +60,13 @@ impl FaceAuthInterface {
 
 #[interface(name = "com.linuxhello.FaceAuth")]
 impl FaceAuthInterface {
-    /// Enregistrer un nouveau visage pour un utilisateur
+    /// Register a new face for a user
     ///
     /// # Arguments
-    /// * `request_json` - JSON string de RegisterFaceRequest
+    /// * `request_json` - JSON string of RegisterFaceRequest
     ///
     /// # Returns
-    /// JSON string de RegisterFaceResponse ou erreur
+    /// JSON string of RegisterFaceResponse or error
     pub async fn register_face(&self, request_json: &str) -> zbus::fdo::Result<String> {
         debug!("D-Bus call: register_face");
 
@@ -93,10 +93,10 @@ impl FaceAuthInterface {
         }
     }
 
-    /// Supprimer un ou tous les visages
+    /// Delete one or all faces
     ///
     /// # Arguments
-    /// * `request_json` - JSON string de DeleteFaceRequest
+    /// * `request_json` - JSON string of DeleteFaceRequest
     pub async fn delete_face(&self, request_json: &str) -> zbus::fdo::Result<()> {
         debug!("D-Bus call: delete_face");
 
@@ -123,13 +123,13 @@ impl FaceAuthInterface {
         }
     }
 
-    /// Vérifier l'identité d'un utilisateur
+    /// Verify a user's identity
     ///
     /// # Arguments
-    /// * `request_json` - JSON string de VerifyRequest
+    /// * `request_json` - JSON string of VerifyRequest
     ///
     /// # Returns
-    /// JSON string de VerifyResult
+    /// JSON string of VerifyResult
     pub async fn verify(&self, request_json: &str) -> zbus::fdo::Result<String> {
         debug!("D-Bus call: verify");
 
@@ -163,13 +163,13 @@ impl FaceAuthInterface {
         }
     }
 
-    /// Lister les visages enregistrés pour un utilisateur
+    /// List the faces registered for a user
     ///
     /// # Arguments
-    /// * `user_id` - UID de l'utilisateur
+    /// * `user_id` - User UID
     ///
     /// # Returns
-    /// JSON array de FaceRecord
+    /// JSON array of FaceRecord
     pub async fn list_faces(&self, user_id: u32) -> zbus::fdo::Result<String> {
         debug!("D-Bus call: list_faces for user_id={}", user_id);
 
@@ -188,26 +188,26 @@ impl FaceAuthInterface {
         }
     }
 
-    /// Test de connexion
+    /// Connection test
     pub async fn ping(&self) -> zbus::fdo::Result<String> {
         Ok("pong".to_string())
     }
 
-    /// Démarrer une session de capture en streaming avec émission de signaux
+    /// Start a streaming capture session with signal emission
     ///
-    /// Émet des signaux D-Bus `CaptureProgress` pour chaque frame capturée.
-    /// La GUI s'abonne à ces signaux pour afficher la preview en direct.
+    /// Emits `CaptureProgress` D-Bus signals for each captured frame.
+    /// The GUI subscribes to these signals to display the live preview.
     ///
     /// # Arguments
-    /// * `user_id` - UID de l'utilisateur qui s'enregistre
-    /// * `num_frames` - Nombre de frames à capturer (30 par défaut)
-    /// * `timeout_ms` - Timeout en millisecondes (120000 par défaut = 2 minutes)
+    /// * `user_id` - UID of the user enrolling
+    /// * `num_frames` - Number of frames to capture (30 by default)
+    /// * `timeout_ms` - Timeout in milliseconds (120000 by default = 2 minutes)
     ///
     /// # Returns
-    /// "OK" si la capture a démarré avec succès, ou erreur
+    /// "OK" if the capture started successfully, or an error
     ///
     /// # D-Bus Signal Emitted
-    /// `CaptureProgress(event_json: &str)` - Émis pour chaque frame
+    /// `CaptureProgress(event_json: &str)` - Emitted for each frame
     pub async fn start_capture_stream(
         &self,
         user_id: u32,
@@ -220,34 +220,34 @@ impl FaceAuthInterface {
         );
 
         info!(
-            "Démarrage streaming capture: user_id={}, {} frames",
+            "Starting streaming capture: user_id={}, {} frames",
             user_id, num_frames
         );
 
-        // Utiliser le camera manager pour capturer en streaming
+        // Use the camera manager to capture in streaming mode
         let daemon = self.daemon.read().await;
         let camera_manager = daemon.camera_manager();
 
-        // Cloner l'émetteur de signaux pour utiliser dans la closure
+        // Clone the signal emitter for use in the closure
         let _signal_emitter = self.signal_emitter.clone();
 
-        // DEBUG: créer un fichier de test pour vérifier accès /tmp
-        info!("📸 DEBUG: Tentative écriture fichier /tmp/test.txt...");
+        // DEBUG: create a test file to verify /tmp access
+        info!("📸 DEBUG: Attempting to write file /tmp/test.txt...");
         use std::io::Write;
         match std::fs::File::create("/tmp/test.txt") {
             Ok(mut f) => {
                 let _ = f.write_all(b"TEST WRITE OK\n");
-                info!("✓ Fichier test écrit: /tmp/test.txt");
+                info!("✓ Test file written: /tmp/test.txt");
             }
-            Err(e) => error!("✗ Erreur écriture test: {}", e),
+            Err(e) => error!("✗ Test write error: {}", e),
         }
 
-        // DEBUG: créer une image test ROUGE pour vérifier que l'export fonctionne
-        info!("📸 DEBUG: Création image test...");
+        // DEBUG: create a RED test image to verify that export works
+        info!("📸 DEBUG: Creating test image...");
         {
             use std::path::Path;
             let test_path = Path::new("/tmp/linux-hello-test.jpg");
-            // Créer une image RGB pure ROUGE (R=255, G=0, B=0)
+            // Create a pure RED RGB image (R=255, G=0, B=0)
             let mut dummy_rgb = vec![0u8; 640 * 480 * 3];
             for i in (0..dummy_rgb.len()).step_by(3) {
                 dummy_rgb[i] = 255; // Red
@@ -256,43 +256,43 @@ impl FaceAuthInterface {
             }
             match crate::preview::write_frame_preview(&dummy_rgb, 640, 480, test_path) {
                 Ok(_) => info!(
-                    "✓ Image test ROUGE créée: /tmp/linux-hello-test.jpg ({} bytes)",
+                    "✓ RED test image created: /tmp/linux-hello-test.jpg ({} bytes)",
                     std::fs::metadata(test_path).map(|m| m.len()).unwrap_or(0)
                 ),
-                Err(e) => error!("✗ Erreur création image test: {} (io/image error)", e),
+                Err(e) => error!("✗ Test image creation error: {} (io/image error)", e),
             }
         }
 
-        // Capturer les frames avec callback qui émet les signaux
+        // Capture the frames with a callback that emits the signals
         let result = camera_manager
             .start_capture_stream(num_frames, timeout_ms, move |event| {
                 info!(
-                    "Callback: Frame {}/{} reçue - {} bytes",
+                    "Callback: Frame {}/{} received - {} bytes",
                     event.frame_number + 1,
                     event.total_frames,
                     event.frame_data.len()
                 );
-                // Exporter la frame en JPEG pour la preview GUI
+                // Export the frame to JPEG for the GUI preview
                 if let Err(e) = crate::preview::export_preview_frame_rgb(
                     &event.frame_data,
                     event.width,
                     event.height,
                 ) {
-                    error!("Erreur export preview frame: {}", e);
+                    error!("Preview frame export error: {}", e);
                 }
             })
             .await;
 
-        drop(daemon); // Libérer le lock
+        drop(daemon); // Release the lock
 
         match result {
             Ok(_) => {
                 info!("start_capture_stream succeeded");
 
-                // Émettre le signal de fin
+                // Emit the completion signal
                 if let Some(emitter) = &self.signal_emitter {
                     if let Err(e) = emitter.emit_capture_completed(user_id).await {
-                        error!("Erreur émission CaptureCompleted: {}", e);
+                        error!("CaptureCompleted emission error: {}", e);
                     }
                 }
 
@@ -301,11 +301,11 @@ impl FaceAuthInterface {
             Err(e) => {
                 error!("start_capture_stream failed: {}", e);
 
-                // Émettre le signal d'erreur
+                // Emit the error signal
                 if let Some(emitter) = &self.signal_emitter {
                     let error_msg = format!("{}", e);
                     if let Err(e) = emitter.emit_capture_error(user_id, &error_msg).await {
-                        error!("Erreur émission CaptureError: {}", e);
+                        error!("CaptureError emission error: {}", e);
                     }
                 }
 
@@ -319,18 +319,18 @@ impl FaceAuthInterface {
         self.version.clone()
     }
 
-    /// Vérifier si une caméra est disponible
+    /// Check whether a camera is available
     #[zbus(property)]
     pub fn camera_available(&self) -> bool {
-        // On utilise try_read pour ne pas bloquer
-        // En cas d'erreur, on suppose que c'est disponible
+        // Use try_read so as not to block
+        // On error, assume it is available
         self.daemon
             .try_read()
             .map(|daemon| daemon.is_camera_available())
             .unwrap_or(true)
     }
 
-    /// Mode root ou user
+    /// Root or user mode
     #[zbus(property)]
     pub fn root_mode(&self) -> bool {
         self.daemon
@@ -339,7 +339,7 @@ impl FaceAuthInterface {
             .unwrap_or(false)
     }
 
-    /// Chemin de stockage
+    /// Storage path
     #[zbus(property)]
     pub fn storage_path(&self) -> String {
         self.storage_path.clone()

@@ -1,55 +1,55 @@
 #!/bin/bash
-# Test du module PAM Linux Hello avec démarrage du daemon intégré
+# Test the Linux Hello PAM module with an integrated daemon startup
 
 set -e
 
-echo "=== Test du Module PAM Linux Hello ==="
+echo "=== Testing the Linux Hello PAM Module ==="
 echo ""
 
 cd /home/edtech/Documents/linux-hello-rust
 
-# Démarrer le daemon
-echo "1. Démarrage du daemon..."
+# Start the daemon
+echo "1. Starting the daemon..."
 ./target/debug/hello-daemon --debug &
 DAEMON_PID=$!
 sleep 3
 echo "   Daemon PID: $DAEMON_PID"
 echo ""
 
-# Test 1: Vérifier que le module peut être chargé et les logs aparaissent
-echo "2. Test du module PAM..."
+# Test 1: Verify that the module can be loaded and logs appear
+echo "2. Testing the PAM module..."
 USERNAME=$(whoami)
 USER_ID=$(id -u)
-echo "   Utilisateur: $USERNAME (UID: $USER_ID)"
+echo "   User: $USERNAME (UID: $USER_ID)"
 echo ""
 
-# Créer une requête Verify
-echo "3. Appel Verify via le module PAM (simulé par D-Bus direct)..."
+# Build a Verify request
+echo "3. Calling Verify via the PAM module (simulated via direct D-Bus)..."
 VERIFY_REQUEST="{\"user_id\":$USER_ID,\"context\":\"login\",\"timeout_ms\":3000}"
-echo "   Requête: $VERIFY_REQUEST"
+echo "   Request: $VERIFY_REQUEST"
 echo ""
 
-# Appeler Verify directement via D-Bus pour tester que la vérification fonctionne
+# Call Verify directly via D-Bus to test that verification works
 VERIFY_RESPONSE=$(dbus-send --session --print-reply --dest=com.linuxhello.FaceAuth /com/linuxhello/FaceAuth com.linuxhello.FaceAuth.Verify string:"$VERIFY_REQUEST" 2>&1 | tail -1)
-echo "   Réponse: $VERIFY_RESPONSE"
+echo "   Response: $VERIFY_RESPONSE"
 
 if echo "$VERIFY_RESPONSE" | grep -q "Success"; then
-    echo "   ✓ Vérification réussie!"
+    echo "   ✓ Verification succeeded!"
 else
-    echo "   ✗ Vérification échouée"
+    echo "   ✗ Verification failed"
 fi
 echo ""
 
-# Pour tester avec pamtester, on aurait besoin d'une configuration PAM
-# Pour l'instant, vérifier juste que le module charge et D-Bus fonctionne
-echo "4. Listing des visages..."
+# To test with pamtester, we would need a PAM configuration
+# For now, just verify that the module loads and D-Bus works
+echo "4. Listing faces..."
 dbus-send --session --print-reply --dest=com.linuxhello.FaceAuth /com/linuxhello/FaceAuth com.linuxhello.FaceAuth.ListFaces uint32:"$USER_ID" 2>&1 | tail -1 | head -c 100
 echo "..."
 echo ""
 
-echo "5. Arrêt du daemon..."
+echo "5. Stopping the daemon..."
 kill $DAEMON_PID 2>/dev/null || true
 wait $DAEMON_PID 2>/dev/null || true
 
 echo ""
-echo "✓ Test terminé avec succès!"
+echo "✓ Test completed successfully!"

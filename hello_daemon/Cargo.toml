@@ -19,7 +19,7 @@ thiserror.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 
-# Stockage
+# Storage
 sqlx = { workspace = true, features = [
     "sqlite",
     "runtime-tokio",
@@ -27,16 +27,16 @@ sqlx = { workspace = true, features = [
     "macros",
 ] }
 
-# Crypto pour hash embeddings
+# Crypto for embedding hashes
 sha2.workspace = true
 
 # System
 libc.workspace = true
 
-# CLI parsing pour daemon options
+# CLI parsing for daemon options
 clap = { workspace = true, features = ["derive"] }
 
-# Concurrent
+# Concurrency
 parking_lot.workspace = true
 
 # Image processing for preview frames

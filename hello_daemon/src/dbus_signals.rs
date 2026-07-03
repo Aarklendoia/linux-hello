@@ -1,68 +1,68 @@
-//! Gestion des signaux D-Bus pour le streaming de capture
+//! D-Bus signal handling for capture streaming
 //!
-//! Permet l'émission de signaux D-Bus pour chaque frame capturée,
-//! permettant à la GUI de recevoir les mises à jour en temps réel.
+//! Allows emitting a D-Bus signal for each captured frame,
+//! letting the GUI receive real-time updates.
 
 use crate::capture_stream::CaptureFrameEvent;
 use std::sync::Arc;
 use tracing::{debug, error};
 use zbus::Connection;
 
-/// Gestionnaire des signaux D-Bus pour le streaming
+/// D-Bus signal manager for streaming
 pub struct StreamingSignalEmitter {
     #[allow(dead_code)]
     connection: Arc<Connection>,
 }
 
 impl StreamingSignalEmitter {
-    /// Créer un nouveau émetteur de signaux
+    /// Create a new signal emitter
     pub fn new(connection: Arc<Connection>) -> Self {
         Self { connection }
     }
 
-    /// Émettre un signal de progression de capture
+    /// Emit a capture progress signal
     ///
-    /// Envoie l'événement sérialisé en JSON via D-Bus
+    /// Sends the event serialized as JSON via D-Bus
     ///
     /// # Arguments
-    /// * `event` - Événement de capture à émettre
+    /// * `event` - Capture event to emit
     ///
     /// # Returns
-    /// Ok(()) si succès, Err si échec
+    /// Ok(()) on success, Err on failure
     pub async fn emit_capture_progress(&self, event: &CaptureFrameEvent) -> Result<(), String> {
-        // Sérialiser l'événement en JSON
+        // Serialize the event to JSON
         let event_json = match serde_json::to_string(&event) {
             Ok(j) => j,
             Err(e) => {
-                error!("Erreur sérialisation événement: {}", e);
-                return Err(format!("Sérialisation échouée: {}", e));
+                error!("Event serialization error: {}", e);
+                return Err(format!("Serialization failed: {}", e));
             }
         };
 
         debug!(
-            "Émission signal CaptureProgress: frame {}/{}, size={}",
+            "Emitting CaptureProgress signal: frame {}/{}, size={}",
             event.frame_number + 1,
             event.total_frames,
             event_json.len()
         );
 
-        // Pour MVP: juste logger le signal
-        // En production: utiliser zbus connection pour émettre
+        // For MVP: just log the signal
+        // In production: use the zbus connection to emit
         debug!("Signal JSON: {}", event_json);
 
         Ok(())
     }
 
-    /// Émettre un signal de fin de capture
+    /// Emit a capture completed signal
     pub async fn emit_capture_completed(&self, user_id: u32) -> Result<(), String> {
-        debug!("Émission signal CaptureCompleted pour user_id={}", user_id);
+        debug!("Emitting CaptureCompleted signal for user_id={}", user_id);
         Ok(())
     }
 
-    /// Émettre un signal d'erreur de capture
+    /// Emit a capture error signal
     pub async fn emit_capture_error(&self, user_id: u32, error_msg: &str) -> Result<(), String> {
         debug!(
-            "Émission signal CaptureError pour user_id={}: {}",
+            "Emitting CaptureError signal for user_id={}: {}",
             user_id, error_msg
         );
         Ok(())
@@ -73,7 +73,7 @@ impl StreamingSignalEmitter {
 mod tests {
     #[test]
     fn test_streaming_signal_emitter_creation() {
-        // Ce test est pour vérifier que la structure compile
-        // Les tests vrais nécessitent une connexion D-Bus fonctionnelle
+        // This test just verifies that the structure compiles
+        // Real tests require a working D-Bus connection
     }
 }

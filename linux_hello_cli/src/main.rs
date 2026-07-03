@@ -1,10 +1,10 @@
-//! CLI de test pour Linux Hello
+//! Test CLI for Linux Hello
 //!
-//! Commandes de développement sans PAM:
-//! - linux-hello daemon      : lancer le daemon
-//! - linux-hello enroll $UID : enregistrer un visage
-//! - linux-hello verify $UID : tester une vérification
-//! - linux-hello list $UID   : lister les visages enregistrés
+//! Development commands without PAM:
+//! - linux-hello daemon      : launch the daemon
+//! - linux-hello enroll $UID : enroll a face
+//! - linux-hello verify $UID : test a verification
+//! - linux-hello list $UID   : list enrolled faces
 
 use clap::{Parser, Subcommand};
 use tracing::{info, Level};
@@ -16,70 +16,70 @@ struct Cli {
     #[command(subcommand)]
     command: Commands,
 
-    /// Niveau de verbosité
+    /// Verbosity level
     #[arg(short, long, global = true)]
     verbose: bool,
 }
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Lancer le daemon
+    /// Launch the daemon
     Daemon {
-        /// Mode debug
+        /// Debug mode
         #[arg(short, long)]
         debug: bool,
 
-        /// Chemin de stockage custom
+        /// Custom storage path
         #[arg(short, long)]
         storage: Option<std::path::PathBuf>,
     },
 
-    /// Enregistrer un nouveau visage
+    /// Enroll a new face
     Enroll {
-        /// UID de l'utilisateur
+        /// User UID
         user_id: u32,
 
-        /// Contexte (login, sudo, screenlock, etc.)
+        /// Context (login, sudo, screenlock, etc.)
         #[arg(short, long, default_value = "test")]
         context: String,
 
-        /// Nombre de samples à prendre
+        /// Number of samples to take
         #[arg(short, long, default_value = "3")]
         samples: u32,
     },
 
-    /// Tester la vérification
+    /// Test the verification
     Verify {
-        /// UID de l'utilisateur
+        /// User UID
         user_id: u32,
 
-        /// Contexte
+        /// Context
         #[arg(short, long, default_value = "test")]
         context: String,
 
-        /// Timeout en ms
+        /// Timeout in ms
         #[arg(short, long, default_value = "5000")]
         timeout: u64,
     },
 
-    /// Lister les visages enregistrés
+    /// List enrolled faces
     List {
-        /// UID de l'utilisateur
+        /// User UID
         user_id: u32,
     },
 
-    /// Supprimer tous les visages d'un utilisateur
+    /// Delete all faces for a user
     Delete {
         /// UID
         user_id: u32,
 
-        /// ID spécifique du visage (optionnel)
+        /// Specific face ID (optional)
         face_id: Option<String>,
     },
 
-    /// Tester la caméra
+    /// Test the camera
     Camera {
-        /// Durée du test en secondes
+        /// Test duration in seconds
         #[arg(short, long, default_value = "5")]
         duration: u64,
     },
@@ -89,7 +89,7 @@ enum Commands {
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
-    // Initialiser tracing
+    // Initialize tracing
     let level = if cli.verbose {
         Level::DEBUG
     } else {
@@ -119,7 +119,7 @@ async fn main() -> anyhow::Result<()> {
 }
 
 async fn command_daemon(debug: bool, storage: Option<std::path::PathBuf>) -> anyhow::Result<()> {
-    info!("Lancement du daemon");
+    info!("Starting daemon");
 
     let mut config = hello_daemon::DaemonConfig::default();
     if let Some(path) = storage {
@@ -129,69 +129,66 @@ async fn command_daemon(debug: bool, storage: Option<std::path::PathBuf>) -> any
 
     let _daemon = hello_daemon::FaceAuthDaemon::new(config)?;
 
-    info!("Daemon prêt - Ctrl+C pour arrêter");
+    info!("Daemon ready - Ctrl+C to stop");
     tokio::signal::ctrl_c().await?;
-    info!("Arrêt du daemon");
+    info!("Stopping daemon");
 
     Ok(())
 }
 
 async fn command_enroll(user_id: u32, context: &str, samples: u32) -> anyhow::Result<()> {
     info!(
-        "Enregistrement d'un visage pour UID {} (contexte: {})",
+        "Enrolling a face for UID {} (context: {})",
         user_id, context
     );
-    info!("Nombre de samples: {}", samples);
+    info!("Number of samples: {}", samples);
 
-    // TODO: Appeler le daemon D-Bus
-    info!("Non implémenté - À connecter au daemon D-Bus");
+    // TODO: Call the D-Bus daemon
+    info!("Not implemented - To be connected to the D-Bus daemon");
 
     Ok(())
 }
 
 async fn command_verify(user_id: u32, context: &str, timeout: u64) -> anyhow::Result<()> {
-    info!(
-        "Vérification de l'utilisateur {} (contexte: {})",
-        user_id, context
-    );
+    info!("Verifying user {} (context: {})", user_id, context);
     info!("Timeout: {}ms", timeout);
 
-    // TODO: Appeler le daemon D-Bus
-    info!("Non implémenté - À connecter au daemon D-Bus");
+    // TODO: Call the D-Bus daemon
+    info!("Not implemented - To be connected to the D-Bus daemon");
 
     Ok(())
 }
 
 async fn command_list(user_id: u32) -> anyhow::Result<()> {
-    info!("Listage des visages enregistrés pour UID {}", user_id);
+    info!("Listing enrolled faces for UID {}", user_id);
 
-    // TODO: Appeler le daemon D-Bus
-    info!("Non implémenté - À connecter au daemon D-Bus");
+    // TODO: Call the D-Bus daemon
+    info!("Not implemented - To be connected to the D-Bus daemon");
 
     Ok(())
 }
 
 async fn command_delete(user_id: u32, face_id: Option<String>) -> anyhow::Result<()> {
     if let Some(id) = face_id {
-        info!("Suppression du visage {} pour UID {}", id, user_id);
+        info!("Deleting face {} for UID {}", id, user_id);
     } else {
-        info!("Suppression de TOUS les visages pour UID {}", user_id);
+        info!("Deleting ALL faces for UID {}", user_id);
     }
 
-    // TODO: Appeler le daemon D-Bus
-    info!("Non implémenté - À connecter au daemon D-Bus");
+    // TODO: Call the D-Bus daemon
+    info!("Not implemented - To be connected to the D-Bus daemon");
 
     Ok(())
 }
 
 async fn command_camera(duration: u64) -> anyhow::Result<()> {
-    info!("Test caméra pendant {}s", duration);
+    info!("Camera test for {}s", duration);
 
     let config = hello_camera::CameraConfig::default();
     let mut camera = hello_camera::create_camera(config)?;
 
     camera.open()?;
-    info!("Caméra ouverte: {}", camera.backend_name());
+    info!("Camera opened: {}", camera.backend_name());
 
     let start = std::time::Instant::now();
     let mut frame_count = 0;
@@ -201,7 +198,7 @@ async fn command_camera(duration: u64) -> anyhow::Result<()> {
             Ok(frame) => {
                 frame_count += 1;
                 info!(
-                    "Frame {}: {}x{}, taille={}B",
+                    "Frame {}: {}x{}, size={}B",
                     frame_count,
                     frame.width,
                     frame.height,
@@ -209,14 +206,14 @@ async fn command_camera(duration: u64) -> anyhow::Result<()> {
                 );
             }
             Err(e) => {
-                eprintln!("Erreur capture: {}", e);
+                eprintln!("Capture error: {}", e);
                 break;
             }
         }
     }
 
     camera.close()?;
-    info!("Test terminé: {} frames capturées", frame_count);
+    info!("Test finished: {} frames captured", frame_count);
 
     Ok(())
 }

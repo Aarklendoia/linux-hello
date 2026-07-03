@@ -93,7 +93,7 @@ auth       include      system-auth
 #   auth include system-auth  (or pam_unix.so pam_deny.so)
 #
 # This gives priority to face, but allows fallback to password if:
-#   - Caméra not available (PAM_IGNORE)
+#   - Camera not available (PAM_IGNORE)
 #   - No face detected (PAM_IGNORE)
 #   - Face mismatch (PAM_IGNORE)
 #   - Daemon error (PAM_IGNORE)

@@ -1,21 +1,21 @@
-//! Linux Hello - Configuration GUI pour KDE/Wayland
+//! Linux Hello - Configuration GUI for KDE/Wayland
 //!
-//! Interface graphique QML native avec thème Breeze pour:
-//! - Enregistrement de visage avec preview en direct
-//! - Configuration des paramètres d'authentification
-//! - Gestion des visages enregistrés
+//! Native QML graphical interface with Breeze theme for:
+//! - Face enrollment with live preview
+//! - Authentication settings configuration
+//! - Management of enrolled faces
 //!
-//! La logique métier communique via D-Bus avec hello_daemon
+//! Business logic communicates via D-Bus with hello_daemon
 
 use std::env;
 use std::path::PathBuf;
 use std::process::Command;
 
 fn main() {
-    // Lance l'application QML avec Kirigami
-    // Les fichiers QML sont dans le répertoire 'qml/'
+    // Launch the QML application with Kirigami
+    // The QML files are in the 'qml/' directory
 
-    // Déterminer le chemin QML (système ou développement)
+    // Determine the QML path (system or development)
     let qml_path = if PathBuf::from("/usr/share/qt6/qml/Linux/Hello/qml/main.qml").exists() {
         "/usr/share/qt6/qml/Linux/Hello/qml/main.qml".to_string()
     } else if PathBuf::from("/usr/share/qt6/qml/Linux/Hello/main.qml").exists() {
@@ -33,12 +33,12 @@ fn main() {
             .to_string()
     };
 
-    // Configurer les chemins d'import QML (Qt6 uniquement, pas Qt5)
-    // IMPORTANT: qml6 nécessite que les chemins soient dans le bon ordre
+    // Configure the QML import paths (Qt6 only, not Qt5)
+    // IMPORTANT: qml6 requires the paths to be in the correct order
     let qml_import_paths = [
-        "/usr/lib/x86_64-linux-gnu/qt6/qml",  // Qt6 modules principaux
-        "/usr/share/qt6/qml",                 // ✨ Qt6 modules standards
-        "/usr/share/linux-hello/qml-modules", // ✨ Modules personnalisés
+        "/usr/lib/x86_64-linux-gnu/qt6/qml",  // Main Qt6 modules
+        "/usr/share/qt6/qml",                 // ✨ Standard Qt6 modules
+        "/usr/share/linux-hello/qml-modules", // ✨ Custom modules
     ]
     .join(":");
 
@@ -48,31 +48,31 @@ fn main() {
     ]
     .join(":");
 
-    // Configuration pour VM/graphics virtuel
+    // Configuration for VM/virtual graphics
     let mut cmd = Command::new("qml6");
     cmd.arg(&qml_path)
-        // Chemins des modules QML (CRITIQUE pour Kirigami)
+        // QML module paths (CRITICAL for Kirigami)
         .env("QML_IMPORT_PATH", &qml_import_paths)
         .env("QML2_IMPORT_PATH", &qml_import_paths)
-        // Chemins des plugins Qt
+        // Qt plugin paths
         .env("QT_PLUGIN_PATH", &qt_plugin_paths)
         // Platform theme (Qt5)
         .env("QT_QPA_PLATFORMTHEME", "kde")
-        // Style des contrôles (Kirigami)
+        // Controls style (Kirigami)
         .env("QT_QUICK_CONTROLS_STYLE", "org.kde.desktop")
-        // Métadonnées d'application
+        // Application metadata
         .env("QT_APPLICATION_DISPLAY_NAME", "Linux Hello")
-        // Permettre XHR sur fichiers locaux (i18n)
+        // Allow XHR on local files (i18n)
         .env("QML_XHR_ALLOW_FILE_READ", "1")
-        // Wayland avec fallback X11/offscreen
+        // Wayland with X11/offscreen fallback
         .env("QT_QPA_PLATFORM", "xcb;wayland;offscreen")
-        // Force le style Breeze KDE
+        // Force the KDE Breeze style
         .env("QT_STYLE_OVERRIDE", "org.kde.desktop")
-        // XCB avec GPU si possible
+        // XCB with GPU if possible
         .env("QT_XCB_GL_INTEGRATION", "xcb_egl,none")
-        // Désactive les avertissements de driver
+        // Disable driver warnings
         .env("QT_DEBUG_PLUGINS", "0")
-        // Supprime les messages de binding loop connus de Kirigami ToolTip
+        // Suppress known Kirigami ToolTip binding loop messages
         .env("QML_BIND_IGNORE", "1");
 
     eprintln!("🚀 Launching Linux Hello Configuration GUI");
@@ -84,8 +84,8 @@ fn main() {
             let _ = child.wait();
         }
         Err(e) => {
-            eprintln!("❌ Erreur lors du lancement de l'application QML : {}", e);
-            eprintln!("   Vérifie que 'qml6' est installé : sudo apt install qml-qt6");
+            eprintln!("❌ Error while launching the QML application: {}", e);
+            eprintln!("   Check that 'qml6' is installed: sudo apt install qml-qt6");
             std::process::exit(1);
         }
     }

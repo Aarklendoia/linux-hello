@@ -13,19 +13,19 @@ ApplicationWindow {
     
     color: "#f5f5f5"
     
-    // Propriétés globales de l'app
+    // Global app properties
     QtObject {
         id: appController
-        
-        // État
+
+        // State
         property bool capturing: false
         property int progress: 0
         property var facesList: [
             { name: "Visage 1", confidence: 92, date: "2026-01-08" },
             { name: "Visage 2", confidence: 88, date: "2026-01-07" }
         ]
-        
-        // Méthodes
+
+        // Methods
         function startCapture() {
             capturing = true
             progress = 0
@@ -37,7 +37,7 @@ ApplicationWindow {
         }
         
         function saveSettings() {
-            console.log("Paramètres sauvegardés")
+            console.log("Settings saved")
         }
         
         function deleteFace(index) {
@@ -64,14 +64,14 @@ ApplicationWindow {
         onTriggered: appController.animateProgress()
     }
     
-    // Stack view pour navigation
+    // Stack view for navigation
     StackView {
         id: stack
         anchors.fill: parent
         initialItem: homeComponent
     }
     
-    // Page d'accueil
+    // Home page
     Component {
         id: homeComponent
         Rectangle {
@@ -138,7 +138,7 @@ ApplicationWindow {
         }
     }
     
-    // Page d'enregistrement
+    // Enrollment page
     Component {
         id: enrollComponent
         Rectangle {
@@ -209,7 +209,7 @@ ApplicationWindow {
         }
     }
     
-    // Page de paramètres
+    // Settings page
     Component {
         id: settingsComponent
         Rectangle {
@@ -280,7 +280,7 @@ ApplicationWindow {
         }
     }
     
-    // Page de gestion des visages
+    // Face management page
     Component {
         id: manageFacesComponent
         Rectangle {

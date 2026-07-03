@@ -1,46 +1,46 @@
-//! Logique de comparaison et matching des visages
+//! Face comparison and matching logic
 //!
-//! Calcule les similarités, applique les seuils, etc.
+//! Computes similarities, applies thresholds, etc.
 
 use hello_face_core::Embedding;
 use std::collections::HashMap;
 use tracing::{debug, info};
 
-/// Résultat d'une comparaison
+/// Result of a comparison
 #[derive(Debug, Clone)]
 pub struct MatchResult {
-    /// ID du visage le plus similaire
+    /// ID of the most similar face
     pub face_id: Option<String>,
 
-    /// Score de similarité (0.0 à 1.0)
+    /// Similarity score (0.0 to 1.0)
     pub best_score: f32,
 
-    /// Seuil utilisé
+    /// Threshold used
     pub threshold: f32,
 
-    /// Tous les scores (face_id -> score)
+    /// All scores (face_id -> score)
     pub all_scores: HashMap<String, f32>,
 
-    /// Match réussi ?
+    /// Match succeeded?
     pub matched: bool,
 }
 
-/// Gestionnaire de matching de visages
+/// Face matching manager
 pub struct FaceMatcher {
-    /// Seuil de similarité par défaut
+    /// Default similarity threshold
     default_threshold: f32,
 
-    /// Seuils par contexte
+    /// Thresholds per context
     context_thresholds: HashMap<String, f32>,
 }
 
 impl FaceMatcher {
-    /// Créer un nouveau matcher
+    /// Create a new matcher
     pub fn new(_default_threshold: f32) -> Self {
         let default_threshold = 0.58;
         let mut context_thresholds = HashMap::new();
 
-        // Thresholds plus stricts pour les contextes sensibles
+        // Stricter thresholds for sensitive contexts
         context_thresholds.insert("login".to_string(), 0.60);
         context_thresholds.insert("sudo".to_string(), 0.62);
         context_thresholds.insert("polkit".to_string(), 0.60);
@@ -54,7 +54,7 @@ impl FaceMatcher {
         }
     }
 
-    /// Obtenir le seuil pour un contexte
+    /// Get the threshold for a context
     pub fn get_threshold(&self, context: &str) -> f32 {
         self.context_thresholds
             .get(context)
@@ -62,15 +62,15 @@ impl FaceMatcher {
             .unwrap_or(self.default_threshold)
     }
 
-    /// Comparer une probe embedding avec plusieurs embeddings stockés
+    /// Compare a probe embedding against several stored embeddings
     ///
     /// # Arguments
-    /// * `probe` - L'embedding à vérifier
-    /// * `stored` - HashMap de face_id -> embedding
-    /// * `context` - Le contexte d'authentification
+    /// * `probe` - The embedding to verify
+    /// * `stored` - HashMap of face_id -> embedding
+    /// * `context` - The authentication context
     ///
     /// # Returns
-    /// MatchResult avec les scores et décision
+    /// MatchResult with the scores and decision
     pub fn match_embedding(
         &self,
         probe: &Embedding,
@@ -120,17 +120,17 @@ impl FaceMatcher {
         }
     }
 
-    /// Matching avec filtre de vivacité IR indépendant
+    /// Matching with an independent IR liveness check filter
     ///
-    /// Architecture en deux étapes séparées :
-    ///   1. Filtre vivacité : ir_liveness >= LIVENESS_GATE → vrai visage confirmé
-    ///   2. Reconnaissance  : rgb_score >= threshold → bonne personne confirmée
+    /// Two-stage architecture:
+    ///   1. Liveness check: ir_liveness >= LIVENESS_GATE → real face confirmed
+    ///   2. Recognition: rgb_score >= threshold → correct person confirmed
     ///
-    /// Si ir_liveness < LIVENESS_GATE, on retourne un échec anti-spoofing.
-    /// Si ir_liveness est None (pas de caméra IR), on n'applique pas le filtre.
+    /// If ir_liveness < LIVENESS_GATE, an anti-spoofing failure is returned.
+    /// If ir_liveness is None (no IR camera), the filter is not applied.
     ///
-    /// Cette séparation évite que la qualité du signal IR pénalise le score
-    /// de reconnaissance, et réciproquement.
+    /// This separation prevents the quality of the IR signal from penalizing
+    /// the recognition score, and vice versa.
     pub fn match_with_liveness(
         &self,
         probe: &Embedding,
@@ -138,16 +138,16 @@ impl FaceMatcher {
         context: &str,
         ir_liveness: Option<f32>,
     ) -> MatchResult {
-        // Seuil du filtre vivacité, indépendant du seuil de reconnaissance.
-        // 0.20 est calibré pour accepter les caméras IR à faible signal tout en
-        // bloquant les photos (texture quasi nulle → score < 0.10).
+        // Liveness check threshold, independent of the recognition threshold.
+        // 0.20 is calibrated to accept low-signal IR cameras while
+        // blocking photos (near-zero texture → score < 0.10).
         const LIVENESS_GATE: f32 = 0.20;
 
-        // D'abord calculer le meilleur score RGB
+        // First compute the best RGB score
         let rgb_result = self.match_embedding(probe, stored, context);
 
         let Some(liveness) = ir_liveness else {
-            // Pas de caméra IR → on ne peut pas vérifier la vivacité, on accepte
+            // No IR camera → liveness cannot be checked, so accept
             return rgb_result;
         };
 
@@ -159,9 +159,9 @@ impl FaceMatcher {
         );
 
         if liveness < LIVENESS_GATE {
-            // Signal IR trop faible pour être un vrai visage (photo, spoofing)
+            // IR signal too weak to be a real face (photo, spoofing)
             info!(
-                "Liveness gate: REFUSÉ (score {:.3} < {:.2})",
+                "Liveness gate: REJECTED (score {:.3} < {:.2})",
                 liveness, LIVENESS_GATE
             );
             let threshold = self.get_threshold(context);
@@ -174,11 +174,11 @@ impl FaceMatcher {
             };
         }
 
-        // Vivacité confirmée → le résultat RGB fait foi
+        // Liveness confirmed → the RGB result stands
         rgb_result
     }
 
-    /// Calculer la similarité cosinus entre deux vecteurs
+    /// Compute the cosine similarity between two vectors
     fn cosine_similarity(&self, a: &[f32], b: &[f32]) -> f32 {
         if a.is_empty() || b.is_empty() {
             return 0.0;
@@ -215,13 +215,13 @@ mod tests {
     fn test_cosine_similarity() {
         let matcher = FaceMatcher::new(0.6);
 
-        // Vecteurs identiques = 1.0
+        // Identical vectors = 1.0
         let v1 = vec![1.0, 0.0, 0.0];
         let v2 = vec![1.0, 0.0, 0.0];
         let sim = matcher.cosine_similarity(&v1, &v2);
         assert!((sim - 1.0).abs() < 0.001);
 
-        // Vecteurs perpendiculaires = 0.0
+        // Perpendicular vectors = 0.0
         let v1 = vec![1.0, 0.0];
         let v2 = vec![0.0, 1.0];
         let sim = matcher.cosine_similarity(&v1, &v2);

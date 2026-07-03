@@ -1,16 +1,16 @@
 //! GUI Integration Tests - Tests without camera/streaming
-//! Tests pour l'interface de configuration sans nécessiter la vidéo
+//! Tests for the configuration interface without requiring video
 
 #[cfg(test)]
 mod gui_integration_tests {
 
     /// Test 1: Screen Navigation
-    /// Vérifier que les écrans se changent correctement
+    /// Verify that screens change correctly
     #[test]
     fn test_screen_navigation() {
         println!("\n=== GUI Test 1: Screen Navigation ===");
 
-        // Simuler l'état de l'application
+        // Simulate the application state
         #[derive(Debug, Clone, Copy, PartialEq, Eq)]
         enum Screen {
             Home,
@@ -35,7 +35,7 @@ mod gui_integration_tests {
     }
 
     /// Test 2: Button State Transitions
-    /// Vérifier les transitions d'état des boutons
+    /// Verify button state transitions
     #[test]
     fn test_button_state_transitions() {
         println!("\n=== GUI Test 2: Button State Transitions ===");
@@ -70,7 +70,7 @@ mod gui_integration_tests {
     }
 
     /// Test 3: UI State Management (without streaming)
-    /// Vérifier la gestion de l'état de capture sans streaming
+    /// Verify capture state management without streaming
     #[test]
     fn test_capture_state_management() {
         println!("\n=== GUI Test 3: Capture State Management ===");
@@ -126,7 +126,7 @@ mod gui_integration_tests {
     }
 
     /// Test 4: Animation Interpolation (without camera)
-    /// Vérifier les animations sans caméra
+    /// Verify animations without camera
     #[test]
     fn test_animation_interpolation() {
         println!("\n=== GUI Test 4: Animation Interpolation ===");
@@ -139,7 +139,7 @@ mod gui_integration_tests {
         println!("Animating from {:.2} to {:.2} over {:.0}ms",
             animated_value, target_value, duration_ms);
 
-        // Simule les frames sans dormir (interpolation linéaire basée sur l'elapsed simulé)
+        // Simulate frames without sleeping (linear interpolation based on simulated elapsed time)
         let total_frames = (duration_ms / frame_time_ms).ceil() as usize + 1;
         let mut frames = 0;
 
@@ -165,7 +165,7 @@ mod gui_integration_tests {
     }
 
     /// Test 5: Configuration Screen State
-    /// Vérifier l'état de la page de configuration
+    /// Verify the configuration page state
     #[test]
     fn test_settings_screen_state() {
         println!("\n=== GUI Test 5: Settings Screen State ===");
@@ -206,7 +206,7 @@ mod gui_integration_tests {
     }
 
     /// Test 6: Menu Navigation Flow
-    /// Vérifier le flux complet de navigation
+    /// Verify the complete navigation flow
     #[test]
     fn test_navigation_flow() {
         println!("\n=== GUI Test 6: Complete Navigation Flow ===");
@@ -243,7 +243,7 @@ mod gui_integration_tests {
     }
 
     /// Test 7: Button Click Response Time
-    /// Vérifier le temps de réponse des boutons
+    /// Verify button response time
     #[test]
     fn test_button_response_time() {
         println!("\n=== GUI Test 7: Button Response Time ===");
@@ -275,7 +275,7 @@ mod gui_integration_tests {
     }
 
     /// Test 8: Progress Bar Animation
-    /// Vérifier l'animation de la barre de progression
+    /// Verify the progress bar animation
     #[test]
     fn test_progress_bar_animation() {
         println!("\n=== GUI Test 8: Progress Bar Animation ===");

@@ -31,7 +31,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y markdownlint
-          markdownlint README.md QUICKSTART.md 2>&1 | head -50 || true
+          markdownlint README.md docs/QUICKSTART.md 2>&1 | head -50 || true
       
       - name: Upload docs
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'

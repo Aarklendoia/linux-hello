@@ -1,51 +1,51 @@
 #!/bin/bash
-# Test du module PAM Linux Hello avec screenlock
-# Simule le flux d'authentification d'un screenlock
+# Test the Linux Hello PAM module with screenlock
+# Simulates the authentication flow of a screenlock
 
 set -e
 
-echo "=== Test PAM Linux Hello avec KDE Screenlock ==="
+echo "=== Testing Linux Hello PAM with KDE Screenlock ==="
 echo ""
 
 cd /home/edtech/Documents/linux-hello-rust
 
-# Démarrer le daemon
-echo "1. Démarrage du daemon..."
+# Start the daemon
+echo "1. Starting the daemon..."
 ./target/debug/hello-daemon --debug &
 DAEMON_PID=$!
 sleep 3
-echo "   ✓ Daemon lancé (PID: $DAEMON_PID)"
+echo "   ✓ Daemon started (PID: $DAEMON_PID)"
 echo ""
 
 USERNAME=$(whoami)
 USER_ID=$(id -u)
 
 echo "2. Configuration:"
-echo "   Utilisateur: $USERNAME (UID: $USER_ID)"
-echo "   Contexte: screenlock"
+echo "   User: $USERNAME (UID: $USER_ID)"
+echo "   Context: screenlock"
 echo "   Timeout: 3000ms"
 echo ""
 
-# Vérifier/créer visages
-echo "3. Préparation: visages enregistrés..."
+# Check/create faces
+echo "3. Preparation: registered faces..."
 FACES=$(dbus-send --session --print-reply --dest=com.linuxhello.FaceAuth /com/linuxhello/FaceAuth com.linuxhello.FaceAuth.ListFaces uint32:"$USER_ID" 2>&1 | grep -o "face_id" | wc -l)
-echo "   Visages trouvés: $FACES"
+echo "   Faces found: $FACES"
 
 if [ "$FACES" -eq 0 ]; then
-    echo "   → Enregistrement d'un nouveau visage..."
+    echo "   → Registering a new face..."
     dbus-send --session --print-reply \
       --dest=com.linuxhello.FaceAuth \
       /com/linuxhello/FaceAuth \
       com.linuxhello.FaceAuth.RegisterFace \
       "string:{\"user_id\":$USER_ID,\"context\":\"screenlock\",\"timeout_ms\":5000,\"num_samples\":1}" > /dev/null 2>&1
-    echo "   ✓ Visage enregistré"
+    echo "   ✓ Face registered"
 fi
 echo ""
 
-# Simulation de l'authentification screenlock
-echo "4. Simulation: flux d'authentification screenlock..."
+# Simulation of screenlock authentication
+echo "4. Simulation: screenlock authentication flow..."
 echo ""
-echo "   Appel: dbus-send → Verify (context=screenlock)"
+echo "   Calling: dbus-send → Verify (context=screenlock)"
 echo ""
 
 VERIFY_REQUEST="{\"user_id\":$USER_ID,\"context\":\"screenlock\",\"timeout_ms\":3000}"
@@ -58,39 +58,39 @@ RESPONSE=$(dbus-send --session --print-reply \
 echo "$RESPONSE" | tail -5
 echo ""
 
-# Vérifier la réponse
+# Check the response
 if echo "$RESPONSE" | grep -q "Success"; then
-    echo "   ✅ AUTHENTIFICATION RÉUSSIE!"
-    echo "      → L'écran serait déverrouillé"
+    echo "   ✅ AUTHENTICATION SUCCEEDED!"
+    echo "      → The screen would be unlocked"
     RESULT=0
 else
-    echo "   ❌ AUTHENTIFICATION ÉCHOUÉE"
-    echo "      → L'utilisateur devrait entrer son mot de passe"
+    echo "   ❌ AUTHENTICATION FAILED"
+    echo "      → The user would need to enter their password"
     RESULT=1
 fi
 echo ""
 
-echo "5. Installation du module:"
-echo "   Pour activer sur le système:"
+echo "5. Module installation:"
+echo "   To enable on the system:"
 echo ""
 echo "   sudo install -m 644 target/debug/libpam_linux_hello.so /lib/x86_64-linux-gnu/security/"
 echo "   sudo cp kde-screenlock-linux-hello.pam /etc/pam.d/kde"
 echo ""
-echo "   Ou pour KDE Plasma 5.27+:"
+echo "   Or for KDE Plasma 5.27+:"
 echo "   sudo cp kde-screenlock-linux-hello.pam /etc/pam.d/kde-screenlocker"
 echo ""
 
-# Arrêt du daemon
-echo "6. Arrêt du daemon..."
+# Stop the daemon
+echo "6. Stopping the daemon..."
 kill $DAEMON_PID 2>/dev/null || true
 wait $DAEMON_PID 2>/dev/null || true
-echo "   ✓ Daemon arrêté"
+echo "   ✓ Daemon stopped"
 echo ""
 
 if [ $RESULT -eq 0 ]; then
-    echo "✅ Test screenlock réussi!"
+    echo "✅ Screenlock test succeeded!"
     exit 0
 else
-    echo "❌ Test screenlock échoué"
+    echo "❌ Screenlock test failed"
     exit 1
 fi

@@ -20,14 +20,14 @@ Kirigami.Page {
         mjpegPlayer.stop();
     }
 
-    // Aperçu caméra en direct pendant le test
+    // Live camera preview during the test
     MediaPlayer {
         id: mjpegPlayer
         videoOutput: cameraPreview
         source: "http://127.0.0.1:17823"
     }
 
-    // États internes
+    // Internal states
     property bool testing: false
     property string resultState: "idle"  // "idle" | "success" | "nomatch" | "noface" | "error"
     property string resultMessage: ""
@@ -40,7 +40,7 @@ Kirigami.Page {
         }
         spacing: Kirigami.Units.largeSpacing
 
-        // Titre
+        // Title
         Label {
             text: I18n.tr("testAuth.subtitle")
             font.pixelSize: 20
@@ -48,7 +48,7 @@ Kirigami.Page {
             color: Kirigami.Theme.textColor
         }
 
-        // Aperçu caméra
+        // Camera preview
         Rectangle {
             id: previewRect
             Layout.fillWidth: true
@@ -76,7 +76,7 @@ Kirigami.Page {
                 anchors.margins: Kirigami.Units.smallSpacing
             }
 
-            // Overlay résultat centré
+            // Centered result overlay
             Rectangle {
                 id: resultOverlay
                 anchors.horizontalCenter: parent.horizontalCenter
@@ -106,7 +106,7 @@ Kirigami.Page {
                 }
             }
 
-            // Spinner pendant le test
+            // Spinner during the test
             BusyIndicator {
                 anchors.centerIn: parent
                 running: testAuthPage.testing
@@ -114,7 +114,7 @@ Kirigami.Page {
             }
         }
 
-        // Sélecteur de contexte
+        // Context selector
         RowLayout {
             Layout.fillWidth: true
             spacing: Kirigami.Units.mediumSpacing
@@ -153,7 +153,7 @@ Kirigami.Page {
                 valueRole: "value"
                 currentIndex: 0
 
-                // Réinitialiser le résultat au changement de contexte
+                // Reset the result when the context changes
                 onCurrentIndexChanged: {
                     testAuthPage.resultState = "idle";
                     testAuthPage.resultMessage = "";
@@ -161,7 +161,7 @@ Kirigami.Page {
             }
         }
 
-        // Score de similarité (affiché uniquement quand pertinent)
+        // Similarity score (shown only when relevant)
         RowLayout {
             Layout.fillWidth: true
             spacing: Kirigami.Units.mediumSpacing
@@ -188,7 +188,7 @@ Kirigami.Page {
             }
         }
 
-        // Bouton principal
+        // Main button
         Button {
             id: testButton
             text: testAuthPage.testing ? I18n.tr("testAuth.testing") : I18n.tr("testAuth.startBtn")
@@ -212,7 +212,7 @@ Kirigami.Page {
                         testAuthPage.resultMessage = "⚠ " + (data || I18n.tr("testAuth.err.daemon"));
                         return;
                     }
-                    // data est l'objet VerifyResult désérialisé
+                    // data is the deserialized VerifyResult object
                     if (data.Success !== undefined) {
                         testAuthPage.resultState = "success";
                         testAuthPage.resultScore = data.Success.similarity_score || 0.0;

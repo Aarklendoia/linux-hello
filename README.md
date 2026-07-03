@@ -1,188 +1,122 @@
-# Linux Hello - Système d'authentification par reconnaissance faciale
+# Linux Hello
 
-Architecture propre et modulaire d'un système d'authentification faciale pour Linux/KDE Plasma.
+A Windows Hello-style facial recognition authentication system for Linux, integrating with PAM (`sudo`, screen unlock) via a D-Bus daemon and a KDE Plasma configuration GUI.
 
-## 🏗️ Architecture
+## How it works
 
-Quatre composants principaux:
+```text
+PAM (sudo / screenlock)
+   │  auth sufficient pam_linux_hello.so
+   ▼
+pam_linux_hello.so  ──D-Bus──▶  hello-daemon (com.linuxhello.FaceAuth)
+                                    │
+                                    ├─ hello_camera   → capture a frame (V4L2)
+                                    ├─ hello_face_core → detect face (SCRFD-500M) +
+                                    │                    extract embedding (ArcFace MobileNetV3)
+                                    │                    via ONNX Runtime (dynamic loading)
+                                    └─ SQLite storage  → compare against enrolled embeddings
+```
 
-### 1. **hello_face_core** - Moteur de reconnaissance
-- Lib Rust indépendante
-- Traits d'abstraction: `FaceDetector`, `EmbeddingExtractor`, `SimilarityMetric`
-- Types: `FaceRegion`, `Embedding`, `MatchResult`
-- Backend-agnostique (ONNX Runtime, TensorFlow, ncnn, etc. à ajouter)
+If no face is detected or the match fails, PAM falls back to the normal password prompt — face recognition is always additive, never a hard lock-out.
 
-### 2. **hello_camera** - Abstraction caméra
-- Trait `CameraBackend` pour implémentations multi-backend
-- Actuellement: V4L2 (simple)
-- Future: PipeWire pour Wayland/Kubuntu 25.10
-- Type `Frame` générique avec support RGB/Grayscale/MJPEG
+## Components
 
-### 3. **hello_daemon** - Service D-Bus
-- Daemon tournant par utilisateur ou root
-- Interface D-Bus: `com.linuxhello.FaceAuth`
-- Méthodes:
-  - `RegisterFace` - enregistrer un visage
-  - `DeleteFace` - supprimer un visage
-  - `Verify` - vérifier l'identité
-  - `ListFaces` - lister les visages enregistrés
-- Stockage: `~/.local/share/linux-hello/faces.db` (mode user) ou `/var/lib/linux-hello/` (mode root)
+| Crate | Type | Role |
+| --- | --- | --- |
+| `hello_face_core` | lib | Face detection (SCRFD-500M), embedding extraction (ArcFace MobileNetV3), liveness check |
+| `hello_camera` | lib | V4L2 camera abstraction |
+| `hello_daemon` | lib + bin (`hello-daemon`) | D-Bus service (`com.linuxhello.FaceAuth`), SQLite storage, screenlock monitor, streaming preview |
+| `pam_linux_hello` | cdylib (`pam_linux_hello.so`) | PAM module — calls the daemon over D-Bus to authenticate |
+| `linux_hello_cli` | bin (`linux-hello`) | CLI for enrollment, verification and management |
+| `linux_hello_config` | bin | Qt6/QML/Kirigami configuration GUI, with 10-language i18n |
 
-### 4. **pam_linux_hello** - Module PAM
-- Librairie partagée compilée: `libpam_linux_hello.so`
-- Implémente `pam_sm_authenticate`
-- Appelle le daemon D-Bus pour vérifier
-- Options configurables: `context`, `timeout_ms`, `similarity_threshold`, `confirm`
-- Gestion PAM conversation pour prompts utilisateur
+Each crate builds and tests independently; see [docs/DESIGN.md](docs/DESIGN.md) (D-Bus/PAM design) for details.
 
-### 5. **linux_hello_cli** - CLI de test/développement
-- Commandes: `daemon`, `enroll`, `verify`, `list`, `delete`, `camera`
-- Permet tester sans PAM pendant le développement
+## Installing from Debian packages
 
-## 📊 Plan de développement
+The project builds 6 `.deb` packages:
 
-### Phase 1: MVP Core ✓
-- [x] Structures core (FaceRegion, Embedding, traits)
-- [x] Abstraction caméra
-- [x] Types daemon et API D-Bus
-- [ ] Implémenter capture caméra réelle (V4L2 binding)
-- [ ] Ajouter backend détection (ONNX ou stub)
+- `linux-hello` — meta-package (depends on the packages below)
+- `linux-hello-daemon` — the daemon binary + systemd user service
+- `linux-hello-models` — the ONNX models (SCRFD-500M detector + ArcFace MobileNetV3 embedder)
+- `linux-hello-tools` — the `linux-hello` CLI
+- `libpam-linux-hello` — the PAM module
+- `linux-hello-gui` — the Kirigami configuration app
 
-### Phase 2: Daemon fonctionnel
-- [ ] Stockage SQLite des embeddings
-- [ ] Exposition réelle D-Bus
-- [ ] Appels caméra depuis le daemon
-- [ ] Extraction embeddings
+```bash
+sudo apt install ./linux-hello_*.deb
+```
 
-### Phase 3: Module PAM intégré
-- [ ] Appels D-Bus depuis PAM
-- [ ] Gestion conversation PAM
-- [ ] Tests service PAM custom
-- [ ] Intégration login standard
+See [docs/DEBIAN_PACKAGE.md](docs/DEBIAN_PACKAGE.md) for build instructions and package details.
 
-### Phase 4: KDE/Plasma
-- [ ] KCM (KDE Control Module) pour config
-- [ ] Enregistrement graphique
-- [ ] Intégration KScreenLocker
-- [ ] Config par contexte
+## Building from source
 
-### Phase 5: SDDM et sudo avancé
-- [ ] SDDM PAM integration
-- [ ] Confirmation sudo (pam_conv)
-- [ ] Plugin QML SDDM optionnel
-- [ ] Polkit/pkexec support
+Requires Rust ≥ 1.94 — check with `rustc --version`; if your distro's package is older (Ubuntu's `rustc` package can lag), install a current toolchain with [rustup](https://rustup.rs/) instead.
 
-## 🚀 Démarrage
+System dependencies (Debian/Ubuntu):
 
-### Build
+```bash
+sudo apt install build-essential libssl-dev libpam0g-dev libdbus-1-dev \
+  pkg-config unzip qt6-base-dev qml6-module-qtcore qml6-module-qtquick \
+  qml6-module-qtquick-layouts qml6-module-qtquick-controls
+```
+
+Then:
+
 ```bash
 cargo build --release
 
-# Chaque crate peut être buildée séparément
-cargo build -p hello_face_core --release
-cargo build -p hello_camera --release
+# Or build a single crate
 cargo build -p hello_daemon --release
-cargo build -p pam_linux_hello --release
-cargo build -p linux_hello_cli --release
 ```
 
-### Installation PAM (une fois implémenté)
-```bash
-sudo cp target/release/libpam_linux_hello.so /lib/security/
-```
+On first build, `hello_face_core`'s build script downloads the ONNX models into `~/.local/share/linux-hello/models/` (falls back to a stub detector if the download fails — set `LINUX_HELLO_NO_MODEL_DOWNLOAD=1` to skip it, e.g. in CI).
 
-### Usage CLI
-```bash
-# Tester caméra
-cargo run -p linux_hello_cli -- camera --duration 5
+## Configuring PAM
 
-# Daemon (mode test)
-cargo run -p linux_hello_cli -- daemon --debug
-
-# Enregistrement (quand daemon actif)
-cargo run -p linux_hello_cli -- enroll 1000 --samples 3
-```
-
-## 📐 Configuration PAM (exemple)
-
-Pour SDDM:
-```text
-# /etc/pam.d/sddm
-auth   sufficient   pam_linux_hello.so context=sddm timeout_ms=5000
-auth   include      system-login
-```
-
-Pour sudo:
 ```text
 # /etc/pam.d/sudo
 auth   sufficient   pam_linux_hello.so context=sudo confirm=true
 auth   include      system-auth
-```
 
-Pour KScreenLocker:
-```text
-# /etc/pam.d/kde
-auth   sufficient   pam_linux_hello.so context=screenlock
+# /etc/pam.d/kde (KScreenLocker)
+auth   sufficient   pam_linux_hello.so context=screenlock timeout_ms=3000
 auth   include      system-login
 ```
 
-## 🔐 Permissions et sécurité
+Module options: `context`, `timeout_ms`, `similarity_threshold`, `confirm`, `debug`. Full reference in [docs/PAM_MODULE.md](docs/PAM_MODULE.md) and [docs/INTEGRATION_GUIDE.md](docs/INTEGRATION_GUIDE.md).
 
-- **Stockage**: `~/.local/share/linux-hello/faces.db` (0700, user only)
-  ou `/var/lib/linux-hello/users/$UID/faces.db` (0700, root:root)
-- **D-Bus ACL**: Chaque utilisateur ne peut gérer que son propre visage
-- **PAM**: Appels non-bloquants quand possible, timeout défini
-- **Enregistrement**: Nécessite confirmation (prompts graphiques via PAM)
+## CLI usage
 
-## 📚 Structure crates
+```bash
+# Run the daemon (debug mode)
+linux-hello daemon --debug
 
-```
-linux-hello-rust/
-├── Cargo.toml (workspace)
-├── hello_face_core/     (lib)
-├── hello_camera/        (lib)
-├── hello_daemon/        (lib + bin)
-├── pam_linux_hello/     (lib -> .so)
-├── linux_hello_cli/     (bin)
-└── README.md
+# Enroll a face
+linux-hello enroll <uid> --context sudo --samples 3
+
+# Verify
+linux-hello verify <uid> --context sudo
+
+# List / delete enrolled faces
+linux-hello list <uid>
+linux-hello delete <uid> [face_id]
 ```
 
-## ⚙️ Dépendances principales
+## Security notes
 
-- **Async**: tokio 1.36
-- **D-Bus**: zbus 4.0
-- **PAM**: pam-sys 0.5
-- **Serialization**: serde + serde_json
-- **Storage**: sqlx + sqlite
-- **Vision** (future): ndarray, image, onnxruntime-rs
+- Storage: `~/.local/share/linux-hello/faces.db` (user mode) or `/var/lib/linux-hello/` (root/system mode), restricted permissions.
+- A user can only manage their own face over D-Bus; root can manage any user.
+- PAM calls are bounded by a timeout and always degrade to password authentication on failure.
 
-## 📝 Notes de conception
+## Documentation
 
-### API D-Bus générique
-Les appels au daemon utilisent JSON pour sérialisation, permettant:
-- Évolution future sans breaking changes
-- Flexibilité contexte (login/sudo/screenlock/sddm)
-- Logging/audit détaillé
+Further docs live in [`docs/`](docs/): architecture and D-Bus/PAM design, GUI architecture, internationalization, screenlock integration, CI/CD infrastructure, command reference, development and release process.
 
-### Module PAM élégant
-- Pas de dépendance UI
-- Configuration par options (suffisant, required, optional)
-- Fallback gracieux vers password
-- Timeout bornés
+## Contributing
 
-### Modularité
-Chaque crate peut être testée/utilisée indépendamment:
-- `hello_face_core` = pure vision (testable hors système)
-- `hello_camera` = I/O caméra (mockable)
-- `hello_daemon` = orchestration (testable avec daemon fictif)
-- `pam_linux_hello` = PAM glue layer (simple)
+See [CONTRIBUTING.md](CONTRIBUTING.md) and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 
-## 🔄 Prochaines étapes concrètes
+## License
 
-1. **Ajouter V4L2 binding réel** dans `hello_camera`
-2. **Implémenter backend détection** (ou binding ONNX)
-3. **Implémentation D-Bus réelle** dans `hello_daemon`
-4. **Stockage SQLite** pour embeddings
-5. **Appels D-Bus depuis PAM**
-
-Voir `TODO.md` pour détails.
+GPL-3.0-or-later.

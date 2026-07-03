@@ -1,90 +1,90 @@
-//! API D-Bus exposée par le daemon
+//! D-Bus API exposed by the daemon
 //!
 //! Interface: com.linuxhello.FaceAuth
-//! Chemin: /com/linuxhello/FaceAuth
+//! Path: /com/linuxhello/FaceAuth
 
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use zbus::interface;
 
 // ============================================================================
-// Types de requête/réponse sérialisables
+// Serializable request/response types
 // ============================================================================
 
-/// Requête d'enregistrement de visage
+/// Face enrollment request
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RegisterFaceRequest {
-    /// UID de l'utilisateur propriétaire
+    /// UID of the owning user
     pub user_id: u32,
 
-    /// Contexte (login, sudo, screenlock, sddm, test)
+    /// Context (login, sudo, screenlock, sddm, test)
     pub context: String,
 
-    /// Timeout max en ms pour la capture/enregistrement
+    /// Max timeout in ms for the capture/enrollment
     pub timeout_ms: u64,
 
-    /// Nombre de frames à capturer et moyenner
+    /// Number of frames to capture and average
     pub num_samples: u32,
 }
 
-/// Réponse d'enregistrement réussi
+/// Successful enrollment response
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RegisterFaceResponse {
-    /// ID unique du modèle enregistré
+    /// Unique ID of the enrolled model
     pub face_id: String,
 
-    /// Timestamp d'enregistrement
+    /// Enrollment timestamp
     pub registered_at: u64,
 
-    /// Score de qualité moyen des embeddings
+    /// Average quality score of the embeddings
     pub quality_score: f32,
 }
 
-/// Requête de suppression de visage
+/// Face deletion request
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeleteFaceRequest {
-    /// UID de l'utilisateur
+    /// User UID
     pub user_id: u32,
 
-    /// ID du visage à supprimer (None = tous)
+    /// ID of the face to delete (None = all)
     pub face_id: Option<String>,
 }
 
-/// Requête de vérification
+/// Verification request
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VerifyRequest {
-    /// UID de l'utilisateur à authentifier
+    /// UID of the user to authenticate
     pub user_id: u32,
 
-    /// Contexte
+    /// Context
     pub context: String,
 
-    /// Timeout max en ms
+    /// Max timeout in ms
     pub timeout_ms: u64,
 }
 
-/// Résultat de vérification
+/// Verification result
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum VerifyResult {
-    /// Succès
+    /// Success
     Success {
         face_id: String,
         similarity_score: f32,
     },
 
-    /// Aucun visage détecté
+    /// No face detected
     NoFaceDetected,
 
-    /// Visage détecté mais non reconnu
+    /// Face detected but not recognized
     NoMatch { best_score: f32, threshold: f32 },
 
-    /// Pas de modèles d'enregistrement
+    /// No enrolled models
     NoEnrollment,
 
-    /// Utilisateur a annulé
+    /// User cancelled
     Cancelled,
 
-    /// Erreur
+    /// Error
     Error { message: String },
 }
 
@@ -95,93 +95,93 @@ impl fmt::Display for VerifyResult {
                 face_id,
                 similarity_score,
             } => {
-                write!(f, "Succès ({}): {:.2}", face_id, similarity_score)
+                write!(f, "Success ({}): {:.2}", face_id, similarity_score)
             }
-            VerifyResult::NoFaceDetected => write!(f, "Aucun visage"),
+            VerifyResult::NoFaceDetected => write!(f, "No face"),
             VerifyResult::NoMatch {
                 best_score,
                 threshold,
             } => {
-                write!(f, "Non reconnu: {:.2} < {:.2}", best_score, threshold)
+                write!(f, "Not recognized: {:.2} < {:.2}", best_score, threshold)
             }
-            VerifyResult::NoEnrollment => write!(f, "Pas d'enregistrement"),
-            VerifyResult::Cancelled => write!(f, "Annulé"),
-            VerifyResult::Error { message } => write!(f, "Erreur: {}", message),
+            VerifyResult::NoEnrollment => write!(f, "No enrollment"),
+            VerifyResult::Cancelled => write!(f, "Cancelled"),
+            VerifyResult::Error { message } => write!(f, "Error: {}", message),
         }
     }
 }
 
 // ============================================================================
-// Interface D-Bus
+// D-Bus interface
 // ============================================================================
 
-/// Interface D-Bus pour authentication faciale
+/// D-Bus interface for facial authentication
 pub struct FaceAuthService {
-    // À remplir avec impl en lib.rs
+    // To be filled in with the impl in lib.rs
 }
 
 #[interface(name = "com.linuxhello.FaceAuth")]
 impl FaceAuthService {
-    /// Enregistrer un nouveau visage pour un utilisateur
+    /// Register a new face for a user
     ///
     /// # Arguments
-    /// * `request` - JSON de RegisterFaceRequest
+    /// * `request` - JSON of RegisterFaceRequest
     ///
     /// # Returns
-    /// JSON de RegisterFaceResponse ou erreur
+    /// JSON of RegisterFaceResponse or error
     pub async fn register_face(&self, _request: &str) -> zbus::fdo::Result<String> {
-        // Impl en lib.rs
-        Err(zbus::fdo::Error::Failed("Non implémenté".to_string()))
+        // Impl in lib.rs
+        Err(zbus::fdo::Error::Failed("Not implemented".to_string()))
     }
 
-    /// Supprimer un ou tous les visages
+    /// Delete one or all faces
     ///
     /// # Arguments
-    /// * `request` - JSON de DeleteFaceRequest
+    /// * `request` - JSON of DeleteFaceRequest
     pub async fn delete_face(&self, _request: &str) -> zbus::fdo::Result<()> {
-        // Impl en lib.rs
-        Err(zbus::fdo::Error::Failed("Non implémenté".to_string()))
+        // Impl in lib.rs
+        Err(zbus::fdo::Error::Failed("Not implemented".to_string()))
     }
 
-    /// Vérifier l'identité d'un utilisateur
+    /// Verify a user's identity
     ///
     /// # Arguments
-    /// * `request` - JSON de VerifyRequest
+    /// * `request` - JSON of VerifyRequest
     ///
     /// # Returns
-    /// JSON de VerifyResult
+    /// JSON of VerifyResult
     pub async fn verify(&self, _request: &str) -> zbus::fdo::Result<String> {
-        // Impl en lib.rs
-        Err(zbus::fdo::Error::Failed("Non implémenté".to_string()))
+        // Impl in lib.rs
+        Err(zbus::fdo::Error::Failed("Not implemented".to_string()))
     }
 
-    /// Lister les visages enregistrés pour un utilisateur
+    /// List the faces registered for a user
     ///
     /// # Arguments
     /// * `user_id` - UID
     ///
     /// # Returns
-    /// JSON array de face_ids et metadata
+    /// JSON array of face_ids and metadata
     pub async fn list_faces(&self, _user_id: u32) -> zbus::fdo::Result<String> {
-        // Impl en lib.rs
-        Err(zbus::fdo::Error::Failed("Non implémenté".to_string()))
+        // Impl in lib.rs
+        Err(zbus::fdo::Error::Failed("Not implemented".to_string()))
     }
 
-    /// Vérifier que le daemon est opérationnel
+    /// Check that the daemon is operational
     pub async fn ping(&self) -> zbus::fdo::Result<String> {
         Ok("pong".to_string())
     }
 
-    /// Version du daemon
+    /// Daemon version
     #[zbus(property)]
     pub async fn version(&self) -> zbus::fdo::Result<String> {
         Ok(env!("CARGO_PKG_VERSION").to_string())
     }
 
-    /// Vérifier si une caméra est disponible
+    /// Check whether a camera is available
     #[zbus(property)]
     pub async fn camera_available(&self) -> zbus::fdo::Result<bool> {
-        // À implémenter avec détection réelle
+        // To be implemented with real detection
         Ok(true)
     }
 }

@@ -14,16 +14,27 @@ chmod 700 "$STORAGE_DIR" 2>/dev/null || true
 
 echo "✓ Daemon service installed"
 
-# Créer /run/hello-pam/ immédiatement (sera recréé au boot par systemd-tmpfiles)
+# Create /run/hello-pam/ immediately (will be recreated at boot by systemd-tmpfiles)
 systemd-tmpfiles --create /usr/lib/tmpfiles.d/linux-hello.conf 2>/dev/null || \
     mkdir -p /run/hello-pam && chmod 1777 /run/hello-pam || true
 echo "✓ Socket directory /run/hello-pam/ ready"
 
-# Activer et lancer le daemon pour l'utilisateur qui a lancé l'installation
+# Install the KDE lock screen QML overlay via dpkg-divert.
+# dpkg-divert moves the plasma-workspace file (renamed .distrib) and puts ours in its place.
+# On a plasma-workspace update, dpkg sees the diversion and does not overwrite our file.
+PLASMA_QML="/usr/share/plasma/shells/org.kde.plasma.desktop/contents/lockscreen/MainBlock.qml"
+LINUX_HELLO_QML="/usr/share/linux-hello/lockscreen/MainBlock.qml"
+if [ -f "$LINUX_HELLO_QML" ] && [ -f "$PLASMA_QML" ]; then
+    dpkg-divert --package linux-hello --rename --add "$PLASMA_QML" 2>/dev/null || true
+    cp "$LINUX_HELLO_QML" "$PLASMA_QML"
+    echo "✓ Lock screen QML overlay installed"
+fi
+
+# Enable and start the daemon for the user who ran the installation
 TARGET_USER="${SUDO_USER}"
 if [ -z "$TARGET_USER" ]; then
-    # Si pas de SUDO_USER, on est peut-être lancé directement en root
-    # On essaie de trouver l'utilisateur principal
+    # If there's no SUDO_USER, we may be running directly as root
+    # Try to find the main user
     TARGET_USER=$(who | head -1 | awk '{print $1}')
 fi
 

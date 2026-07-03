@@ -18,9 +18,9 @@ anyhow.workspace = true
 tracing.workspace = true
 
 [build-dependencies]
-# Pour téléchargement des modèles ONNX dans build.rs
-# (dépendances std suffisantes : std::net n'est pas disponible en build.rs pur,
-# on utilisera curl/wget via std::process::Command)
+# For downloading the ONNX models in build.rs
+# (std dependencies are sufficient: std::net is not available in a pure build.rs,
+# curl/wget will be used via std::process::Command)
 
 [features]
 default = ["backends"]

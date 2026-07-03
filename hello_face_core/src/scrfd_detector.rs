@@ -1,12 +1,12 @@
-//! Détecteur de visages SCRFD-500M via ONNX Runtime (ort)
+//! SCRFD-500M face detector via ONNX Runtime (ort)
 //!
-//! Input : RGB 640×640 CHW normalisé (mean=127.5, std=128)
-//! Output : 9 tenseurs (3 par stride 8/16/32 : score, bbox, kps)
+//! Input : RGB 640x640 CHW normalized (mean=127.5, std=128)
+//! Output : 9 tensors (3 per stride 8/16/32: score, bbox, kps)
 
 use crate::{FaceDetector, FaceError, FaceRegion};
 use std::path::Path;
 
-/// Détecteur SCRFD-500M basé sur ONNX Runtime
+/// SCRFD-500M detector based on ONNX Runtime
 #[cfg(feature = "tract")]
 pub struct ScrfdDetector {
     session: std::sync::Mutex<ort::session::Session>,
@@ -25,7 +25,7 @@ impl ScrfdDetector {
             .commit_from_file(model_path)
             .map_err(|e| FaceError::ModelLoadError(format!("SCRFD load: {}", e)))?;
 
-        tracing::info!("Modèle SCRFD-500M chargé (ort): {}", model_path.display());
+        tracing::info!("SCRFD-500M model loaded (ort): {}", model_path.display());
 
         Ok(Self {
             session: std::sync::Mutex::new(session),
@@ -109,9 +109,9 @@ impl FaceDetector for ScrfdDetector {
         let input_tensor = ort::value::Tensor::<f32>::from_array(input)
             .map_err(|e| FaceError::DetectionFailed(e.to_string()))?;
 
-        tracing::debug!("SCRFD (ort): inférence {}x{}", width, height);
+        tracing::debug!("SCRFD (ort): inference {}x{}", width, height);
 
-        // Tout le traitement des outputs se fait dans la portée du lock
+        // All output processing happens within the lock's scope
         let regions_raw: Vec<FaceRegion> = {
             let mut session = self
                 .session
@@ -119,17 +119,17 @@ impl FaceDetector for ScrfdDetector {
                 .map_err(|e| FaceError::DetectionFailed(format!("mutex: {}", e)))?;
 
             let outputs = session.run(ort::inputs![input_tensor]).map_err(|e| {
-                tracing::error!("SCRFD ort.run() échoué: {}", e);
+                tracing::error!("SCRFD ort.run() failed: {}", e);
                 FaceError::DetectionFailed(e.to_string())
             })?;
 
             let n_outputs = outputs.len();
-            tracing::debug!("SCRFD: {} sorties", n_outputs);
+            tracing::debug!("SCRFD: {} outputs", n_outputs);
 
-            // Le modèle SCRFD groupe ses sorties par TYPE (pas par stride) :
-            //   [0,1,2] = score_8, score_16, score_32 → shape (N, 1) ou (N,)
-            //   [3,4,5] = bbox_8,  bbox_16,  bbox_32  → shape (N, 4)
-            //   [6,7,8] = kps_8,   kps_16,   kps_32   → shape (N, 10)  (si présents)
+            // The SCRFD model groups its outputs by TYPE (not by stride):
+            //   [0,1,2] = score_8, score_16, score_32 -> shape (N, 1) or (N,)
+            //   [3,4,5] = bbox_8,  bbox_16,  bbox_32  -> shape (N, 4)
+            //   [6,7,8] = kps_8,   kps_16,   kps_32   -> shape (N, 10)  (if present)
             let has_kps = n_outputs >= 9;
             let strides = [8u32, 16, 32];
 
@@ -163,7 +163,7 @@ impl FaceDetector for ScrfdDetector {
                     None
                 };
 
-                // N = nombre d'ancres : premier axe du tenseur (N,1) ou (N,4)
+                // N = number of anchors: first axis of the tensor (N,1) or (N,4)
                 let n = scores.shape()[0];
                 let anchor_centers = Self::generate_anchor_centers(stride, self.input_size);
                 let n_anchors = anchor_centers.len().min(n);
@@ -177,7 +177,7 @@ impl FaceDetector for ScrfdDetector {
                 );
 
                 for i in 0..n_anchors {
-                    // Score : (N,1) ou (N,) ou (1,N,1) ou (1,N)
+                    // Score: (N,1) or (N,) or (1,N,1) or (1,N)
                     let conf = match scores.ndim() {
                         1 => scores[[i]],
                         2 => scores[[i, 0_usize]],
@@ -191,7 +191,7 @@ impl FaceDetector for ScrfdDetector {
 
                     let (cx, cy) = anchor_centers[i];
 
-                    // BBox : (N,4) ou (1,N,4) — distances × stride depuis le centre d'ancre
+                    // BBox: (N,4) or (1,N,4) — distances x stride from the anchor center
                     let (x1, y1, x2, y2) = match bboxes.ndim() {
                         2 => (
                             cx - bboxes[[i, 0_usize]] * stride as f32,
@@ -248,7 +248,7 @@ impl FaceDetector for ScrfdDetector {
 
         let regions = self.nms(regions_raw);
         tracing::debug!(
-            "SCRFD: {} visages (conf>{:.2})",
+            "SCRFD: {} faces (conf>{:.2})",
             regions.len(),
             self.confidence_threshold
         );

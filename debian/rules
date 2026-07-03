@@ -10,8 +10,9 @@ export PATH:=$(HOME)/.cargo/bin:$(PATH)
 	dh $@
 
 override_dh_auto_clean:
-	# Don't use make distclean, let cargo clean handle it
-	cargo clean
+	# Do not erase the cargo cache: preserves incremental compilation.
+	# In CI, the target directory is absent anyway (clean clone).
+	true
 
 override_dh_auto_build:
 	cargo build --release --verbose
@@ -36,20 +37,26 @@ override_dh_auto_install:
 	mkdir -p $(CURDIR)/debian/tmp/usr/lib/systemd/user
 	cp $(CURDIR)/hello-daemon.service $(CURDIR)/debian/tmp/usr/lib/systemd/user/
 
-	# Install systemd tmpfiles.d (crée /run/hello-pam/ au boot, sticky+world-writable)
+	# Install systemd tmpfiles.d (creates /run/hello-pam/ at boot, sticky+world-writable)
 	mkdir -p $(CURDIR)/debian/tmp/usr/lib/tmpfiles.d
 	printf 'd /run/hello-pam 1777 root root -\n' > $(CURDIR)/debian/tmp/usr/lib/tmpfiles.d/linux-hello.conf
 	
 	# Install documentation
 	mkdir -p $(CURDIR)/debian/tmp/usr/share/doc/linux-hello
 	cp $(CURDIR)/README.md $(CURDIR)/debian/tmp/usr/share/doc/linux-hello/
-	cp $(CURDIR)/QUICKSTART.md $(CURDIR)/debian/tmp/usr/share/doc/linux-hello/
-	cp $(CURDIR)/INTEGRATION_GUIDE.md $(CURDIR)/debian/tmp/usr/share/doc/linux-hello/
-	cp $(CURDIR)/PAM_MODULE.md $(CURDIR)/debian/tmp/usr/share/doc/linux-hello/
+	cp $(CURDIR)/docs/QUICKSTART.md $(CURDIR)/debian/tmp/usr/share/doc/linux-hello/
+	cp $(CURDIR)/docs/INTEGRATION_GUIDE.md $(CURDIR)/debian/tmp/usr/share/doc/linux-hello/
+	cp $(CURDIR)/docs/PAM_MODULE.md $(CURDIR)/debian/tmp/usr/share/doc/linux-hello/
 	cp $(CURDIR)/sudo-linux-hello.pam $(CURDIR)/debian/tmp/usr/share/doc/linux-hello/
 	cp $(CURDIR)/kde-screenlock-linux-hello.pam $(CURDIR)/debian/tmp/usr/share/doc/linux-hello/
 	
-	# Install ONNX models (téléchargés par build.rs pendant cargo build --release)
+	# KDE lock screen QML overlay: stored in /usr/share/linux-hello/lockscreen/.
+	# postinst installs it in place via dpkg-divert.
+	mkdir -p $(CURDIR)/debian/tmp/usr/share/linux-hello/lockscreen
+	cp $(CURDIR)/qml/lockscreen/MainBlock.qml \
+	   $(CURDIR)/debian/tmp/usr/share/linux-hello/lockscreen/
+
+	# Install ONNX models (downloaded by build.rs during cargo build --release)
 	mkdir -p $(CURDIR)/debian/tmp/usr/share/linux-hello/models
 	cp "$${XDG_DATA_HOME:-$(HOME)/.local/share}/linux-hello/models/det_500m.onnx" \
 	   $(CURDIR)/debian/tmp/usr/share/linux-hello/models/
@@ -70,14 +77,14 @@ override_dh_auto_install:
 	# GUI installation - copy QML files to Qt6 module location
 	cp -r $(CURDIR)/linux_hello_config/qml/* $(CURDIR)/debian/tmp/usr/share/qt6/qml/Linux/Hello/
 	
-	# Application icon: copiée directement dans override_dh_install (pas via debian/tmp pour éviter le bug de renommage dh_install)
+	# Application icon: copied directly in override_dh_install (not via debian/tmp, to avoid the dh_install renaming bug)
 
 override_dh_install:
 	dh_install
 	# Ensure GUI QML files go to linux-hello-gui package
 	mkdir -p $(CURDIR)/debian/linux-hello-gui/usr/share/qt6/qml/Linux/Hello
 	cp -r $(CURDIR)/debian/tmp/usr/share/qt6/qml/Linux/Hello/* $(CURDIR)/debian/linux-hello-gui/usr/share/qt6/qml/Linux/Hello/ 2>/dev/null || true
-	# Install app icon with correct filename (dh_install ne supporte pas le renommage)
+	# Install app icon with correct filename (dh_install does not support renaming)
 	mkdir -p $(CURDIR)/debian/linux-hello-gui/usr/share/icons/hicolor/scalable/apps
 	cp $(CURDIR)/linux_hello_config/qml/icons/app-icon.svg $(CURDIR)/debian/linux-hello-gui/usr/share/icons/hicolor/scalable/apps/linux-hello.svg
 

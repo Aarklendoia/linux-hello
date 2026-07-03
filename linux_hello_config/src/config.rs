@@ -1,9 +1,9 @@
-//! Module Config - gestion de la configuration
+//! Config module - configuration management
 //!
-//! Responsable de:
-//! - Paramètres d'enregistrement (nombre frames, timeouts)
-//! - Paramètres de détection (seuils, modèles)
-//! - Stockage de la configuration
+//! Responsible for:
+//! - Enrollment settings (frame count, timeouts)
+//! - Detection settings (thresholds, models)
+//! - Configuration storage
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -11,22 +11,22 @@ use dirs;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GuiConfig {
-    /// Nombre de frames à capturer pour l'enregistrement
+    /// Number of frames to capture for enrollment
     pub enrollment_frame_count: u32,
 
-    /// Timeout maximum pour l'enregistrement (secondes)
+    /// Maximum timeout for enrollment (seconds)
     pub enrollment_timeout_secs: u64,
 
-    /// Seuil de confiance minimum pour détection
+    /// Minimum confidence threshold for detection
     pub detection_confidence_threshold: f32,
 
-    /// Seuil de qualité minimum
+    /// Minimum quality threshold
     pub quality_threshold: f32,
 
-    /// Device caméra (ex: /dev/video0)
+    /// Camera device (e.g. /dev/video0)
     pub camera_device: String,
 
-    /// Répertoire de stockage des embeddings
+    /// Directory for storing embeddings
     pub storage_path: PathBuf,
 }
 
@@ -47,12 +47,12 @@ impl Default for GuiConfig {
 
 impl GuiConfig {
     pub fn load() -> anyhow::Result<Self> {
-        // TODO: Charger depuis fichier de config
+        // TODO: Load from config file
         Ok(Self::default())
     }
 
     pub fn save(&self) -> anyhow::Result<()> {
-        // TODO: Sauvegarder dans fichier de config
+        // TODO: Save to config file
         Ok(())
     }
 }

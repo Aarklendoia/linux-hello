@@ -1,6 +1,6 @@
-//! Client D-Bus pour la GUI
+//! D-Bus client for the GUI
 //!
-//! Gère la connexion et l'écoute des signaux D-Bus du daemon
+//! Manages the connection and listening for D-Bus signals from the daemon
 
 #[allow(unused_imports)]
 use std::sync::Arc;
@@ -8,38 +8,38 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::info;
 
-/// Client D-Bus pour la GUI
+/// D-Bus client for the GUI
 pub struct DBusClient {
     // Future: zbus::Connection
 }
 
 impl DBusClient {
-    /// Créer un nouveau client D-Bus
+    /// Create a new D-Bus client
     pub fn new() -> Self {
         Self {}
     }
 
-    /// Établir la connexion au daemon
+    /// Establish the connection to the daemon
     pub async fn connect(&mut self) -> Result<(), String> {
-        info!("Connexion au daemon D-Bus...");
-        // TODO: Implémenter la connexion zbus
+        info!("Connecting to the D-Bus daemon...");
+        // TODO: Implement zbus connection
         Ok(())
     }
 
-    /// S'abonner aux signaux de capture
+    /// Subscribe to capture signals
     pub async fn subscribe_to_capture(&self) -> Result<(), String> {
-        info!("Abonnement aux signaux de capture...");
-        // TODO: Écouter CaptureProgress, CaptureCompleted, CaptureError
+        info!("Subscribing to capture signals...");
+        // TODO: Listen for CaptureProgress, CaptureCompleted, CaptureError
         Ok(())
     }
 
-    /// Démarrer une session de capture
+    /// Start a capture session
     pub async fn start_capture(&self, user_id: u32, num_frames: u32) -> Result<(), String> {
         info!(
-            "Démarrage capture: user_id={}, frames={}",
+            "Starting capture: user_id={}, frames={}",
             user_id, num_frames
         );
-        // TODO: Appeler daemon via D-Bus
+        // TODO: Call daemon via D-Bus
         Ok(())
     }
 }
