@@ -6,7 +6,7 @@ Documentation for the GitHub Actions CI/CD pipeline for Linux Hello.
 
 ### 1. build-debian.yml
 
-**Triggered by:** Push on main/develop, tags v*, PR, manual
+**Triggered by:** Push on main, tags v*, PR, manual
 
 Builds the Debian packages in a Debian Bookworm container.
 
@@ -28,7 +28,7 @@ Generated artifacts:
 
 ### 2. test.yml
 
-**Triggered by:** Push on main/develop, PR, manual
+**Triggered by:** Push on main, PR, manual
 
 Runs the unit tests and builds the release binaries.
 
@@ -43,7 +43,7 @@ Steps:
 
 ### 3. quality.yml
 
-**Triggered by:** Push on main/develop, PR, manual
+**Triggered by:** Push on main, PR, manual
 
 Checks code quality (3 parallel jobs).
 
@@ -105,9 +105,9 @@ For automatic releases:
 # Triggers on push/PR
 on:
   push:
-    branches: [ main, develop ]
+    branches: [ main ]
   pull_request:
-    branches: [ main, develop ]
+    branches: [ main ]
 
 # Additional triggers
   tags: [ 'v*' ]           # For releases
