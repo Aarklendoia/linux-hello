@@ -1,0 +1,11 @@
+[Unit]
+Description=Periodically activate Linux Hello PAM integration once a face is enrolled
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=5min
+RandomizedDelaySec=30
+Persistent=true
+
+[Install]
+WantedBy=timers.target

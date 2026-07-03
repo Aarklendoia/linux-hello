@@ -1,0 +1,14 @@
+#!/bin/bash
+# Post-installation for libpam-linux-hello
+#
+# Enables the timer that automatically configures PAM (sudo, screenlock) for
+# biometric auth once any local user has enrolled a face. Never touches
+# /etc/pam.d/* directly here — that's linux-hello-pam-autoconfigure's job,
+# and it respects any existing opt-out marker on its own.
+
+set -e
+
+systemctl daemon-reload 2>/dev/null || true
+systemctl enable --now linux-hello-pam-autoconfigure.timer 2>/dev/null || true
+
+exit 0

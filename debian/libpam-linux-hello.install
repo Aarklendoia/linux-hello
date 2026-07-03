@@ -1,1 +1,5 @@
-lib/security/pam_linux_hello.so
+lib/*/security/pam_linux_hello.so
+usr/bin/linux-hello-pam-autoconfigure
+usr/lib/linux-hello/pam-lib.sh
+usr/lib/systemd/system/linux-hello-pam-autoconfigure.service
+usr/lib/systemd/system/linux-hello-pam-autoconfigure.timer

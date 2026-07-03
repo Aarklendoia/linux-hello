@@ -1,0 +1,19 @@
+[Unit]
+Description=Linux Hello - automatic PAM activation for sudo/screenlock
+Documentation=file:///usr/share/doc/linux-hello/PAM_MODULE.md
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/linux-hello-pam-autoconfigure
+
+# Only needs to write /etc/pam.d/*, /etc/linux-hello/ (opt-out marker) and
+# take a lock under /run/lock — everything else stays read-only, and home
+# directories are read-only too (only reading enrolled-face markers there).
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/etc/pam.d /etc/linux-hello /run/lock
+NoNewPrivileges=true
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=linux-hello-pam-autoconfigure

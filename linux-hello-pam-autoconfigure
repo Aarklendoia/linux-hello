@@ -1,0 +1,144 @@
+#!/bin/bash
+# Linux Hello — automatic PAM activation for sudo and screenlock.
+#
+# Run unattended, as root, by linux-hello-pam-autoconfigure.timer (systemd).
+# As soon as any local user has enrolled at least one face, this configures
+# pam_linux_hello.so for sudo/su/polkit/screenlock — never for sddm (the
+# login screen can't work with this daemon's per-user architecture yet, see
+# docs/PAM_MODULE.md).
+#
+# This is safe to run repeatedly and safe on multi-user machines: the PAM
+# module already falls back to the password for any UID with no enrolled
+# face (NoEnrollment -> PAM_IGNORE), so a single system-wide activation is
+# correct regardless of which users have actually enrolled.
+#
+# Respects an explicit opt-out: if install-pam.sh --remove was run, this
+# script does nothing until a manual install-pam.sh run re-enables it.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
+if [[ -f /usr/lib/linux-hello/pam-lib.sh ]]; then
+    # shellcheck source=pam-lib.sh
+    source /usr/lib/linux-hello/pam-lib.sh
+else
+    # Running from a repo checkout (development/testing).
+    # shellcheck source=pam-lib.sh
+    source "$SCRIPT_DIR/pam-lib.sh"
+fi
+
+log() { echo "linux-hello-pam-autoconfigure: $*"; }
+
+if [[ "$EUID" -ne 0 && -z "${LH_SKIP_ROOT_CHECK:-}" ]]; then
+    log "must be run as root, exiting"
+    exit 1
+fi
+
+# ── Locking ──────────────────────────────────────────────────────────────────
+# Non-blocking: this runs every few minutes, so if install-pam.sh is doing an
+# interactive edit right now, just skip this run rather than wait.
+mkdir -p "$(dirname "$LH_LOCK_FILE")" 2>/dev/null || true
+exec 9>"$LH_LOCK_FILE"
+if ! flock -n 9; then
+    log "another linux-hello PAM operation is in progress, skipping this run"
+    exit 0
+fi
+
+if lh_pam_autoconfig_disabled; then
+    log "automatic activation disabled ($LH_OPTOUT_MARKER present), skipping"
+    exit 0
+fi
+
+if lh_all_configured; then
+    log "already fully configured, nothing to do"
+    exit 0
+fi
+
+if [[ ! -f "$(lh_module_path)" ]]; then
+    log "PAM module not installed at $(lh_module_path), skipping (is libpam-linux-hello installed?)"
+    exit 0
+fi
+
+# ── Find any enrolled face across all real local users ───────────────────────
+# Mirrors the /etc/passwd parsing style already used in
+# hello_daemon/src/pam_helper.rs (no getent dependency). Known limitation:
+# this won't see systemd-homed accounts, which aren't real /etc/passwd lines.
+#
+# LOGIN_DEFS/PASSWD_FILE/ROOT_STORAGE_DIR are overridable for testing against
+# a scratch environment instead of the real system paths.
+LOGIN_DEFS="${LOGIN_DEFS:-/etc/login.defs}"
+PASSWD_FILE="${PASSWD_FILE:-/etc/passwd}"
+ROOT_STORAGE_DIR="${ROOT_STORAGE_DIR:-/var/lib/linux-hello}"
+
+uid_min=1000
+uid_max=60000
+if [[ -f "$LOGIN_DEFS" ]]; then
+    v=$(awk '/^UID_MIN/{print $2}' "$LOGIN_DEFS" 2>/dev/null || true)
+    [[ -n "$v" ]] && uid_min="$v"
+    v=$(awk '/^UID_MAX/{print $2}' "$LOGIN_DEFS" 2>/dev/null || true)
+    [[ -n "$v" ]] && uid_max="$v"
+fi
+
+has_enrollment=0
+
+# Root/system-mode storage, if the daemon was ever run as root.
+if [[ -d "$ROOT_STORAGE_DIR/users" ]] &&
+   find "$ROOT_STORAGE_DIR/users" -maxdepth 2 -name '*.meta.json' -print -quit 2>/dev/null | grep -q .; then
+    has_enrollment=1
+    log "found an enrolled face under $ROOT_STORAGE_DIR/users"
+fi
+
+if [[ "$has_enrollment" -eq 0 ]]; then
+    while IFS=: read -r _name _pass uid _gid _gecos home _shell; do
+        [[ "$uid" =~ ^[0-9]+$ ]] || continue
+        (( uid >= uid_min && uid <= uid_max )) || continue
+        [[ -d "$home" ]] || continue
+        faces_dir="$home/.local/share/linux-hello/users"
+        [[ -d "$faces_dir" ]] || continue
+        if find "$faces_dir" -maxdepth 2 -name '*.meta.json' -print -quit 2>/dev/null | grep -q .; then
+            has_enrollment=1
+            log "found an enrolled face for uid=$uid"
+            break
+        fi
+    done < "$PASSWD_FILE"
+fi
+
+if [[ "$has_enrollment" -eq 0 ]]; then
+    log "no enrolled faces found yet, nothing to do"
+    exit 0
+fi
+
+# ── Configure ─────────────────────────────────────────────────────────────────
+log "enrolled face(s) found, activating PAM for sudo/screenlock"
+
+lh_configure_service "sudo"   "sudo" "@include common-auth" || true
+lh_configure_service "sudo-i" "sudo" "@include common-auth" || true
+lh_configure_service "su"     "sudo" "@include common-auth" || true
+lh_configure_service "su-l"   "sudo" "@include common-auth" || true
+
+POLKIT_FILE="$PAM_DIR/polkit-1"
+if [[ ! -f "$POLKIT_FILE" ]]; then
+    cat > "$POLKIT_FILE" << 'EOF'
+#%PAM-1.0
+# Linux Hello - Authentication for polkit dialogs (pkexec, graphical elevation)
+# auth sufficient = if biometrics OK → access granted; otherwise → password fallback
+
+auth       sufficient   pam_linux_hello.so context=polkit
+auth       required     pam_unix.so nullok
+@include common-account
+EOF
+    log "service polkit-1: created with linux-hello + password fallback"
+else
+    lh_configure_service "polkit-1" "polkit" "^auth" || true
+fi
+
+screenlock_file="$(lh_screenlock_file)"
+if [[ -z "$screenlock_file" ]]; then
+    log "no screenlock PAM service found (checked kde-screenlocker, kde)"
+else
+    lh_configure_service "$screenlock_file" "screenlock" "^auth" || true
+fi
+
+# sddm is intentionally never touched here — see header comment.
+
+log "done"

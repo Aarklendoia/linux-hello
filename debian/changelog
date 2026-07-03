@@ -1,3 +1,24 @@
+linux-hello (1.0.4-1) unstable; urgency=medium
+
+  * Fix libpam-linux-hello installing pam_linux_hello.so to /lib/security/,
+    which is not on PAM's default module search path on Debian/Ubuntu
+    (/lib/<multiarch>/security/) — every packaged install shipped a module
+    PAM could never load. Now installed to the correct multiarch path.
+  * Add automatic PAM activation for sudo and screenlock: libpam-linux-hello
+    ships a systemd timer (linux-hello-pam-autoconfigure.timer) that
+    configures PAM as soon as any local user enrolls a face, with no manual
+    step. Respects an explicit opt-out (install-pam.sh --remove). Does not
+    touch sddm (the login screen needs a separate, future architecture
+    change). See docs/PAM_MODULE.md#automatic-activation.
+  * install-pam.sh: extract shared PAM-editing logic into pam-lib.sh (used
+    by both the manual tool and the new automatic script), add file locking
+    to avoid racing with the timer, and fall back from kde-screenlocker to
+    kde for the screenlock PAM service name.
+  * debian/postinst: remove the dead PAM configuration case statement
+    (pam_option was hardcoded to always skip it).
+
+ -- Linux Hello Team <dev@linuxhello.local>  Fri, 03 Jul 2026 16:08:20 +0200
+
 linux-hello (1.0.3-1) unstable; urgency=medium
 
   * Supprime le paquet vide linux-hello-daemon (jamais alimenté par
