@@ -1,33 +1,33 @@
 # Code of Conduct
 
-## Notre engagement
+## Our Pledge
 
-Dans l'intérêt de promouvoir un environnement ouvert et accueillant, nous, contributeurs et mainteneurs, nous nous engageons à faire de la participation à notre projet et à notre communauté une expérience exempte de harcèlement pour tous, indépendamment de l'âge, de la taille du corps, du handicap, de l'ethnicité, de l'identité et de l'expression sexuelle, du niveau d'expérience, de la nationalité, de l'apparence personnelle, de la race, de la religion ou de l'identité et de l'orientation sexuelle.
+In the interest of fostering an open and welcoming environment, we as contributors and maintainers pledge to making participation in our project and our community a harassment-free experience for everyone, regardless of age, body size, disability, ethnicity, sex characteristics, gender identity and expression, level of experience, nationality, personal appearance, race, religion, or sexual identity and orientation.
 
-## Nos normes
+## Our Standards
 
-Les exemples de comportements qui contribuent à créer un environnement positif incluent :
+Examples of behavior that contributes to creating a positive environment include:
 
-- Utiliser un langage accueillant et inclusif
-- Être respectueux des points de vue et des expériences différents
-- Accepter les critiques constructives avec grâce
-- Se concentrer sur ce qui est le mieux pour la communauté
-- Montrer de l'empathie envers les autres membres de la communauté
+- Using welcoming and inclusive language
+- Being respectful of differing viewpoints and experiences
+- Gracefully accepting constructive criticism
+- Focusing on what is best for the community
+- Showing empathy towards other community members
 
-Les exemples de comportements inacceptables incluent :
+Examples of unacceptable behavior include:
 
-- L'utilisation d'un langage ou d'images sexualisées et d'une attention ou d'avances sexuelles non bienvenues
-- Le trollage, les commentaires insultants/dérogatoires et les attaques personnelles ou politiques
-- Le harcèlement public ou privé
-- La publication d'informations privées d'autrui, telles qu'une adresse physique ou électronique, sans permission explicite
-- Toute autre conduite qui pourrait raisonnablement être considérée comme inappropriée dans un cadre professionnel
+- The use of sexualized language or imagery and unwelcome sexual attention or advances
+- Trolling, insulting/derogatory comments, and personal or political attacks
+- Public or private harassment
+- Publishing others' private information, such as a physical or electronic address, without explicit permission
+- Other conduct which could reasonably be considered inappropriate in a professional setting
 
-## Application
+## Enforcement
 
-Les cas de comportement abusif, harcelant ou inacceptable peuvent être signalés en contactant l'équipe du projet. Toutes les plaintes seront examinées et enquêtées et entraîneront une réponse jugée nécessaire et appropriée aux circonstances.
+Instances of abusive, harassing, or otherwise unacceptable behavior may be reported by contacting the project team. All complaints will be reviewed and investigated and will result in a response that is deemed necessary and appropriate to the circumstances.
 
-## Attributions
+## Attribution
 
-Ce code de conduite s'inspire du [Contributor Covenant][homepage], version 1.4.
+This Code of Conduct is adapted from the [Contributor Covenant][homepage], version 1.4.
 
 [homepage]: https://www.contributor-covenant.org
