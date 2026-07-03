@@ -22,6 +22,41 @@ sudo install -m 644 target/release/libpam_linux_hello.so /lib/x86_64-linux-gnu/s
 
 Use the full path in the PAM configuration to test without root privileges.
 
+## Automatic Activation
+
+Installing `libpam-linux-hello` also installs `linux-hello-pam-autoconfigure.timer`,
+a systemd system timer (runs shortly after boot, then every ~5 minutes) that
+configures PAM for **sudo and screenlock** automatically, as soon as any local
+user has enrolled at least one face — no manual step needed. It edits `sudo`,
+`sudo-i`, `su`, `su-l`, `polkit-1`, and whichever of `kde-screenlocker`/`kde`
+is present, using the same idempotent, backed-up insertion logic as
+`install-pam.sh` (see `pam-lib.sh`). It's safe on multi-user machines: the
+module already falls back to the password for any user with no enrolled
+face, so a single system-wide activation is correct regardless of who has
+actually enrolled.
+
+**Not covered — the SDDM login screen.** `hello-daemon` runs per-user
+(`systemctl --user`), and the PAM module talks to that user's own running
+daemon over a per-user socket. At the login screen, the target user's
+session (and daemon) doesn't exist yet, so biometric auth can't work there
+today — automatic activation deliberately never touches `/etc/pam.d/sddm`.
+Login-screen support needs a system-wide daemon and is a separate,
+future piece of work.
+
+**Known limitation.** User enrollment is detected by scanning `/etc/passwd`
+directly (no `getent`/NSS lookup) — accounts served only via `systemd-homed`
+(not present as real `/etc/passwd` lines) won't be detected by the automatic
+timer, though PAM auth for those users still works fine once configured by
+some other means.
+
+**Opting out.** Run `sudo ./install-pam.sh --remove` to disable and revert;
+this creates `/etc/linux-hello/pam-disabled`, which the automatic timer
+checks and respects — it will not re-enable PAM config while that marker
+exists. Running `install-pam.sh` again (without `--remove`) clears the
+marker and re-enables automatic activation. `install-pam.sh --status` shows
+both the current PAM configuration state and whether automatic activation is
+enabled or opted out.
+
 ## PAM Configuration
 
 ### Basic format

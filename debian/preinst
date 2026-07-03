@@ -7,13 +7,17 @@ echo "Linux Hello - Pre-installation Backup"
 echo "======================================"
 echo ""
 
-# Backup PAM files if they exist
-if [ -f /etc/pam.d/sudo ]; then
+# Backup PAM files if they exist and aren't already linux-hello-configured.
+# Guarded (not unconditional) so that once linux-hello-pam-autoconfigure's
+# timer is active, a later package upgrade doesn't capture an
+# already-configured file as the "latest backup" — that would defeat
+# install-pam.sh --remove's restore-from-backup logic.
+if [ -f /etc/pam.d/sudo ] && ! grep -q pam_linux_hello /etc/pam.d/sudo 2>/dev/null; then
     cp /etc/pam.d/sudo "/etc/pam.d/sudo.pre-linuxhello-$(date +%s)"
     echo "✓ Backed up /etc/pam.d/sudo"
 fi
 
-if [ -f /etc/pam.d/kde ]; then
+if [ -f /etc/pam.d/kde ] && ! grep -q pam_linux_hello /etc/pam.d/kde 2>/dev/null; then
     cp /etc/pam.d/kde "/etc/pam.d/kde.pre-linuxhello-$(date +%s)"
     echo "✓ Backed up /etc/pam.d/kde"
 fi

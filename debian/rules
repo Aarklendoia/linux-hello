@@ -1,6 +1,8 @@
 #!/usr/bin/make -f
 # -*- makefile -*-
 
+include /usr/share/dpkg/architecture.mk
+
 export DH_VERBOSE=1
 export CARGO_HOME=$(CURDIR)/target/cargo
 export RUSTUP_TOOLCHAIN=stable
@@ -29,10 +31,13 @@ override_dh_auto_install:
 	cp $(CURDIR)/target/release/linux-hello $(CURDIR)/debian/tmp/usr/bin/
 	
 	# Install PAM module
-	mkdir -p $(CURDIR)/debian/tmp/lib/security
+	# Must go under the multiarch security dir (e.g. /lib/x86_64-linux-gnu/security/)
+	# for PAM's default module search path to find it — /lib/security/ is not on
+	# that path on Debian/Ubuntu and silently fails to load the module.
+	mkdir -p $(CURDIR)/debian/tmp/lib/$(DEB_HOST_MULTIARCH)/security
 	cp $(CURDIR)/target/release/libpam_linux_hello.so \
-	   $(CURDIR)/debian/tmp/lib/security/pam_linux_hello.so
-	
+	   $(CURDIR)/debian/tmp/lib/$(DEB_HOST_MULTIARCH)/security/pam_linux_hello.so
+
 	# Install systemd user service
 	mkdir -p $(CURDIR)/debian/tmp/usr/lib/systemd/user
 	cp $(CURDIR)/hello-daemon.service $(CURDIR)/debian/tmp/usr/lib/systemd/user/
@@ -40,6 +45,16 @@ override_dh_auto_install:
 	# Install systemd tmpfiles.d (creates /run/hello-pam/ at boot, sticky+world-writable)
 	mkdir -p $(CURDIR)/debian/tmp/usr/lib/tmpfiles.d
 	printf 'd /run/hello-pam 1777 root root -\n' > $(CURDIR)/debian/tmp/usr/lib/tmpfiles.d/linux-hello.conf
+
+	# Install PAM auto-activation: system unit + timer + detection script + shared lib
+	mkdir -p $(CURDIR)/debian/tmp/usr/lib/systemd/system
+	cp $(CURDIR)/linux-hello-pam-autoconfigure.service $(CURDIR)/debian/tmp/usr/lib/systemd/system/
+	cp $(CURDIR)/linux-hello-pam-autoconfigure.timer $(CURDIR)/debian/tmp/usr/lib/systemd/system/
+	mkdir -p $(CURDIR)/debian/tmp/usr/bin
+	cp $(CURDIR)/linux-hello-pam-autoconfigure $(CURDIR)/debian/tmp/usr/bin/
+	chmod 0755 $(CURDIR)/debian/tmp/usr/bin/linux-hello-pam-autoconfigure
+	mkdir -p $(CURDIR)/debian/tmp/usr/lib/linux-hello
+	cp $(CURDIR)/pam-lib.sh $(CURDIR)/debian/tmp/usr/lib/linux-hello/
 	
 	# Install documentation
 	mkdir -p $(CURDIR)/debian/tmp/usr/share/doc/linux-hello

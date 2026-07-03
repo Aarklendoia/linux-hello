@@ -10,21 +10,21 @@
 # SECURITY: This script always uses "auth sufficient" — the password
 # remains ALWAYS available as a fallback. You cannot be locked out.
 # In case of problems: sudo ./install-pam.sh --remove
+#
+# NOTE: since libpam-linux-hello ships linux-hello-pam-autoconfigure (a
+# systemd timer that automatically configures sudo/screenlock once any user
+# has enrolled a face), running this script manually is normally only
+# needed for development (it copies the freshly built .so from this repo
+# checkout) or to explicitly opt back in after running --remove.
 
 set -euo pipefail
 
 # ── Constants ────────────────────────────────────────────────────────────────
-SOURCE_SO="$(dirname "$(readlink -f "$0")")/target/release/libpam_linux_hello.so"
-# Detect architecture dynamically to support x86_64, arm64, etc.
-_MULTIARCH="$(dpkg-architecture -qDEB_HOST_MULTIARCH 2>/dev/null || gcc -dumpmachine 2>/dev/null || echo "x86_64-linux-gnu")"
-PAM_MODULE="/lib/${_MULTIARCH}/security/pam_linux_hello.so"
-PAM_DIR="/etc/pam.d"
-TIMESTAMP="$(date +%s)"
-# linux-hello line to insert (with sufficient = guaranteed password fallback)
-LH_LINE="auth       sufficient   pam_linux_hello.so context=%CONTEXT%"
-# Markers to identify the blocks added by this script
-MARKER_START="# >>> linux-hello-start"
-MARKER_END="# <<< linux-hello-end"
+SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
+SOURCE_SO="$SCRIPT_DIR/target/release/libpam_linux_hello.so"
+# shellcheck source=pam-lib.sh
+source "$SCRIPT_DIR/pam-lib.sh"
+PAM_MODULE="$(lh_module_path)"
 
 # ── Colors ───────────────────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
@@ -33,8 +33,19 @@ warn() { echo -e "${YELLOW}⚠${NC}  $*"; }
 err()  { echo -e "${RED}✗${NC} $*"; }
 
 # ── Root check ───────────────────────────────────────────────────────────────
-if [[ "$EUID" -ne 0 ]]; then
+if [[ "$EUID" -ne 0 && -z "${LH_SKIP_ROOT_CHECK:-}" ]]; then
     err "This script must be run with sudo"
+    exit 1
+fi
+
+# ── Locking ──────────────────────────────────────────────────────────────────
+# Guards against racing with linux-hello-pam-autoconfigure's unattended timer,
+# which edits the same /etc/pam.d/* files. Interactive, so wait briefly for
+# the lock rather than failing outright.
+mkdir -p "$(dirname "$LH_LOCK_FILE")" 2>/dev/null || true
+exec 9>"$LH_LOCK_FILE"
+if ! flock -w 15 9; then
+    err "Could not acquire the PAM configuration lock after 15s (another linux-hello PAM operation in progress?)"
     exit 1
 fi
 
@@ -48,7 +59,12 @@ if [[ "${1:-}" == "--status" ]]; then
     else
         err "Module missing: $PAM_MODULE"
     fi
-    for svc in sudo sudo-i su su-l sddm kde-screenlocker polkit-1; do
+    if lh_pam_autoconfig_disabled; then
+        warn "Automatic activation: disabled (opt-out marker present at $LH_OPTOUT_MARKER)"
+    else
+        ok "Automatic activation: enabled (linux-hello-pam-autoconfigure.timer will configure sudo/screenlock once a face is enrolled)"
+    fi
+    for svc in sudo sudo-i su su-l sddm kde-screenlocker kde polkit-1; do
         f="$PAM_DIR/$svc"
         if [[ -f "$f" ]]; then
             if grep -q "pam_linux_hello" "$f" 2>/dev/null; then
@@ -57,7 +73,7 @@ if [[ "${1:-}" == "--status" ]]; then
                 warn "$svc: linux-hello NOT configured"
             fi
         else
-            echo "   $svc: file missing (normal for polkit-1)"
+            echo "   $svc: file missing (normal for polkit-1, and for whichever of kde/kde-screenlocker doesn't apply to this desktop)"
         fi
     done
     exit 0
@@ -68,6 +84,12 @@ fi
 # ═══════════════════════════════════════════════════════════════════════════
 if [[ "${1:-}" == "--remove" ]]; then
     echo "=== Disabling Linux Hello PAM ==="
+
+    # Set the opt-out marker first (defense in depth even with the lock held):
+    # linux-hello-pam-autoconfigure must never re-enable what was just removed.
+    lh_pam_autoconfig_set_disabled
+    ok "Automatic activation disabled ($LH_OPTOUT_MARKER)"
+
     for svc in sudo sudo-i su su-l sddm polkit-1; do
         f="$PAM_DIR/$svc"
         # Look for the most recent backup for this service
@@ -77,18 +99,28 @@ if [[ "${1:-}" == "--remove" ]]; then
             ok "Restored: $svc ← $latest_bak"
         elif [[ -f "$f" ]]; then
             # No backup: remove the linux-hello lines via sed
-            sed -i "/$MARKER_START/,/$MARKER_END/d" "$f"
+            sed -i "/$LH_MARKER_START/,/$LH_MARKER_END/d" "$f"
             sed -i '/pam_linux_hello/d' "$f"
             ok "Cleaned: $svc (linux-hello lines removed)"
         fi
     done
+    # screenlock: whichever of kde-screenlocker/kde applies
+    screenlock_file="$(lh_screenlock_file)"
+    if [[ -n "$screenlock_file" ]]; then
+        f="$PAM_DIR/$screenlock_file"
+        latest_bak=$(find "$PAM_DIR" -maxdepth 1 -name "$screenlock_file.pre-linuxhello-*" -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2- || true)
+        if [[ -n "$latest_bak" ]]; then
+            cp "$latest_bak" "$f"
+            ok "Restored: $screenlock_file ← $latest_bak"
+        else
+            warn "$screenlock_file left untouched (no backup found — configured separately or by an older run)"
+        fi
+    fi
     # polkit-1: if it was created by this script, remove it
     if grep -q "linux-hello" "$PAM_DIR/polkit-1" 2>/dev/null; then
         rm -f "$PAM_DIR/polkit-1"
         ok "Removed: polkit-1 (created by this script)"
     fi
-    # kde-screenlocker is not touched by --remove (already configured manually)
-    warn "kde-screenlocker left untouched (configured separately)"
     echo ""
     ok "Linux Hello disabled. The password takes back control."
     exit 0
@@ -110,143 +142,29 @@ if [[ ! -f "$SOURCE_SO" ]]; then
     echo "Build it first: cargo build --release"
     exit 1
 fi
+mkdir -p "$(dirname "$PAM_MODULE")"
 cp "$SOURCE_SO" "$PAM_MODULE"
 chmod 644 "$PAM_MODULE"
 ok "PAM module installed: $PAM_MODULE"
 
-# ── Safe insertion function ───────────────────────────────────────────────
-# insert_before_pattern <file> <pattern_anchor> <line_to_insert>
-# Inserts the line BEFORE the first occurrence of pattern_anchor
-insert_before_pattern() {
-    local file="$1"
-    local pattern="$2"
-    local line_to_insert="$3"
-
-    # Check that the anchor exists
-    if ! grep -qE "$pattern" "$file"; then
-        warn "Pattern '$pattern' not found in $file — insertion skipped"
-        return 1
-    fi
-    # Insert before the first occurrence (sed: find the first matching line)
-    sed -i "0,/$pattern/{s|$pattern|$line_to_insert\n&|}" "$file"
-    return 0
-}
-
-# ── Main function to configure a service ──────────────────────────────────────
-configure_service() {
-    local svc="$1"
-    local context="$2"
-    local anchor="$3"  # pattern before which to insert
-    local file="$PAM_DIR/$svc"
-
-    if [[ ! -f "$file" ]]; then
-        warn "Service $svc: file missing, skipped"
-        return
-    fi
-
-    # Already configured?
-    if grep -q "pam_linux_hello" "$file"; then
-        ok "Service $svc: already configured (skipped)"
-        return
-    fi
-
-    # Timestamped backup
-    cp "$file" "$file.pre-linuxhello-$TIMESTAMP"
-    ok "Backup: $file.pre-linuxhello-$TIMESTAMP"
-
-    # Build the line to insert
-    local lh_auth="${LH_LINE//%CONTEXT%/$context}"
-
-    # Insert before the anchor
-    if insert_before_pattern "$file" "$anchor" "$MARKER_START"; then
-        # Replace the lone marker with the full block
-        sed -i "s|$MARKER_START|$MARKER_START\n$lh_auth\n$MARKER_END|" "$file"
-        # Clean up the duplicate marker line we just created
-        # (insert_before_pattern inserted MARKER_START, then we replaced it with the block)
-        # → simplify: rewrite cleanly via python
-        python3 -c "
-import re, sys
-with open('$file', 'r') as f:
-    content = f.read()
-# Remove duplicates created by the double substitution
-content = re.sub(r'$MARKER_START\n$MARKER_START\n', '$MARKER_START\n', content)
-content = re.sub(r'$MARKER_END\n$MARKER_END\n', '$MARKER_END\n', content)
-with open('$file', 'w') as f:
-    f.write(content)
-" 2>/dev/null || true
-        ok "Service $svc: linux-hello configured (context=$context)"
-    else
-        # Restore the backup if insertion fails
-        cp "$file.pre-linuxhello-$TIMESTAMP" "$file"
-        warn "Service $svc: configuration skipped (anchor not found)"
-    fi
-}
-
-# ── Simpler, more robust function via Python ──────────────────────────────────
-configure_service_py() {
-    local svc="$1"
-    local context="$2"
-    local anchor_re="$3"  # Python regex
-    local file="$PAM_DIR/$svc"
-
-    if [[ ! -f "$file" ]]; then
-        warn "Service $svc: file missing, skipped"
-        return
-    fi
-
-    if grep -q "pam_linux_hello" "$file"; then
-        ok "Service $svc: already configured (skipped)"
-        return
-    fi
-
-    cp "$file" "$file.pre-linuxhello-$TIMESTAMP"
-
-    local lh_auth="${LH_LINE//%CONTEXT%/$context}"
-    python3 - "$file" "$anchor_re" "$lh_auth" "$MARKER_START" "$MARKER_END" << 'PYEOF'
-import sys, re
-fpath, anchor_re, lh_auth, ms, me = sys.argv[1:]
-with open(fpath) as f:
-    lines = f.readlines()
-inserted = False
-out = []
-for line in lines:
-    if not inserted and re.search(anchor_re, line):
-        out.append(ms + "\n")
-        out.append(lh_auth + "\n")
-        out.append(me + "\n")
-        inserted = True
-    out.append(line)
-if not inserted:
-    # fallback: insert at the start of the auth lines
-    out2 = []
-    inserted2 = False
-    for line in out:
-        if not inserted2 and re.search(r'^auth\s', line):
-            out2.append(ms + "\n")
-            out2.append(lh_auth + "\n")
-            out2.append(me + "\n")
-            inserted2 = True
-        out2.append(line)
-    out = out2
-with open(fpath, "w") as f:
-    f.writelines(out)
-PYEOF
-
-    ok "Service $svc: linux-hello configured (context=$context)"
-}
-
 # ── 2. sudo and sudo-i ───────────────────────────────────────────────────────
 # sudo uses @include common-auth → insert BEFORE it so biometrics run first
-configure_service_py "sudo"   "sudo"   "@include common-auth"
-configure_service_py "sudo-i" "sudo"   "@include common-auth"
+lh_configure_service "sudo"   "sudo"   "@include common-auth"
+lh_configure_service "sudo-i" "sudo"   "@include common-auth"
 
 # ── 3. su and su-l ───────────────────────────────────────────────────────────
-configure_service_py "su"     "sudo"   "@include common-auth"
-configure_service_py "su-l"   "sudo"   "@include common-auth"
+lh_configure_service "su"     "sudo"   "@include common-auth"
+lh_configure_service "su-l"   "sudo"   "@include common-auth"
 
 # ── 4. SDDM (login screen) ───────────────────────────────────────────────────
-# Insert before @include common-auth (after the nologin/pam_succeed_if checks)
-configure_service_py "sddm"   "sddm"   "@include common-auth"
+# Insert before @include common-auth (after the nologin/pam_succeed_if checks).
+# NOTE: functional today only insofar as it degrades safely (no daemon socket
+# yet at the greeter → PAM_IGNORE → password) — the daemon's per-user
+# architecture doesn't support biometric auth at the login screen yet. Not
+# part of automatic activation (linux-hello-pam-autoconfigure never touches
+# this file); configuring it here is opt-in only, via a manual run of this
+# script.
+lh_configure_service "sddm"   "sddm"   "@include common-auth"
 
 # ── 5. polkit-1 ("Authentication required" graphical dialogs) ─────────────────
 POLKIT_FILE="$PAM_DIR/polkit-1"
@@ -262,20 +180,26 @@ auth       required     pam_unix.so nullok
 EOF
     ok "Service polkit-1: created with linux-hello + password fallback"
 else
-    configure_service_py "polkit-1" "polkit" "^auth"
+    lh_configure_service "polkit-1" "polkit" "^auth"
 fi
 
-# ── 6. kde-screenlocker (already configured, verification) ───────────────────
-if grep -q "pam_linux_hello" "$PAM_DIR/kde-screenlocker" 2>/dev/null; then
-    ok "Service kde-screenlocker: already configured ✓"
+# ── 6. Screenlock (kde-screenlocker, falling back to kde) ─────────────────────
+screenlock_file="$(lh_screenlock_file)"
+if [[ -z "$screenlock_file" ]]; then
+    warn "No screenlock PAM service found (checked kde-screenlocker, kde)"
+elif grep -q "pam_linux_hello" "$PAM_DIR/$screenlock_file" 2>/dev/null; then
+    ok "Service $screenlock_file: already configured ✓"
 else
-    configure_service_py "kde-screenlocker" "screenlock" "^auth"
+    lh_configure_service "$screenlock_file" "screenlock" "^auth"
 fi
+
+# ── Explicit re-enable: clear the opt-out marker on a successful run ─────────
+lh_pam_autoconfig_clear_disabled
 
 # ── Summary ──────────────────────────────────────────────────────────────────
 echo ""
 echo "=== Configuration summary ==="
-for svc in sudo sudo-i su su-l sddm polkit-1 kde-screenlocker; do
+for svc in sudo sudo-i su su-l sddm polkit-1 "${screenlock_file:-kde-screenlocker}"; do
     f="$PAM_DIR/$svc"
     if [[ -f "$f" ]]; then
         if grep -q "pam_linux_hello" "$f"; then

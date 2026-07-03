@@ -45,67 +45,11 @@ if [ -n "$TARGET_USER" ] && [ "$TARGET_USER" != "root" ]; then
     echo "✓ Daemon enabled and started"
 fi
 
-# Non-interactive installation (no PAM config by default)
-# Users can configure PAM manually or re-run configuration tool
-pam_option="4"
-
-case "$pam_option" in
-    1)
-        # Configure sudo
-        if [ -f /etc/pam.d/sudo ]; then
-            # Backup existing
-            cp /etc/pam.d/sudo "/etc/pam.d/sudo.backup.$(date +%s)"
-            
-            # Add linux-hello at the beginning if not already present
-            if ! grep -q "pam_linux_hello" /etc/pam.d/sudo; then
-                echo "auth sufficient /lib/x86_64-linux-gnu/security/pam_linux_hello.so context=sudo timeout_ms=3000" | \
-                    cat - /etc/pam.d/sudo > /tmp/sudo.new && \
-                    mv /tmp/sudo.new /etc/pam.d/sudo
-                echo "✓ Configured /etc/pam.d/sudo"
-            else
-                echo "✓ /etc/pam.d/sudo already configured"
-            fi
-        fi
-        ;;
-    2)
-        # Configure screenlock
-        if [ -f /etc/pam.d/kde ]; then
-            cp /etc/pam.d/kde "/etc/pam.d/kde.backup.$(date +%s)"
-            
-            if ! grep -q "pam_linux_hello" /etc/pam.d/kde; then
-                echo "auth sufficient /lib/x86_64-linux-gnu/security/pam_linux_hello.so context=screenlock timeout_ms=3000" | \
-                    cat - /etc/pam.d/kde > /tmp/kde.new && \
-                    mv /tmp/kde.new /etc/pam.d/kde
-                echo "✓ Configured /etc/pam.d/kde"
-            fi
-        fi
-        ;;
-    3)
-        # Both
-        if [ -f /etc/pam.d/sudo ]; then
-            cp /etc/pam.d/sudo "/etc/pam.d/sudo.backup.$(date +%s)"
-            if ! grep -q "pam_linux_hello" /etc/pam.d/sudo; then
-                echo "auth sufficient /lib/x86_64-linux-gnu/security/pam_linux_hello.so context=sudo timeout_ms=3000" | \
-                    cat - /etc/pam.d/sudo > /tmp/sudo.new && \
-                    mv /tmp/sudo.new /etc/pam.d/sudo
-            fi
-        fi
-        
-        if [ -f /etc/pam.d/kde ]; then
-            cp /etc/pam.d/kde "/etc/pam.d/kde.backup.$(date +%s)"
-            if ! grep -q "pam_linux_hello" /etc/pam.d/kde; then
-                echo "auth sufficient /lib/x86_64-linux-gnu/security/pam_linux_hello.so context=screenlock timeout_ms=3000" | \
-                    cat - /etc/pam.d/kde > /tmp/kde.new && \
-                    mv /tmp/kde.new /etc/pam.d/kde
-            fi
-        fi
-        
-        echo "✓ Configured sudo and screenlock"
-        ;;
-    *)
-        echo "✓ PAM configuration skipped (manual configuration needed)"
-        ;;
-esac
+# PAM configuration is not done here. If libpam-linux-hello is installed,
+# its linux-hello-pam-autoconfigure.timer automatically configures sudo and
+# screenlock as soon as any user enrolls a face — see
+# /usr/share/doc/linux-hello/PAM_MODULE.md, including how to opt out and
+# why the SDDM login screen isn't covered by automatic activation.
 
 # Daemon setup is skipped during package installation (no user session available)
 # Users can enable autostart manually with: systemctl --user enable hello-daemon.service

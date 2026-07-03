@@ -1,0 +1,16 @@
+#!/bin/bash
+# Post-removal for libpam-linux-hello
+#
+# Stops the automatic-activation timer on removal. Deliberately does NOT
+# touch /etc/pam.d/* or the opt-out marker (/etc/linux-hello/pam-disabled)
+# here — that lifecycle belongs solely to install-pam.sh, run explicitly by
+# an admin, matching this package's existing conservative postrm behavior
+# elsewhere (removal never silently reverts authentication config).
+
+set -e
+
+if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
+    systemctl disable --now linux-hello-pam-autoconfigure.timer 2>/dev/null || true
+fi
+
+exit 0

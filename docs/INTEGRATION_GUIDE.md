@@ -7,6 +7,13 @@ This guide explains how to integrate Linux Hello into your system for:
 1. **sudo** - Facial authentication for privilege escalation
 2. **Screenlock** - Screen unlocking via facial recognition
 
+> **If you installed via the `.deb` packages**, sudo and screenlock activate
+> automatically once you enroll a face — no manual PAM editing needed. See
+> [PAM_MODULE.md](PAM_MODULE.md#automatic-activation) for how that works and
+> how to opt out. The manual steps below remain useful for development
+> (building from source) or for configuring services the automatic path
+> doesn't touch (e.g. `sddm`).
+
 ## Prerequisites
 
 - [ ] Compiled PAM module: `libpam_linux_hello.so`
