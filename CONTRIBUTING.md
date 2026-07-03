@@ -129,9 +129,9 @@ Les paquets générés seront dans le répertoire parent.
 La documentation est générée avec cargo-doc et disponible en :
 
 - README.md - Introduction
-- QUICKSTART.md - Guide de démarrage rapide
-- INTEGRATION_GUIDE.md - Intégration dans les systèmes
-- PAM_MODULE.md - Documentation du module PAM
+- docs/QUICKSTART.md - Guide de démarrage rapide
+- docs/INTEGRATION_GUIDE.md - Intégration dans les systèmes
+- docs/PAM_MODULE.md - Documentation du module PAM
 
 ## Rapports de bugs
 

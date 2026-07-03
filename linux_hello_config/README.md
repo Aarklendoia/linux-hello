@@ -195,6 +195,6 @@ Pour étendre cette GUI:
 
 Pour des questions ou bugs:
 
-- Consulter `GUI_ARCHITECTURE.md` pour détails techniques
+- Consulter `../docs/GUI_ARCHITECTURE.md` pour détails techniques
 - Vérifier logs D-Bus: `journalctl -u dbus`
 - Tester daemon: `./target/debug/hello-daemon --debug`

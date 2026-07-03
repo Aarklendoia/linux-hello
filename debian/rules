@@ -44,9 +44,9 @@ override_dh_auto_install:
 	# Install documentation
 	mkdir -p $(CURDIR)/debian/tmp/usr/share/doc/linux-hello
 	cp $(CURDIR)/README.md $(CURDIR)/debian/tmp/usr/share/doc/linux-hello/
-	cp $(CURDIR)/QUICKSTART.md $(CURDIR)/debian/tmp/usr/share/doc/linux-hello/
-	cp $(CURDIR)/INTEGRATION_GUIDE.md $(CURDIR)/debian/tmp/usr/share/doc/linux-hello/
-	cp $(CURDIR)/PAM_MODULE.md $(CURDIR)/debian/tmp/usr/share/doc/linux-hello/
+	cp $(CURDIR)/docs/QUICKSTART.md $(CURDIR)/debian/tmp/usr/share/doc/linux-hello/
+	cp $(CURDIR)/docs/INTEGRATION_GUIDE.md $(CURDIR)/debian/tmp/usr/share/doc/linux-hello/
+	cp $(CURDIR)/docs/PAM_MODULE.md $(CURDIR)/debian/tmp/usr/share/doc/linux-hello/
 	cp $(CURDIR)/sudo-linux-hello.pam $(CURDIR)/debian/tmp/usr/share/doc/linux-hello/
 	cp $(CURDIR)/kde-screenlock-linux-hello.pam $(CURDIR)/debian/tmp/usr/share/doc/linux-hello/
 	
