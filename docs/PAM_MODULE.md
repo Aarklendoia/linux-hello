@@ -26,7 +26,7 @@ Use the full path in the PAM configuration to test without root privileges.
 
 ### Basic format
 
-```
+```text
 auth [sufficient|required] /path/to/libpam_linux_hello.so [options]
 ```
 
@@ -75,7 +75,7 @@ auth required pam_permit.so
 Similarity thresholds vary depending on the context:
 
 | Context | Default Threshold | Recommendation |
-|----------|------------------|---|
+| ---------- | ------------------ | --- |
 | login | 0.65 | Strict |
 | sddm | 0.65 | Strict |
 | sudo | 0.70 | Very strict |
@@ -85,6 +85,7 @@ Similarity thresholds vary depending on the context:
 ## System Dependencies
 
 The PAM module requires:
+
 - D-Bus session bus running
 - Linux Hello daemon running (`hello-daemon`)
 - Faces enrolled for the user
@@ -122,6 +123,7 @@ dbus-send --session --print-reply \
 ## Security
 
 The PAM module implements:
+
 - Verification based on the user's UID
 - Access to the D-Bus session daemon (session isolation)
 - Structured logs for auditing
@@ -155,7 +157,7 @@ cargo update -p hello_daemon -p pam_linux_hello
 
 ## Architecture
 
-```
+```text
 Login/Sudo/Screenlock
          |
          v

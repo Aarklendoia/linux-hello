@@ -56,6 +56,7 @@ Once the tag is pushed, GitHub Actions:
 4. **Create Release** - Creates a GitHub release with the artifacts
 
 The packages are automatically:
+
 - Built with dpkg-buildpackage
 - Checked with lintian
 - Uploaded as artifacts

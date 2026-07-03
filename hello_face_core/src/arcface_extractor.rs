@@ -37,10 +37,7 @@ impl ArcFaceExtractor {
             .into_runnable()
             .map_err(|e| FaceError::ModelLoadError(format!("ArcFace runnable: {}", e)))?;
 
-        tracing::info!(
-            "ArcFace model (w600k_mbf) loaded: {}",
-            model_path.display()
-        );
+        tracing::info!("ArcFace model (w600k_mbf) loaded: {}", model_path.display());
         Ok(Self { model })
     }
 
@@ -105,7 +102,9 @@ impl EmbeddingExtractor for ArcFaceExtractor {
         use tract_onnx::prelude::*;
 
         if channels != 3 || frame_data.is_empty() {
-            return Err(FaceError::InvalidFrame("Expected RGB 3 channels".to_string()));
+            return Err(FaceError::InvalidFrame(
+                "Expected RGB 3 channels".to_string(),
+            ));
         }
 
         let aligned = self.align_face(face_region, frame_data, width, height);

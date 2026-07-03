@@ -10,7 +10,7 @@
 //! If the download fails, the build continues normally —
 //! the Rust code will automatically fall back to the stub.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 // det_500m.onnx and w600k_mbf.onnx are no longer published as individual assets
@@ -35,7 +35,7 @@ fn models_dir() -> PathBuf {
     base.join("linux-hello/models")
 }
 
-fn download_pack(url: &str, dest: &PathBuf) -> bool {
+fn download_pack(url: &str, dest: &Path) -> bool {
     println!("cargo:warning=Downloading model pack: {}", url);
 
     // Try curl first, then wget
@@ -57,7 +57,11 @@ fn download_pack(url: &str, dest: &PathBuf) -> bool {
         if let Ok(status) = Command::new(cmd).args(args).status() {
             if status.success() {
                 // Check that the file has a minimum size (>1MB = not an error page)
-                if dest.metadata().map(|m| m.len() > 1_000_000).unwrap_or(false) {
+                if dest
+                    .metadata()
+                    .map(|m| m.len() > 1_000_000)
+                    .unwrap_or(false)
+                {
                     println!("cargo:warning=✓ Model pack downloaded");
                     return true;
                 }
@@ -70,7 +74,7 @@ fn download_pack(url: &str, dest: &PathBuf) -> bool {
     false
 }
 
-fn extract_from_pack(zip_path: &PathBuf, filename: &str, dest: &PathBuf, desc: &str) -> bool {
+fn extract_from_pack(zip_path: &Path, filename: &str, dest: &Path, desc: &str) -> bool {
     let dir = dest.parent().unwrap();
     let status = Command::new("unzip")
         .args([
@@ -119,7 +123,12 @@ fn main() {
     }
 
     // A zero-size file is a leftover from a failed download: retry it.
-    let present = |filename: &str| dir.join(filename).metadata().map(|m| m.len() > 0).unwrap_or(false);
+    let present = |filename: &str| {
+        dir.join(filename)
+            .metadata()
+            .map(|m| m.len() > 0)
+            .unwrap_or(false)
+    };
 
     let missing: Vec<_> = MODELS.iter().filter(|(f, _)| !present(f)).collect();
 

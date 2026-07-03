@@ -88,10 +88,7 @@ async fn main() -> anyhow::Result<()> {
     // Execute command
     match cli.command {
         Commands::Register { user_id, context } => {
-            info!(
-                "Registering for user_id={}, context={}",
-                user_id, context
-            );
+            info!("Registering for user_id={}, context={}", user_id, context);
 
             let request = hello_daemon::dbus_interface::RegisterFaceRequest {
                 user_id,

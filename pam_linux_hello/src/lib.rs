@@ -349,10 +349,7 @@ pub unsafe extern "C" fn pam_sm_authenticate(
         }
     };
 
-    log_pam(&format!(
-        "Face authentication for user: {}",
-        username
-    ));
+    log_pam(&format!("Face authentication for user: {}", username));
     log_pam(&format!(
         "pam_sm_authenticate user={} context={} timeout_ms={}",
         username, &opts.context, opts.timeout_ms
@@ -362,10 +359,7 @@ pub unsafe extern "C" fn pam_sm_authenticate(
     let user_id = match uid_from_name(&username) {
         Some(uid) => uid,
         None => {
-            log_pam(&format!(
-                "Failed to retrieve UID for user: {}",
-                username
-            ));
+            log_pam(&format!("Failed to retrieve UID for user: {}", username));
             return PAM_AUTH_ERR;
         }
     };

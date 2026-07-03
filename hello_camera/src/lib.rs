@@ -269,9 +269,7 @@ pub mod v4l2_backend {
             // In an optimized implementation, we'd want to store this,
             // but with v4l's generics and lifetimes it's complex
             let mut stream = v4l::io::mmap::Stream::with_buffers(dev, Type::VideoCapture, 4)
-                .map_err(|e| {
-                    CameraError::CaptureFailed(format!("Stream creation error: {}", e))
-                })?;
+                .map_err(|e| CameraError::CaptureFailed(format!("Stream creation error: {}", e)))?;
 
             // Capture a frame
             match stream.next() {

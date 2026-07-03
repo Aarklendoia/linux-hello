@@ -38,6 +38,7 @@ cargo build --release
 ## Real Installation (10 minutes)
 
 ### Prerequisites
+
 - Sudo rights
 - Terminal
 - Enrolled face (step 2 above)
@@ -77,7 +78,7 @@ You should be prompted for facial recognition!
 
 ---
 
-## Problem? Restore!
+## Problem? Restore
 
 ```bash
 # Restore original sudo

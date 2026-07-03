@@ -5,7 +5,7 @@
 The Linux Hello project builds 4 Debian packages:
 
 | Package | Size | Contents |
-|---------|------|----------|
+| --------- | ------ | ---------- |
 | `linux-hello` | 6.2K | Meta-package with documentation and scripts |
 | `linux-hello-daemon` | 2.8K | Face authentication daemon + systemd service |
 | `libpam-linux-hello` | 2.8K | PAM module for system integration |
@@ -165,7 +165,7 @@ The package automatically backs up and modifies:
 
 Backups are created with timestamps:
 
-```
+```text
 /etc/pam.d/sudo.pre-linuxhello-TIMESTAMP
 /etc/pam.d/kde.pre-linuxhello-TIMESTAMP
 ```

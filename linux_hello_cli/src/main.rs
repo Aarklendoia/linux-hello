@@ -150,10 +150,7 @@ async fn command_enroll(user_id: u32, context: &str, samples: u32) -> anyhow::Re
 }
 
 async fn command_verify(user_id: u32, context: &str, timeout: u64) -> anyhow::Result<()> {
-    info!(
-        "Verifying user {} (context: {})",
-        user_id, context
-    );
+    info!("Verifying user {} (context: {})", user_id, context);
     info!("Timeout: {}ms", timeout);
 
     // TODO: Call the D-Bus daemon

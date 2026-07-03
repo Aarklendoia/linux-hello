@@ -24,7 +24,7 @@ make lint
 
 ## 🏗️ Project Structure
 
-```
+```text
 linux-hello/
 ├── hello_daemon/          # Facial recognition service
 ├── hello_camera/          # Camera capture and processing
@@ -148,6 +148,7 @@ cargo clippy --all -- -D warnings
 Format: `<type>: <description>`
 
 Types:
+
 - `feat:` New feature
 - `fix:` Bug fix
 - `docs:` Documentation
@@ -158,6 +159,7 @@ Types:
 - `chore:` Maintenance
 
 Example:
+
 ```bash
 git commit -m "feat: Add face enrollment API"
 ```

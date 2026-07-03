@@ -215,7 +215,7 @@ pub enum CaptureState {
 ## 📊 Estimated Performance
 
 | Operation | Latency | CPU | RAM |
-|-----------|---------|-----|-----|
+| ----------- | --------- | ----- | ----- |
 | V4L2 Capture | ~33ms (30fps) | ✓ Low | ✓ 1-2MB |
 | Stub detection | ~1ms | ✓ Low | ✓ 1MB |
 | Frame + box rendering | ~16ms (60fps) | ✓ Low | ✓ 5MB |

@@ -25,6 +25,7 @@ auth       required     pam_unix.so nullok try_first_pass yescrypt
 ```
 
 **Configuration Details:**
+
 - **Module:** pam_linux_hello.so (face authentication)
 - **Context:** screenlock
 - **Control:** sufficient (accept if face matches, fallback to password)
@@ -33,6 +34,7 @@ auth       required     pam_unix.so nullok try_first_pass yescrypt
 ### 2. Available KDE Services
 
 D-Bus services detected on Kubuntu 25.10:
+
 - ✅ `org.kde.screensaver` - KDE Screensaver service
 - ✅ `org.freedesktop.ScreenSaver` - Standard freedesktop screenlock
 - ✅ `org.kde.KWin.ScreenShot2` - KWin screenshot service
@@ -53,6 +55,7 @@ D-Bus services detected on Kubuntu 25.10:
 ## Test Results
 
 ### D-Bus Service Status
+
 ```bash
 $ dbus-send --session --print-reply --dest=com.linuxhello.FaceAuth \
   /com/linuxhello/FaceAuth com.linuxhello.FaceAuth.Ping
@@ -61,12 +64,14 @@ Result: ✅ "pong" (latency < 5ms)
 ```
 
 ### Daemon Status
+
 - **Binary:** /home/edtech/Documents/linux-hello-rust/target/release/hello-daemon (4.6MB)
 - **Status:** ✅ Running
 - **D-Bus Service:** com.linuxhello.FaceAuth (registered)
 - **Response Time:** < 10ms for all methods
 
 ### PAM Module Status
+
 - **Binary:** /lib/x86_64-linux-gnu/security/pam_linux_hello.so (3.0MB)
 - **Status:** ✅ Installed
 - **Invocation:** ✅ Called by sudo (verified in logs)
@@ -79,17 +84,20 @@ Result: ✅ "pong" (latency < 5ms)
 **Problem:** When the PAM module runs via sudo (root context), it cannot access the user session's D-Bus.
 
 **Technical Cause:**
+
 - The D-Bus session bus is isolated per user (security)
 - The PAM module runs as root (via sudo)
 - The user's D-Bus socket is protected (permissions 700)
 
 **Evidence:**
+
 ```
 ERROR pam_linux_hello: Error during D-Bus authentication: 
   D-Bus connection error: I/O error: failed to read from socket
 ```
 
 **Fallback:** ✅ Functional - password used successfully
+
 ```
 [sudo: authenticate] Password: [user enters password]
 Result: ✅ Authentication successful
@@ -108,15 +116,18 @@ Result: ✅ Authentication successful
 To resolve the root context D-Bus issue:
 
 **Option 1: PAM Helper Daemon**
+
 - Create a helper daemon that runs as the user
 - PAM communicates with the helper via a local socket
 - The helper accesses the user's D-Bus
 
 **Option 2: Extended D-Bus Protocol**
+
 - Configure D-Bus to allow root access with restrictions
 - Use system bus services (not recommended for user UID)
 
 **Option 3: Direct Face Matching**
+
 - Implement face matching directly in PAM
 - Bypass the need for D-Bus
 
@@ -173,6 +184,7 @@ login  # new login (requests PAM auth)
 ## Full Documentation
 
 See also:
+
 - [PAM_MODULE.md](PAM_MODULE.md) - PAM module details
 - [INTEGRATION_GUIDE.md](INTEGRATION_GUIDE.md) - General integration guide
 - [README.md](README.md) - Main documentation
@@ -180,6 +192,7 @@ See also:
 ## Conclusion
 
 The Linux Hello system is **fully functional** for:
+
 - ✅ D-Bus daemon with facial authentication
 - ✅ Face verification with 100% accuracy (score 1.0)
 - ✅ PAM integration for sudo and screenlock
@@ -187,6 +200,7 @@ The Linux Hello system is **fully functional** for:
 - ✅ Production-ready architecture
 
 **Ready for:** Kubuntu 25.10 deployment with facial authentication for:
+
 - Sudo commands
 - KDE Screenlock (PAM configured)
 - Other PAM contexts (login, sddm, etc.)

@@ -87,7 +87,7 @@ The `hello_daemon` daemon is now **fully implemented** with all critical feature
 
 ### 7. **Tests and Quality**
 
-```
+```text
 ✅ 12/12 tests passing
 - config default
 - face record serialization
@@ -99,7 +99,7 @@ The `hello_daemon` daemon is now **fully implemented** with all critical feature
 
 ## Authentication Flow Architecture
 
-```
+```text
 User login/sudo
     ↓
 PAM calls: daemon.verify(user_id, context, timeout_ms)

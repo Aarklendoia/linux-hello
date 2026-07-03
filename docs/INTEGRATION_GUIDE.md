@@ -3,6 +3,7 @@
 ## Overview
 
 This guide explains how to integrate Linux Hello into your system for:
+
 1. **sudo** - Facial authentication for privilege escalation
 2. **Screenlock** - Screen unlocking via facial recognition
 
@@ -124,6 +125,7 @@ sudo -v
 ```
 
 Wait for your camera to start (or simulate the capture). If the module is loaded, you should see:
+
 - Daemon logs showing "D-Bus call: verify"
 - Your terminal prompting you to authenticate
 
@@ -202,6 +204,7 @@ sudo cp kde-screenlock-linux-hello.pam /etc/pam.d/kde
 If the PAM module fails or the daemon is unavailable, **you can always use your password**.
 
 The `auth sufficient` configuration means:
+
 - If linux-hello succeeds → full authentication
 - If linux-hello fails → use the next method (pam_unix = password)
 
@@ -350,6 +353,7 @@ Add to `~/.xinitrc` or `~/.kde4/Autostart`:
 ## Support
 
 For bugs or questions:
+
 1. Check the logs: `journalctl --user -u hello-daemon`
 2. Enable debug: `debug` option in PAM
 3. See PAM_MODULE.md for advanced options

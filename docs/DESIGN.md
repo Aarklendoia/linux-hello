@@ -3,6 +3,7 @@
 ## 1. D-Bus Interface
 
 ### Service
+
 - **Name**: `com.linuxhello.FaceAuth`
 - **Path**: `/com/linuxhello/FaceAuth`
 - **Interface**: `com.linuxhello.FaceAuth`
@@ -10,9 +11,11 @@
 ### Methods
 
 #### `RegisterFace(s: request) -> s: response`
+
 Enroll a new face for a user.
 
 **Input (JSON)**:
+
 ```json
 {
   "user_id": 1000,
@@ -23,6 +26,7 @@ Enroll a new face for a user.
 ```
 
 **Output (JSON)**:
+
 ```json
 {
   "face_id": "face_20250106_1410_1",
@@ -32,6 +36,7 @@ Enroll a new face for a user.
 ```
 
 **Errors**:
+
 - `com.linuxhello.AccessDenied`: User doesn't have permission
 - `com.linuxhello.CameraError`: Camera unavailable
 - `com.linuxhello.StorageError`: Storage error
@@ -39,9 +44,11 @@ Enroll a new face for a user.
 ---
 
 #### `DeleteFace(s: request) -> ()`
+
 Delete one or all faces.
 
 **Input (JSON)**:
+
 ```json
 {
   "user_id": 1000,
@@ -50,6 +57,7 @@ Delete one or all faces.
 ```
 
 Or (all faces):
+
 ```json
 {
   "user_id": 1000,
@@ -60,9 +68,11 @@ Or (all faces):
 ---
 
 #### `Verify(s: request) -> s: result`
+
 Verify a user's identity.
 
 **Input (JSON)**:
+
 ```json
 {
   "user_id": 1000,
@@ -72,6 +82,7 @@ Verify a user's identity.
 ```
 
 **Output (JSON - Success)**:
+
 ```json
 {
   "type": "Success",
@@ -81,6 +92,7 @@ Verify a user's identity.
 ```
 
 **Output (JSON - Failure)**:
+
 ```json
 {
   "type": "NoMatch",
@@ -90,6 +102,7 @@ Verify a user's identity.
 ```
 
 **Other types**:
+
 - `NoFaceDetected`: No face in the camera
 - `NoEnrollment`: No face enrolled for this UID
 - `Cancelled`: User cancelled (black screen, timeout, etc.)
@@ -98,9 +111,11 @@ Verify a user's identity.
 ---
 
 #### `ListFaces(u: user_id) -> s: faces_json`
+
 List all enrolled faces.
 
 **Output (JSON)**:
+
 ```json
 [
   {
@@ -123,9 +138,11 @@ List all enrolled faces.
 ### Properties
 
 #### `Version: s` (read-only)
+
 Daemon version (e.g. "0.1.0")
 
 #### `CameraAvailable: b` (read-only)
+
 Boolean indicating whether a camera is available
 
 ---
@@ -133,6 +150,7 @@ Boolean indicating whether a camera is available
 ## 2. PAM Configuration
 
 ### General syntax
+
 ```text
 auth   [module_path] [service_name] [module_name] [arguments...]
 ```
@@ -140,7 +158,7 @@ auth   [module_path] [service_name] [module_name] [arguments...]
 ### Module options
 
 | Option | Value | Default | Description |
-|--------|--------|--------|-------------|
+| ------ | ----- | ------- | ----------- |
 | `context` | string | "default" | Authentication context |
 | `timeout_ms` | u64 | 5000 | Max timeout in ms |
 | `similarity_threshold` | f32 | 0.6 | Similarity threshold (0.0-1.0) |
@@ -150,24 +168,28 @@ auth   [module_path] [service_name] [module_name] [arguments...]
 ### Per-service configurations
 
 #### `/etc/pam.d/login` (TTY)
+
 ```text
 auth   sufficient   pam_linux_hello.so context=login timeout_ms=5000
 auth   include      system-login
 ```
 
 #### `/etc/pam.d/sudo`
+
 ```text
 auth   sufficient   pam_linux_hello.so context=sudo confirm=true
 auth   include      system-auth
 ```
 
 #### `/etc/pam.d/kde` (KScreenLocker)
+
 ```text
 auth   sufficient   pam_linux_hello.so context=screenlock timeout_ms=3000
 auth   include      system-login
 ```
 
 #### `/etc/pam.d/sddm` (SDDM login)
+
 ```text
 auth   sufficient   pam_linux_hello.so context=sddm timeout_ms=5000
 auth   include      system-login
@@ -179,7 +201,7 @@ auth   include      system-login
 
 ### Full flow: sudo
 
-```
+```text
 User: $ sudo ls
     ↓
 PAM (sudo)
@@ -218,7 +240,7 @@ PAM Return
 
 ### Flow: KScreenLocker
 
-```
+```text
 User: Time to unlock the screen
     ↓
 KScreenLocker unlocks
@@ -240,11 +262,13 @@ KScreenLocker unlocks
 ### Choice: JSON over D-Bus
 
 **Advantages:**
+
 - Simple, human-readable
 - Extensible (new fields without breaking)
 - Easy to log/audit
 
 **Disadvantages:**
+
 - Less compact than CBOR/protobuf
 - Slightly more expensive parsing
 
@@ -253,6 +277,7 @@ KScreenLocker unlocks
 ### Example: PAM module calls the daemon
 
 PAM → D-Bus:
+
 ```rust
 let request = VerifyRequest {
     user_id: 1000,
@@ -318,6 +343,7 @@ polkit.addRule(function(action, subject) {
 ### Simple ACL (without Polkit)
 
 In the daemon:
+
 ```rust
 fn check_permission(current_uid: u32, target_uid: u32) -> Result<()> {
     // Root = always OK
@@ -337,13 +363,14 @@ fn check_permission(current_uid: u32, target_uid: u32) -> Result<()> {
 
 ### Standardized format
 
-```
+```text
 [2025-01-06T14:10:23Z] [INFO] pam_linux_hello: user=alice uid=1000 context=sudo result=success score=0.87
 [2025-01-06T14:10:24Z] [INFO] hello_daemon: RegisterFace uid=1000 face_id=face_1410_1 quality=0.95
 [2025-01-06T14:10:25Z] [ERROR] hello_camera: V4L2 open failed: /dev/video0 not found
 ```
 
 ### Destinations
+
 - Stderr if daemon is interactive
 - `/var/log/linux-hello.log` if systemd service
 - Systemd journal if available

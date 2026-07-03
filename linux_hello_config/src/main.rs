@@ -158,8 +158,7 @@ fn extract_face_id_from_busctl(output: &str) -> Option<String> {
 /// Each connection is handled in a dedicated thread.
 /// Returns the assigned port.
 fn start_control_server(uid: u32) -> u16 {
-    let listener =
-        TcpListener::bind("127.0.0.1:0").expect("Unable to start the control server");
+    let listener = TcpListener::bind("127.0.0.1:0").expect("Unable to start the control server");
     let port = listener.local_addr().unwrap().port();
 
     thread::spawn(move || {

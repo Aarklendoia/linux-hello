@@ -400,7 +400,10 @@ pub fn create_detector(models_dir: &std::path::Path) -> Box<dyn FaceDetector> {
                 }
             }
         } else {
-            tracing::warn!("SCRFD model missing: {:?}, falling back to stub", model_path);
+            tracing::warn!(
+                "SCRFD model missing: {:?}, falling back to stub",
+                model_path
+            );
         }
     }
     tracing::info!("Using stub detector (fallback)");
@@ -426,7 +429,10 @@ pub fn create_extractor(models_dir: &std::path::Path) -> Box<dyn EmbeddingExtrac
                 }
             }
         } else {
-            tracing::warn!("ArcFace model missing: {:?}, falling back to stub", model_path);
+            tracing::warn!(
+                "ArcFace model missing: {:?}, falling back to stub",
+                model_path
+            );
         }
     }
     tracing::info!("Using stub extractor (fallback)");

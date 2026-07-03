@@ -66,6 +66,7 @@ git commit -m "feat: Add authentication support"
 ```
 
 Commit message format:
+
 - `feat:` for new features
 - `fix:` for bug fixes
 - `docs:` for documentation
@@ -82,6 +83,7 @@ git push origin feature/my-feature
 ```
 
 Then create a PR on GitHub. The CI/CD will automatically check:
+
 - Tests pass
 - Code is properly formatted
 - Linters pass
@@ -136,6 +138,7 @@ The documentation is generated with cargo-doc and available at:
 ## Bug Reports
 
 Create a GitHub issue with:
+
 - Linux Hello version (`linux-hello --version`)
 - Operating system and version
 - Steps to reproduce

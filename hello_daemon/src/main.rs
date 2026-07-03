@@ -51,7 +51,10 @@ async fn main() -> anyhow::Result<()> {
     config.default_similarity_threshold = args.similarity_threshold;
 
     info!("Storage: {}", config.storage_path.display());
-    info!("Similarity threshold: {}", config.default_similarity_threshold);
+    info!(
+        "Similarity threshold: {}",
+        config.default_similarity_threshold
+    );
 
     // Create the daemon
     let daemon = FaceAuthDaemon::new(config)?;

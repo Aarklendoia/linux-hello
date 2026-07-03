@@ -24,9 +24,8 @@ impl FaceStorage {
         let base_path = base_path.as_ref().to_path_buf();
 
         // Create the directory structure
-        std::fs::create_dir_all(&base_path).map_err(|e| {
-            DaemonError::StorageError(format!("Directory creation failed: {}", e))
-        })?;
+        std::fs::create_dir_all(&base_path)
+            .map_err(|e| DaemonError::StorageError(format!("Directory creation failed: {}", e)))?;
 
         let db_path = base_path.join("faces.db");
 

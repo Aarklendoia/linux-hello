@@ -101,11 +101,7 @@ async fn screenlock_loop(
 }
 
 /// Attempt facial authentication and unlock on success.
-async fn try_face_unlock(
-    daemon: Arc<RwLock<FaceAuthDaemon>>,
-    user_id: u32,
-    session_id: &str,
-) {
+async fn try_face_unlock(daemon: Arc<RwLock<FaceAuthDaemon>>, user_id: u32, session_id: &str) {
     // Give the lock screen time to fully render.
     tokio::time::sleep(tokio::time::Duration::from_millis(1200)).await;
 
@@ -138,10 +134,7 @@ async fn try_face_unlock(
             }
         }
         Ok(VerifyResult::NoEnrollment) => {
-            info!(
-                "No face registered for uid={} — no automatic auth",
-                user_id
-            );
+            info!("No face registered for uid={} — no automatic auth", user_id);
         }
         Ok(other) => {
             info!(

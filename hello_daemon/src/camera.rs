@@ -142,7 +142,10 @@ impl CameraManager {
             );
 
             if let Err(e) = rgb_result {
-                warn!("RGB V4L2 capture failed ({}), falling back to simulation", e);
+                warn!(
+                    "RGB V4L2 capture failed ({}), falling back to simulation",
+                    e
+                );
                 rgb_frames.clear();
             }
 
