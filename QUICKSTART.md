@@ -118,7 +118,6 @@ journalctl --user -u hello-daemon -f
 
 - `INTEGRATION_GUIDE.md` - Installation détaillée + troubleshooting
 - `PAM_MODULE.md` - Référence technique
-- `STATUS.md` - État complet du projet
 
 ---
 

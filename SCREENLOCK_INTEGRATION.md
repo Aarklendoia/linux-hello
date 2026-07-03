@@ -173,7 +173,6 @@ login  # nouveau login (demande auth PAM)
 ## Documentation Complète
 
 Voir aussi:
-- [TEST_RESULTS_2026.md](TEST_RESULTS_2026.md) - Résultats des tests D-Bus
 - [PAM_MODULE.md](PAM_MODULE.md) - Détails du module PAM
 - [INTEGRATION_GUIDE.md](INTEGRATION_GUIDE.md) - Guide d'intégration général
 - [README.md](README.md) - Documentation principale
