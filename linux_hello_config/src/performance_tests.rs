@@ -116,10 +116,10 @@ mod performance_tests {
         println!("✅ 30fps sustained test PASSED");
     }
 
-    /// Valide que thread::sleep respecte les intervalles du scheduler OS.
-    /// Ce test ne teste pas notre logique — ignoré en CI, à lancer manuellement.
+    /// Validates that thread::sleep respects OS scheduler intervals.
+    /// This test does not test our logic — ignored in CI, run manually.
     #[test]
-    #[ignore = "valide le scheduler OS, pas la logique applicative — lancer manuellement"]
+    #[ignore = "validates OS scheduler, not application logic — run manually"]
     fn test_animation_tick_timing() {
         // Verify animation ticks occur at ~16ms intervals
         const TICK_INTERVAL_MS: u64 = 16;

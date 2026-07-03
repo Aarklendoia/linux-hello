@@ -1,219 +1,241 @@
-# Infrastructure CI/CD
+# CI/CD Infrastructure
 
-Documentation de la chaîne CI/CD GitHub Actions pour Linux Hello.
+Documentation for the GitHub Actions CI/CD pipeline for Linux Hello.
 
 ## Workflows
 
 ### 1. build-debian.yml
-**Déclenché par :** Push sur main/develop, tags v*, PR, manual
 
-Construit les paquets Debian dans un conteneur Debian Bookworm.
+**Triggered by:** Push on main/develop, tags v*, PR, manual
 
-Étapes :
-- Installation des dépendances de build
-- `dpkg-buildpackage` pour créer les paquets
-- Vérification avec `lintian`
-- Upload des artefacts (paquets .deb, .buildinfo, .changes)
-- Création de release GitHub si tag v*
+Builds the Debian packages in a Debian Bookworm container.
 
-Artefacts générés :
-- `linux-hello_1.0.0-1_amd64.deb` (paquet principal)
+Steps:
+
+- Installation of build dependencies
+- `dpkg-buildpackage` to create the packages
+- Verification with `lintian`
+- Upload of artifacts (.deb, .buildinfo, .changes packages)
+- GitHub release creation if tag v*
+
+Generated artifacts:
+
+- `linux-hello_1.0.0-1_amd64.deb` (main package)
 - `linux-hello-daemon_1.0.0-1_amd64.deb` (daemon)
-- `linux-hello-gui_1.0.0-1_amd64.deb` (interface GUI)
-- `linux-hello-tools_1.0.0-1_amd64.deb` (outils CLI)
-- `libpam-linux-hello_1.0.0-1_amd64.deb` (module PAM)
+- `linux-hello-gui_1.0.0-1_amd64.deb` (GUI interface)
+- `linux-hello-tools_1.0.0-1_amd64.deb` (CLI tools)
+- `libpam-linux-hello_1.0.0-1_amd64.deb` (PAM module)
 
 ### 2. test.yml
-**Déclenché par :** Push sur main/develop, PR, manual
 
-Lance les tests unitaires et buildera les binaires release.
+**Triggered by:** Push on main/develop, PR, manual
 
-Étapes :
-- Installation de Rust
-- Installation des dépendances système
-- Cache des dépendances Cargo (registry, git, target)
+Runs the unit tests and builds the release binaries.
+
+Steps:
+
+- Rust installation
+- System dependency installation
+- Cargo dependency cache (registry, git, target)
 - `cargo test --all --release`
 - `cargo clippy` (linting)
 - `cargo build --all --release`
 
 ### 3. quality.yml
-**Déclenché par :** Push sur main/develop, PR, manual
 
-Vérifie la qualité du code (3 jobs en parallèle).
+**Triggered by:** Push on main/develop, PR, manual
 
-**Job 1 - format** :
-- Vérifie `cargo fmt` (formatage)
+Checks code quality (3 parallel jobs).
 
-**Job 2 - lint** :
-- Vérifie `cargo clippy` avec warnings comme erreurs
-- Installe les dépendances de compilation
+**Job 1 - format**:
 
-**Job 3 - security** :
-- Lance `cargo audit` pour vérifier les vulnérabilités
+- Checks `cargo fmt` (formatting)
+
+**Job 2 - lint**:
+
+- Checks `cargo clippy` with warnings as errors
+- Installs build dependencies
+
+**Job 3 - security**:
+
+- Runs `cargo audit` to check for vulnerabilities
 
 ### 4. docs.yml
-**Déclenché par :** Push docs/, *.md, manual
 
-Génère la documentation Rust avec `cargo doc`.
+**Triggered by:** Push on docs/, *.md, manual
 
-Étapes :
-- Build de la documentation
-- Copie vers dossier `public/`
-- Vérification du markdown (optional)
-- Upload des artefacts
+Generates Rust documentation with `cargo doc`.
 
-## Configuration Dependabot
+Steps:
 
-Mises à jour automatiques des dépendances.
+- Documentation build
+- Copy to `public/` folder
+- Markdown check (optional)
+- Upload of artifacts
 
-**Cargo** : Chaque lundi à 02:00 UTC
-- Max 5 PRs ouvertes
+## Dependabot Configuration
+
+Automatic dependency updates.
+
+**Cargo**: Every Monday at 02:00 UTC
+
+- Max 5 open PRs
 - Label: `dependencies`
-- Révision: `edouard`
+- Reviewer: `edouard`
 
-**GitHub Actions** : Chaque lundi à 02:30 UTC
-- Max 5 PRs ouvertes
+**GitHub Actions**: Every Monday at 02:30 UTC
+
+- Max 5 open PRs
 - Label: `github-actions`
-- Révision: `edouard`
+- Reviewer: `edouard`
 
-Format des commits : `chore: Update dependencies`
+Commit format: `chore: Update dependencies`
 
-## Secrets GitHub nécessaires
+## Required GitHub Secrets
 
-Pour les releases automatiques :
-- `GITHUB_TOKEN` (automatique dans GitHub Actions)
+For automatic releases:
 
-## Variantes et conditions
+- `GITHUB_TOKEN` (automatic in GitHub Actions)
 
-### Conditionnels par événement
+## Variants and conditions
+
+### Conditionals by event
 
 ```yaml
-# Déclenche sur push/PR
+# Triggers on push/PR
 on:
   push:
     branches: [ main, develop ]
   pull_request:
     branches: [ main, develop ]
 
-# Triggers additionnels
-  tags: [ 'v*' ]           # Pour releases
-  workflow_dispatch:       # Manuel
+# Additional triggers
+  tags: [ 'v*' ]           # For releases
+  workflow_dispatch:       # Manual
 
-# Conditions d'exécution
+# Execution conditions
 if: startsWith(github.ref, 'refs/tags/v')
 ```
 
 ## Running Workflows Locally
 
-### Avec act (local runner)
+### With act (local runner)
 
 ```bash
-# Installer act
+# Install act
 curl https://raw.githubusercontent.com/nektos/act/master/install.sh | bash
 
-# Lancer un workflow
+# Run a workflow
 act push
 
-# Lancer un job spécifique
+# Run a specific job
 act -j build
 ```
 
 ## Artifacts Retention
 
-- **Défaut** : 30 jours
-- **Configurable** : `retention-days`
+- **Default**: 30 days
+- **Configurable**: `retention-days`
 
-Upload et téléchargement :
+Upload and download:
+
 ```bash
-# Download dans CI
+# Download in CI
 actions/download-artifact@v4
 
-# Upload depuis CI
+# Upload from CI
 actions/upload-artifact@v4
 ```
 
 ## Debugging
 
-### Logs d'exécution
+### Execution logs
 
-Les logs sont disponibles dans l'onglet "Actions" de GitHub.
+Logs are available in the "Actions" tab on GitHub.
 
-Pour chaque step :
-- Temps d'exécution
-- Output complet
-- Erreurs et warnings
+For each step:
+
+- Execution time
+- Full output
+- Errors and warnings
 
 ### Re-run
 
-Bouton "Re-run failed jobs" ou "Re-run all jobs" sur la page de run.
+"Re-run failed jobs" or "Re-run all jobs" button on the run page.
 
 ### Cache debugging
 
 ```bash
-# Lister les caches
+# List caches
 gh actions-cache list --repo Aarklendoia/linux-hello
 
-# Supprimer un cache
+# Delete a cache
 gh actions-cache delete <cache-key> --repo Aarklendoia/linux-hello
 ```
 
 ## Optimization
 
-### Cache stratégie
+### Cache strategy
 
-Les caches Cargo sont organisés par :
+Cargo caches are organized by:
+
 - Registry (`~/.cargo/registry`)
 - Git dependencies (`~/.cargo/git`)
 - Build artifacts (`target/`)
 
-Clés de cache incluent le hash de `Cargo.lock`.
+Cache keys include the hash of `Cargo.lock`.
 
 ### Parallel jobs
 
-Les jobs indépendants s'exécutent en parallèle :
+Independent jobs run in parallel:
+
 - `format` (2 min)
 - `lint` (5 min)
 - `security` (3 min)
 
-Total : ~5 min (au lieu de 10 min en série).
+Total: ~5 min (instead of 10 min in series).
 
 ## Troubleshooting
 
-### Builds qui échouent
+### Failing builds
 
-1. **Vérifier les logs** dans GitHub Actions
-2. **Reproduire localement** : `dpkg-buildpackage -us -uc -b`
-3. **Vérifier les dépendances** : `apt-get build-dep`
-4. **Re-run** le workflow avec debugging
+1. **Check the logs** in GitHub Actions
+2. **Reproduce locally**: `dpkg-buildpackage -us -uc -b`
+3. **Check dependencies**: `apt-get build-dep`
+4. **Re-run** the workflow with debugging
 
-### Cache invalid
+### Invalid cache
 
-Supprimer le cache :
+Delete the cache:
+
 ```bash
 gh actions-cache delete <key> --repo Aarklendoia/linux-hello
 ```
 
-Ou à travers le UI : Settings > Actions > Caches
+Or through the UI: Settings > Actions > Caches
 
 ### Network issues
 
-Les timeouts Cargo peuvent nécessiter :
-- Augmenter `timeout` en secondes
-- Ajouter mirrors Cargo alternatifs
+Cargo timeouts may require:
 
-## Bonnes pratiques
+- Increasing the `timeout` in seconds
+- Adding alternative Cargo mirrors
 
-✅ **À faire**:
-- Tester localement avant de push
-- Garder les workflows simples
-- Utiliser les caches effectivement
-- Documenter les changements CI/CD
+## Best Practices
 
-❌ **À éviter**:
-- Hardcoder des secrets
-- Uploads massifs d'artefacts
-- Workflows qui s'exécutent trop souvent
-- Ignorer les échecs de linting
+✅ **Do**:
+
+- Test locally before pushing
+- Keep workflows simple
+- Use caches effectively
+- Document CI/CD changes
+
+❌ **Avoid**:
+
+- Hardcoding secrets
+- Massive artifact uploads
+- Workflows that run too often
+- Ignoring linting failures
 
 ## References
 

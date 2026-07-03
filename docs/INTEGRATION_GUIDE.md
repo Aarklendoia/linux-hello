@@ -1,68 +1,68 @@
-# Guide d'Intégration Linux Hello - PAM Sudo & Screenlock
+# Linux Hello Integration Guide - PAM Sudo & Screenlock
 
-## Aperçu
+## Overview
 
-Ce guide explique comment intégrer Linux Hello dans votre système pour:
-1. **sudo** - Authentification faciale pour élever les privilèges
-2. **Screenlock** - Déverrouillage d'écran par reconnaissance faciale
+This guide explains how to integrate Linux Hello into your system for:
+1. **sudo** - Facial authentication for privilege escalation
+2. **Screenlock** - Screen unlocking via facial recognition
 
-## Prérequis
+## Prerequisites
 
-- [ ] Module PAM compilé: `libpam_linux_hello.so`
-- [ ] Daemon Linux Hello: `hello-daemon`
-- [ ] Visages enregistrés pour votre utilisateur
-- [ ] D-Bus session en cours d'exécution
+- [ ] Compiled PAM module: `libpam_linux_hello.so`
+- [ ] Linux Hello daemon: `hello-daemon`
+- [ ] Faces enrolled for your user
+- [ ] D-Bus session running
 
-## Étape 1: Compilation en Release
+## Step 1: Release Build
 
 ```bash
 cd ~/Documents/linux-hello-rust
 
-# Compiler en mode release (optimisé)
+# Build in release mode (optimized)
 cargo build --release
 
-# Vérifier le .so
+# Check the .so
 ls -lh target/release/libpam_linux_hello.so
 ```
 
-## Étape 2: Installation du Module PAM
+## Step 2: PAM Module Installation
 
-**IMPORTANT**: Cela nécessite les droits root. Être prudent!
+**IMPORTANT**: This requires root privileges. Be careful!
 
 ```bash
-# Installer le module
+# Install the module
 sudo install -m 644 target/release/libpam_linux_hello.so /lib/x86_64-linux-gnu/security/pam_linux_hello.so
 
-# Vérifier
+# Verify
 ls -l /lib/x86_64-linux-gnu/security/pam_linux_hello.so
 ```
 
-## Étape 3: Configuration Sudo
+## Step 3: Sudo Configuration
 
-### Option A: Utiliser configuration existante (RECOMMANDÉ POUR TEST)
+### Option A: Use existing configuration (RECOMMENDED FOR TESTING)
 
 ```bash
-# Backup l'original
+# Backup the original
 sudo cp /etc/pam.d/sudo /etc/pam.d/sudo.backup
 
-# Éditer avec sudo
+# Edit with sudo
 sudo nano /etc/pam.d/sudo
 ```
 
-Ajouter **EN DÉBUT** du fichier (avant les autres lignes d'auth):
+Add **AT THE BEGINNING** of the file (before the other auth lines):
 
 ```
-# Linux Hello - Authentification faciale pour sudo
+# Linux Hello - Facial authentication for sudo
 auth sufficient /lib/x86_64-linux-gnu/security/pam_linux_hello.so context=sudo timeout_ms=3000 debug
 ```
 
-**Exemple complet de /etc/pam.d/sudo:**
+**Full example of /etc/pam.d/sudo:**
 
 ```
 # /etc/pam.d/sudo: ~/.pam_environment is not read
 #%PAM-1.0
 
-# Linux Hello - Authentification faciale
+# Linux Hello - Facial authentication
 auth sufficient /lib/x86_64-linux-gnu/security/pam_linux_hello.so context=sudo timeout_ms=3000 debug
 
 # Defaults for environment variables on Debian systems
@@ -85,213 +85,213 @@ session    optional                        pam_motd.so  motd=/run/motd.dynamic
 session    optional                        pam_mail.so standard
 ```
 
-### Option B: Créer une config personnalisée
+### Option B: Create a custom config
 
 ```bash
 sudo cp sudo-linux-hello.pam /etc/pam.d/sudo-linux-hello
 ```
 
-## Étape 4: Enregistrer un Visage pour Authentification Sudo
+## Step 4: Enroll a Face for Sudo Authentication
 
-Avant de tester, vérifiez qu'un visage est enregistré:
+Before testing, make sure a face is enrolled:
 
 ```bash
-# Démarrer le daemon
+# Start the daemon
 ./target/debug/hello-daemon &
 
-# Enregistrer un visage
+# Enroll a face
 dbus-send --session --print-reply \
   --dest=com.linuxhello.FaceAuth \
   /com/linuxhello/FaceAuth \
   com.linuxhello.FaceAuth.RegisterFace \
   string:'{"user_id":'$(id -u)',"context":"sudo","timeout_ms":5000,"num_samples":3}'
 
-# Arrêter le daemon
+# Stop the daemon
 pkill hello-daemon
 ```
 
-## Étape 5: Test Sudo
+## Step 5: Sudo Test
 
-### Test 1: Vérifier que le module est chargé
+### Test 1: Check that the module is loaded
 
 ```bash
-# Démarrer le daemon
+# Start the daemon
 ./target/debug/hello-daemon --debug &
 sleep 2
 
-# Tester l'authentification
+# Test authentication
 sudo -v
 ```
 
-Attendez que votre caméra se lance (ou simule la capture). Si le module est chargé, vous devriez voir:
-- Des logs du daemon montrant "D-Bus call: verify"
-- Votre terminal vous demandant de vous authentifier
+Wait for your camera to start (or simulate the capture). If the module is loaded, you should see:
+- Daemon logs showing "D-Bus call: verify"
+- Your terminal prompting you to authenticate
 
-### Test 2: Exécuter une commande avec sudo
+### Test 2: Run a command with sudo
 
 ```bash
-# Démarrer le daemon
+# Start the daemon
 ./target/debug/hello-daemon &
 
-# Exécuter une commande avec sudo
+# Run a command with sudo
 sudo ls /root
 
-# Si succès: la commande s'exécute
-# Si échec: sudo vous demande le mot de passe
+# On success: the command runs
+# On failure: sudo prompts for the password
 ```
 
-### Test 3: Utiliser le script de test automatisé
+### Test 3: Use the automated test script
 
 ```bash
 ./test-sudo.sh
 ```
 
-## Étape 6: Configuration KDE Screenlock
+## Step 6: KDE Screenlock Configuration
 
-### Localisez l'ID du screenlock
+### Locate the screenlock ID
 
 ```bash
 # KDE Plasma 5.20+
 ls -la /etc/pam.d/ | grep kde
 
-# Chercher kde, kde-screenlocker, kdesu, etc.
+# Look for kde, kde-screenlocker, kdesu, etc.
 ```
 
-### Configurez le screenlock
+### Configure the screenlock
 
-**Option A: Modifier la config existante**
+**Option A: Modify the existing config**
 
 ```bash
-# Backup l'original
+# Backup the original
 sudo cp /etc/pam.d/kde /etc/pam.d/kde.backup
 
-# Éditer
+# Edit
 sudo nano /etc/pam.d/kde
 ```
 
-Ajouter EN DÉBUT:
+Add AT THE BEGINNING:
 
 ```
-# Linux Hello - Authentification faciale pour screenlock
+# Linux Hello - Facial authentication for screenlock
 auth sufficient /lib/x86_64-linux-gnu/security/pam_linux_hello.so context=screenlock timeout_ms=3000 debug
 ```
 
-**Option B: Utiliser la config fournie**
+**Option B: Use the provided config**
 
 ```bash
 sudo cp kde-screenlock-linux-hello.pam /etc/pam.d/kde
 ```
 
-### Test du Screenlock
+### Screenlock Test
 
 ```bash
-# Démarrer le daemon
+# Start the daemon
 ./target/debug/hello-daemon &
 
-# Lancer le test
+# Run the test
 ./test-screenlock.sh
 
-# Ou tester manuellement avec screensaver
-# Appuyez sur Ctrl+Alt+L ou utilisez le menu KDE
+# Or test manually with the screensaver
+# Press Ctrl+Alt+L or use the KDE menu
 ```
 
-## Sécurité: Points Importants
+## Security: Important Points
 
-### ⚠️ Fallback à mot de passe
+### ⚠️ Password Fallback
 
-Si le module PAM échoue ou le daemon n'est pas disponible, **vous pouvez toujours utiliser votre mot de passe**.
+If the PAM module fails or the daemon is unavailable, **you can always use your password**.
 
-La configuration `auth sufficient` signifie:
-- Si linux-hello réussit → authentification complète
-- Si linux-hello échoue → utiliser la prochaine méthode (pam_unix = mot de passe)
+The `auth sufficient` configuration means:
+- If linux-hello succeeds → full authentication
+- If linux-hello fails → use the next method (pam_unix = password)
 
-### 🔒 Sauvegardes
+### 🔒 Backups
 
-**TOUJOURS faire un backup avant de modifier PAM:**
+**ALWAYS make a backup before modifying PAM:**
 
 ```bash
-# Backup toutes les configs
+# Backup all configs
 sudo cp -r /etc/pam.d /etc/pam.d.backup.$(date +%Y%m%d-%H%M%S)
 
-# En cas de problème, restaurer:
+# In case of problems, restore:
 # sudo cp /etc/pam.d/sudo.backup /etc/pam.d/sudo
 ```
 
-### 🚨 Restauration d'urgence
+### 🚨 Emergency Restoration
 
-Si vous vous bloquez hors du système:
+If you get locked out of the system:
 
-1. **Boot en mode recovery/single-user**
-2. **Restaurer les fichiers**:
+1. **Boot in recovery/single-user mode**
+2. **Restore the files**:
 
 ```bash
-# Monter le filesystem en lecture-écriture
+# Mount the filesystem read-write
 mount -o rw,remount /
 
-# Restaurer
+# Restore
 cp /etc/pam.d.backup.YYYYMMDD-HHMMSS/sudo /etc/pam.d/sudo
 cp /etc/pam.d.backup.YYYYMMDD-HHMMSS/kde /etc/pam.d/kde
 
-# Redémarrer
+# Reboot
 reboot
 ```
 
 ## Troubleshooting
 
-### Erreur: "pam_linux_hello.so not found"
+### Error: "pam_linux_hello.so not found"
 
 ```bash
-# Vérifier l'emplacement
+# Check the location
 ls -l /lib/x86_64-linux-gnu/security/pam_linux_hello.so
 
-# Si absent, réinstaller
+# If missing, reinstall
 sudo install -m 644 target/release/libpam_linux_hello.so /lib/x86_64-linux-gnu/security/
 ```
 
-### Erreur: "Cannot connect to D-Bus"
+### Error: "Cannot connect to D-Bus"
 
 ```bash
-# Vérifier que D-Bus session tourne
+# Check that the D-Bus session is running
 echo $DBUS_SESSION_BUS_ADDRESS
 
-# Si vide, relancer
+# If empty, restart it
 eval $(dbus-launch --sh-syntax)
 
-# Relancer le daemon
+# Restart the daemon
 ./target/debug/hello-daemon
 ```
 
-### Erreur: "Name already taken on the bus"
+### Error: "Name already taken on the bus"
 
 ```bash
-# Le daemon tourne déjà
+# The daemon is already running
 pkill hello-daemon
 
-# Attendre et relancer
+# Wait and restart
 sleep 2
 ./target/debug/hello-daemon
 ```
 
-### Erreur: "Impossible de récupérer UID pour l'utilisateur"
+### Error: "Unable to retrieve UID for user"
 
 ```bash
-# Vérifier que l'utilisateur existe
+# Check that the user exists
 id $USER
 ```
 
-### sudo demande le mot de passe au lieu de faciale
+### sudo asks for the password instead of facial recognition
 
 ```bash
-# Vérifier la config PAM
+# Check the PAM config
 cat /etc/pam.d/sudo | head -10
 
-# Vérifier que le module est installé
+# Check that the module is installed
 ls -l /lib/x86_64-linux-gnu/security/pam_linux_hello.so
 
-# Vérifier que le daemon tourne
+# Check that the daemon is running
 ps aux | grep hello-daemon
 
-# Vérifier que visages sont enregistrés
+# Check that faces are enrolled
 dbus-send --session --print-reply \
   --dest=com.linuxhello.FaceAuth \
   /com/linuxhello/FaceAuth \
@@ -299,9 +299,9 @@ dbus-send --session --print-reply \
   uint32:$(id -u)
 ```
 
-## Démarrage Automatique du Daemon
+## Automatic Daemon Startup
 
-Pour que le daemon se lance automatiquement au démarrage:
+To have the daemon start automatically at boot:
 
 ### Option 1: systemd user service
 
@@ -322,40 +322,40 @@ Restart=on-failure
 WantedBy=default.target
 EOF
 
-# Activer
+# Enable
 systemctl --user enable hello-daemon.service
 systemctl --user start hello-daemon.service
 
-# Vérifier
+# Verify
 systemctl --user status hello-daemon.service
 ```
 
-### Option 2: xinitrc/startuprc (desktop environment spécifique)
+### Option 2: xinitrc/startuprc (desktop environment specific)
 
-Ajouter à `~/.xinitrc` ou `~/.kde4/Autostart`:
+Add to `~/.xinitrc` or `~/.kde4/Autostart`:
 
 ```bash
 ~/Documents/linux-hello-rust/target/release/hello-daemon &
 ```
 
-## Prochaines Étapes
+## Next Steps
 
-- [ ] Compiler en release
-- [ ] Installer le module
-- [ ] Tester avec sudo
-- [ ] Tester avec screenlock
-- [ ] Configurer démarrage automatique du daemon
-- [ ] Documenter le déploiement pour autres utilisateurs
+- [ ] Build in release
+- [ ] Install the module
+- [ ] Test with sudo
+- [ ] Test with screenlock
+- [ ] Configure automatic daemon startup
+- [ ] Document deployment for other users
 
 ## Support
 
-Pour les bugs ou questions:
-1. Vérifier les logs: `journalctl --user -u hello-daemon`
-2. Activer debug: `debug` option dans PAM
-3. Consulter PAM_MODULE.md pour options avancées
+For bugs or questions:
+1. Check the logs: `journalctl --user -u hello-daemon`
+2. Enable debug: `debug` option in PAM
+3. See PAM_MODULE.md for advanced options
 
 ---
 
 **Version**: 0.1.0
-**Date**: Janvier 2026
-**Status**: Beta - Prêt pour test personnel
+**Date**: January 2026
+**Status**: Beta - Ready for personal testing

@@ -1,3 +1,3 @@
 //! Linux Hello Configuration GUI library
 //!
-//! Exporte les utilitaires pour l'UI QML
+//! Exports utilities for the QML UI

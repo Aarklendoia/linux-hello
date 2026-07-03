@@ -1,16 +1,16 @@
-# Design détaillé: D-Bus et PAM
+# Detailed Design: D-Bus and PAM
 
-## 1. Interface D-Bus
+## 1. D-Bus Interface
 
 ### Service
 - **Name**: `com.linuxhello.FaceAuth`
 - **Path**: `/com/linuxhello/FaceAuth`
 - **Interface**: `com.linuxhello.FaceAuth`
 
-### Méthodes
+### Methods
 
 #### `RegisterFace(s: request) -> s: response`
-Enregistrer un nouveau visage pour un utilisateur.
+Enroll a new face for a user.
 
 **Input (JSON)**:
 ```json
@@ -31,15 +31,15 @@ Enregistrer un nouveau visage pour un utilisateur.
 }
 ```
 
-**Erreurs**:
-- `com.linuxhello.AccessDenied`: Utilisateur n'a pas permission
-- `com.linuxhello.CameraError`: Caméra non disponible
-- `com.linuxhello.StorageError`: Erreur stockage
+**Errors**:
+- `com.linuxhello.AccessDenied`: User doesn't have permission
+- `com.linuxhello.CameraError`: Camera unavailable
+- `com.linuxhello.StorageError`: Storage error
 
 ---
 
 #### `DeleteFace(s: request) -> ()`
-Supprimer un ou tous les visages.
+Delete one or all faces.
 
 **Input (JSON)**:
 ```json
@@ -49,7 +49,7 @@ Supprimer un ou tous les visages.
 }
 ```
 
-Ou (tous les visages):
+Or (all faces):
 ```json
 {
   "user_id": 1000,
@@ -60,7 +60,7 @@ Ou (tous les visages):
 ---
 
 #### `Verify(s: request) -> s: result`
-Vérifier l'identité d'un utilisateur.
+Verify a user's identity.
 
 **Input (JSON)**:
 ```json
@@ -89,16 +89,16 @@ Vérifier l'identité d'un utilisateur.
 }
 ```
 
-**Autres types**:
-- `NoFaceDetected`: Aucun visage dans la caméra
-- `NoEnrollment`: Pas de visage enregistré pour cet UID
-- `Cancelled`: Utilisateur a annulé (écran noir, timeout, etc.)
-- `Error`: Message d'erreur interne
+**Other types**:
+- `NoFaceDetected`: No face in the camera
+- `NoEnrollment`: No face enrolled for this UID
+- `Cancelled`: User cancelled (black screen, timeout, etc.)
+- `Error`: Internal error message
 
 ---
 
 #### `ListFaces(u: user_id) -> s: faces_json`
-Lister tous les visages enregistrés.
+List all enrolled faces.
 
 **Output (JSON)**:
 ```json
@@ -120,34 +120,34 @@ Lister tous les visages enregistrés.
 
 ---
 
-### Propriétés
+### Properties
 
 #### `Version: s` (read-only)
-Version du daemon (ex: "0.1.0")
+Daemon version (e.g. "0.1.0")
 
 #### `CameraAvailable: b` (read-only)
-Booléen indiquant si caméra est disponible
+Boolean indicating whether a camera is available
 
 ---
 
-## 2. Configuration PAM
+## 2. PAM Configuration
 
-### Syntaxe générale
+### General syntax
 ```text
 auth   [module_path] [service_name] [module_name] [arguments...]
 ```
 
-### Options du module
+### Module options
 
-| Option | Valeur | Défaut | Description |
+| Option | Value | Default | Description |
 |--------|--------|--------|-------------|
-| `context` | string | "default" | Contexte d'authentification |
-| `timeout_ms` | u64 | 5000 | Timeout max en ms |
-| `similarity_threshold` | f32 | 0.6 | Seuil de similarité (0.0-1.0) |
-| `confirm` | (flag) | false | Demander confirmation avant succès |
-| `debug` | (flag) | false | Mode debug |
+| `context` | string | "default" | Authentication context |
+| `timeout_ms` | u64 | 5000 | Max timeout in ms |
+| `similarity_threshold` | f32 | 0.6 | Similarity threshold (0.0-1.0) |
+| `confirm` | (flag) | false | Ask for confirmation before success |
+| `debug` | (flag) | false | Debug mode |
 
-### Configurations par service
+### Per-service configurations
 
 #### `/etc/pam.d/login` (TTY)
 ```text
@@ -175,9 +175,9 @@ auth   include      system-login
 
 ---
 
-## 3. Flux authentification
+## 3. Authentication Flow
 
-### Flow complet: sudo
+### Full flow: sudo
 
 ```
 User: $ sudo ls
@@ -185,33 +185,33 @@ User: $ sudo ls
 PAM (sudo)
     ↓
 pam_linux_hello.so:pam_sm_authenticate()
-    ├─ Parse options PAM (context=sudo, confirm=true, etc.)
-    ├─ Récupère PAM_USER et PAM_RHOST
-    ├─ Appelle D-Bus: Verify {user_id, context="sudo", timeout_ms=5000}
+    ├─ Parses PAM options (context=sudo, confirm=true, etc.)
+    ├─ Retrieves PAM_USER and PAM_RHOST
+    ├─ Calls D-Bus: Verify {user_id, context="sudo", timeout_ms=5000}
     │   ↓
-    │   Daemon faciale
-    │   ├─ Ouvre caméra
-    │   ├─ Capture frame, détecte visage
-    │   ├─ Extrait embedding
-    │   ├─ Compare avec embeddings stockés
-    │   └─ Retourne MatchResult
+    │   Face daemon
+    │   ├─ Opens camera
+    │   ├─ Captures frame, detects face
+    │   ├─ Extracts embedding
+    │   ├─ Compares with stored embeddings
+    │   └─ Returns MatchResult
     │
-    ├─ Si Success et confirm=true:
-    │   ├─ pam_conv() → affiche "Confirmer sudo? [o/N]"
-    │   ├─ Attend réponse utilisateur
-    │   └─ Si "o" → PAM_SUCCESS, sinon → PAM_AUTH_ERR
+    ├─ If Success and confirm=true:
+    │   ├─ pam_conv() → displays "Confirm sudo? [y/N]"
+    │   ├─ Waits for user response
+    │   └─ If "y" → PAM_SUCCESS, otherwise → PAM_AUTH_ERR
     │
-    ├─ Si Success et confirm=false:
+    ├─ If Success and confirm=false:
     │   └─ PAM_SUCCESS
     │
-    └─ Si échec:
-       ├─ Si NoFaceDetected → PAM_IGNORE (laisser password continuer)
-       └─ Si NoMatch → PAM_IGNORE (idem)
+    └─ If failure:
+       ├─ If NoFaceDetected → PAM_IGNORE (let password continue)
+       └─ If NoMatch → PAM_IGNORE (same)
     ↓
-Retour PAM
-    ├─ PAM_SUCCESS → sudo accepté
-    ├─ PAM_IGNORE → continue avec password
-    └─ PAM_AUTH_ERR → sudo refuse
+PAM Return
+    ├─ PAM_SUCCESS → sudo accepted
+    ├─ PAM_IGNORE → continues with password
+    └─ PAM_AUTH_ERR → sudo denied
 ```
 
 ---
@@ -219,38 +219,38 @@ Retour PAM
 ### Flow: KScreenLocker
 
 ```
-User: C'est l'heure de fermer l'écran
+User: Time to unlock the screen
     ↓
-KScreenLocker déverrouille
-    ├─ Invoque service PAM "kde"
+KScreenLocker unlocks
+    ├─ Invokes the "kde" PAM service
     ├─ pam_sm_authenticate() → Verify {context="screenlock"}
     │
-    ├─ Si Success:
-    │   └─ PAM_SUCCESS → écran déverrouillé
+    ├─ If Success:
+    │   └─ PAM_SUCCESS → screen unlocked
     │
-    └─ Si échec:
-       ├─ PAM_IGNORE → affiche champ password
-       └─ User entre mot de passe
+    └─ If failure:
+       ├─ PAM_IGNORE → displays password field
+       └─ User enters password
 ```
 
 ---
 
-## 4. Sérialisation et protocole
+## 4. Serialization and Protocol
 
-### Choix: JSON avec D-Bus
+### Choice: JSON over D-Bus
 
-**Avantages:**
+**Advantages:**
 - Simple, human-readable
-- Évolutif (nouveaux champs sans breaking)
-- Facile à logger/audit
+- Extensible (new fields without breaking)
+- Easy to log/audit
 
-**Désavantages:**
-- Moins compacte que CBOR/protobuf
-- Parsing légèrement plus coûteux
+**Disadvantages:**
+- Less compact than CBOR/protobuf
+- Slightly more expensive parsing
 
-**Compromise acceptable** pour auth (fréquence basse, sécurité >> performance)
+**Acceptable trade-off** for auth (low frequency, security >> performance)
 
-### Exemple: module PAM appelle daemon
+### Example: PAM module calls the daemon
 
 PAM → D-Bus:
 ```rust
@@ -269,44 +269,44 @@ let result: VerifyResult = serde_json::from_str(&response_json)?;
 
 ---
 
-## 5. Gestion d'erreurs
+## 5. Error Handling
 
-### Niveaux d'erreur
+### Error levels
 
 1. **User-facing** (via PAM_TEXT_INFO/ERROR):
-   - "Reconnaissance échouée, essayez le mot de passe"
-   - "Caméra indisponible"
-   - "Timeout de capture"
+   - "Recognition failed, try the password"
+   - "Camera unavailable"
+   - "Capture timeout"
 
 2. **Admin logs** (via tracing):
-   - Détails techniques
+   - Technical details
    - Timestamps
-   - UID, contexte, scores
+   - UID, context, scores
 
-3. **PAM retcodes**:
+3. **PAM return codes**:
    - `PAM_SUCCESS`: OK
-   - `PAM_AUTH_ERR`: Échec auth
-   - `PAM_IGNORE`: Ignorer ce module
-   - `PAM_SYSTEM_ERR`: Erreur système
+   - `PAM_AUTH_ERR`: Auth failure
+   - `PAM_IGNORE`: Ignore this module
+   - `PAM_SYSTEM_ERR`: System error
 
 ---
 
-## 6. Sécurité D-Bus
+## 6. D-Bus Security
 
-### PolicyKit rules (optionnel pour root daemon)
+### PolicyKit rules (optional for root daemon)
 
-Créer `/usr/share/polkit-1/rules.d/com.linuxhello.rules`:
+Create `/usr/share/polkit-1/rules.d/com.linuxhello.rules`:
 
 ```javascript
 polkit.addRule(function(action, subject) {
     if (action.id == "com.linuxhello.RegisterFace") {
-        // User peut enregistrer son propre visage
+        // User can enroll their own face
         if (subject.user == action.lookup("user")) {
             return polkit.Result.YES;
         }
     }
     if (action.id == "com.linuxhello.Verify") {
-        // User peut vérifier son propre visage
+        // User can verify their own face
         if (subject.user == action.lookup("user")) {
             return polkit.Result.YES;
         }
@@ -315,15 +315,15 @@ polkit.addRule(function(action, subject) {
 });
 ```
 
-### ACL simple (sans Polkit)
+### Simple ACL (without Polkit)
 
-Dans le daemon:
+In the daemon:
 ```rust
 fn check_permission(current_uid: u32, target_uid: u32) -> Result<()> {
-    // Root = toujours OK
+    // Root = always OK
     if current_uid == 0 { return Ok(()); }
     
-    // Un user ne peut modifier que son propre visage
+    // A user can only modify their own face
     if current_uid != target_uid {
         return Err(AccessDenied);
     }
@@ -333,9 +333,9 @@ fn check_permission(current_uid: u32, target_uid: u32) -> Result<()> {
 
 ---
 
-## 7. Logging et audit
+## 7. Logging and Auditing
 
-### Format standardisé
+### Standardized format
 
 ```
 [2025-01-06T14:10:23Z] [INFO] pam_linux_hello: user=alice uid=1000 context=sudo result=success score=0.87
@@ -344,21 +344,21 @@ fn check_permission(current_uid: u32, target_uid: u32) -> Result<()> {
 ```
 
 ### Destinations
-- Stderr si daemon interactif
-- `/var/log/linux-hello.log` si service systemd
-- Journal systemd si disponible
+- Stderr if daemon is interactive
+- `/var/log/linux-hello.log` if systemd service
+- Systemd journal if available
 
 ---
 
 ## 8. Tests
 
-### Test daemon D-Bus local
+### Local D-Bus daemon test
 
 ```bash
-# Terminal 1: lancer daemon
+# Terminal 1: start the daemon
 cargo run -p linux_hello_cli -- daemon --debug
 
-# Terminal 2: appeler daemon
+# Terminal 2: call the daemon
 dbus-send --session \
   --print-reply \
   --dest=com.linuxhello.FaceAuth \
@@ -366,21 +366,20 @@ dbus-send --session \
   com.linuxhello.FaceAuth.Ping
 ```
 
-### Test PAM
+### PAM Test
 
 ```bash
-# Service test custom
+# Custom test service
 sudo nano /etc/pam.d/linux-hello-test
 
-# Contenu:
+# Content:
 # auth sufficient pam_linux_hello.so debug context=test
 # account required pam_permit.so
 # session required pam_permit.so
 
-# Tester
+# Test
 pamtester linux-hello-test $USER authenticate
 
-# Ou
-su -s /bin/sh -c "echo Ça marche" - $USER
+# Or
+su -s /bin/sh -c "echo It works" - $USER
 ```
-

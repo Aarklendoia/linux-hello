@@ -1,163 +1,163 @@
-# Développement de Linux Hello
+# Linux Hello Development
 
-Guide rapide pour contribuer au projet.
+Quick guide to contributing to the project.
 
-## ⚡ Démarrage rapide
+## ⚡ Quick Start
 
 ```bash
-# Clone et setup
+# Clone and setup
 git clone https://github.com/Aarklendoia/linux-hello.git
 cd linux-hello
 make dev-setup
 
-# Build et test
+# Build and test
 make build
 make test
 make lint
 ```
 
-## 📋 Prérequis
+## 📋 Prerequisites
 
-- Rust 1.70+ (installer via [rustup](https://rustup.rs/))
+- Rust 1.70+ (install via [rustup](https://rustup.rs/))
 - Debian/Ubuntu
-- Dépendances : `make dev-setup`
+- Dependencies: `make dev-setup`
 
-## 🏗️ Structure du projet
+## 🏗️ Project Structure
 
 ```
 linux-hello/
-├── hello_daemon/          # Service de reconnaissance faciale
-├── hello_camera/          # Capture et traitement caméra
-├── hello_face_core/       # Algorithmes de reconnaissance
-├── linux_hello_cli/       # Interface ligne de commande
-├── linux_hello_config/    # GUI de configuration (QML)
-├── pam_linux_hello/       # Module PAM
-├── debian/                # Packaging Debian
+├── hello_daemon/          # Facial recognition service
+├── hello_camera/          # Camera capture and processing
+├── hello_face_core/       # Recognition algorithms
+├── linux_hello_cli/       # Command-line interface
+├── linux_hello_config/    # Configuration GUI (QML)
+├── pam_linux_hello/       # PAM module
+├── debian/                # Debian packaging
 ├── .github/
 │   ├── workflows/         # GitHub Actions CI/CD
-│   └── ISSUE_TEMPLATE/    # Templates issues
-├── Makefile               # Commandes de dev
-├── CONTRIBUTING.md        # Guide de contribution
-├── RELEASE.md             # Processus de release
-└── CI_CD_INFRASTRUCTURE.md # Documentation CI/CD
+│   └── ISSUE_TEMPLATE/    # Issue templates
+├── Makefile               # Dev commands
+├── CONTRIBUTING.md        # Contribution guide
+├── RELEASE.md             # Release process
+└── CI_CD_INFRASTRUCTURE.md # CI/CD documentation
 ```
 
-## 🚀 Commandes principales
+## 🚀 Main Commands
 
 ```bash
 # Development
-make build          # Compiler en debug
-make release        # Compiler optimisé
-make test           # Lancer les tests
-make check          # Vérifier rapidement (sans compile)
-make fmt            # Formater le code
-make lint           # Linter avec clippy
-make audit          # Vérifier vulnérabilités
+make build          # Build in debug
+make release        # Build optimized
+make test           # Run the tests
+make check          # Quick check (no compile)
+make fmt            # Format the code
+make lint           # Lint with clippy
+make audit          # Check for vulnerabilities
 
 # Debian
-make debian         # Compiler les paquets
-make deb-install    # Installer les paquets localement
-make deb-clean      # Nettoyer les artifacts Debian
+make debian         # Build the packages
+make deb-install    # Install the packages locally
+make deb-clean      # Clean up Debian artifacts
 
 # Documentation
-make docs           # Générer et ouvrir la doc
+make docs           # Generate and open the docs
 
 # Debug
-make daemon         # Lancer le daemon en debug
-make camera-test    # Tester la caméra
+make daemon         # Run the daemon in debug
+make camera-test    # Test the camera
 ```
 
-## 🔍 Workflow typique
+## 🔍 Typical Workflow
 
 ```bash
-# 1. Créer une branche
+# 1. Create a branch
 git checkout -b feature/my-feature
 
-# 2. Faire des modifications
-# Éditer les fichiers...
+# 2. Make changes
+# Edit files...
 
-# 3. Tester
+# 3. Test
 make test
 make lint
 
-# 4. Committer
+# 4. Commit
 git add -A
-git commit -m "feat: Description claire"
+git commit -m "feat: Clear description"
 
-# 5. Pusher et créer une PR
+# 5. Push and create a PR
 git push origin feature/my-feature
-# Créer une PR sur GitHub
+# Create a PR on GitHub
 ```
 
-## 📦 Packaging Debian
+## 📦 Debian Packaging
 
-Le projet utilise le format **Debian 3.0 (quilt)**.
+The project uses the **Debian 3.0 (quilt)** format.
 
-### Générer les paquets
+### Generate the packages
 
 ```bash
 make debian
-# Paquets dans ../
+# Packages in ../
 ls ../*.deb
 ```
 
-### Créer un patch
+### Create a patch
 
 ```bash
-# Créer et appliquer un patch
+# Create and apply a patch
 quilt new fix-name.patch
 quilt add debian/rules
-# Éditer le fichier...
+# Edit the file...
 quilt refresh
 
-# Lister les patches
+# List the patches
 quilt series
 ```
 
-## 🔄 CI/CD automatique
+## 🔄 Automatic CI/CD
 
-Les workflows GitHub Actions s'exécutent automatiquement :
+The GitHub Actions workflows run automatically:
 
-- **build-debian.yml** : Compile les paquets
-- **test.yml** : Lance les tests
-- **quality.yml** : Linting et sécurité
-- **docs.yml** : Génère la documentation
+- **build-debian.yml**: Builds the packages
+- **test.yml**: Runs the tests
+- **quality.yml**: Linting and security
+- **docs.yml**: Generates the documentation
 
-Voir [CI_CD_INFRASTRUCTURE.md](CI_CD_INFRASTRUCTURE.md) pour plus de détails.
+See [CI_CD_INFRASTRUCTURE.md](CI_CD_INFRASTRUCTURE.md) for more details.
 
-## 📝 Conventions de code
+## 📝 Code Conventions
 
 ### Rust
 
 ```rust
-// Doc comments pour les APIs publiques
+// Doc comments for public APIs
 /// Brief description.
 ///
 /// Longer explanation if needed.
 pub fn my_function() {}
 
-// Format avec rustfmt
+// Format with rustfmt
 cargo fmt --all
 
-// Linter avec clippy
+// Lint with clippy
 cargo clippy --all -- -D warnings
 ```
 
 ### Commits
 
-Format : `<type>: <description>`
+Format: `<type>: <description>`
 
-Types :
-- `feat:` Nouvelle fonctionnalité
-- `fix:` Correction de bug
+Types:
+- `feat:` New feature
+- `fix:` Bug fix
 - `docs:` Documentation
-- `style:` Formatage
-- `refactor:` Refactorisation
+- `style:` Formatting
+- `refactor:` Refactoring
 - `perf:` Performance
 - `test:` Tests
 - `chore:` Maintenance
 
-Exemple :
+Example:
 ```bash
 git commit -m "feat: Add face enrollment API"
 ```
@@ -165,13 +165,13 @@ git commit -m "feat: Add face enrollment API"
 ## 🧪 Tests
 
 ```bash
-# Tous les tests
+# All tests
 cargo test --all
 
-# Test spécifique
+# Specific test
 cargo test --lib my_test
 
-# Avec output
+# With output
 cargo test -- --nocapture
 
 # Benchmark
@@ -180,53 +180,53 @@ cargo bench --all
 
 ## 📚 Documentation
 
-La documentation Rust est générée automatiquement :
+The Rust documentation is generated automatically:
 
 ```bash
-# Générer et ouvrir
+# Generate and open
 make docs
 
-# Lire un crate spécifique
+# Read a specific crate
 cargo doc --open --document-private-items
 ```
 
 ## 🐛 Debugging
 
 ```bash
-# Compiler avec symbols
+# Build with symbols
 RUSTFLAGS="-g" cargo build
 
-# Lancer sous un debugger
+# Run under a debugger
 rust-gdb ./target/debug/hello-daemon
 
-# Lancer avec logs détaillés
+# Run with detailed logs
 RUST_LOG=debug ./target/debug/hello-daemon
 ```
 
-## 🔐 Sécurité
+## 🔐 Security
 
 ```bash
-# Vérifier les dépendances vulnérables
+# Check for vulnerable dependencies
 cargo audit
 
-# Mettre à jour les dépendances
+# Update dependencies
 cargo update
 
 # Outdated
 cargo outdated
 ```
 
-## 📖 Plus d'info
+## 📖 More Info
 
-- [CONTRIBUTING.md](CONTRIBUTING.md) - Guide complet de contribution
-- [RELEASE.md](RELEASE.md) - Processus de release
-- [CI_CD_INFRASTRUCTURE.md](CI_CD_INFRASTRUCTURE.md) - Documentation CI/CD
-- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) - Règles communautaires
+- [CONTRIBUTING.md](CONTRIBUTING.md) - Full contribution guide
+- [RELEASE.md](RELEASE.md) - Release process
+- [CI_CD_INFRASTRUCTURE.md](CI_CD_INFRASTRUCTURE.md) - CI/CD documentation
+- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) - Community rules
 
-## ❓ Questions ?
+## ❓ Questions?
 
-- Ouvrir une discussion sur GitHub
-- Créer une issue
-- Consulter la documentation
+- Open a discussion on GitHub
+- Create an issue
+- Check the documentation
 
-Merci de contribuer ! 🎉
+Thank you for contributing! 🎉

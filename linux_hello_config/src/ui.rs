@@ -1,4 +1,4 @@
-//! Module UI - définition des écrans
+//! UI module - screen definitions
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Screen {

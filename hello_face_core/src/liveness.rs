@@ -1,52 +1,52 @@
-//! Détection de vivacité (liveness) par analyse de la caméra IR
+//! Liveness detection via IR camera analysis
 //!
-//! Algorithme sans modèle ML : variance du Laplacien dans la ROI visage.
+//! ML-model-free algorithm: Laplacian variance in the face ROI.
 //!
-//! Principe physique :
-//! - Vrai visage devant la caméra IR du Brio : gradient thermique naturel,
-//!   texture de peau riche, distribution IR uniforme avec relief.
-//! - Photo imprimée : artefacts de tramage, bords nets, faible variance,
-//!   absence de gradient thermique.
+//! Physical principle:
+//! - Real face in front of the Brio's IR camera: natural thermal gradient,
+//!   rich skin texture, uniform IR distribution with relief.
+//! - Printed photo: dithering artifacts, sharp edges, low variance,
+//!   no thermal gradient.
 //!
-//! Score retourné : f32 dans \[0, 1\]
-//!   - `> 0.6` → probablement un vrai visage
-//!   - `< 0.3` → probablement une photo / attaque de présentation
+//! Returned score: f32 in \[0, 1\]
+//!   - `> 0.6` -> likely a real face
+//!   - `< 0.3` -> likely a photo / presentation attack
 
 use crate::FaceRegion;
 
-/// Score de vivacité basé sur la caméra IR
+/// Liveness score based on the IR camera
 ///
 /// # Arguments
-/// * `gray_frame` — données GREY 8-bit de la frame IR
-/// * `w`, `h` — dimensions de la frame
-/// * `face` — région du visage détecté (depuis SCRFD sur la frame RGB)
+/// * `gray_frame` — 8-bit GREY data of the IR frame
+/// * `w`, `h` — frame dimensions
+/// * `face` — detected face region (from SCRFD on the RGB frame)
 ///
 /// # Returns
-/// Score de vivacité entre 0.0 et 1.0
+/// Liveness score between 0.0 and 1.0
 pub fn ir_liveness_score(gray_frame: &[u8], w: u32, h: u32, face: &FaceRegion) -> f32 {
     let (fx, fy, fw, fh) = face.bounding_box;
 
-    // Limiter la ROI aux bornes de l'image
+    // Clamp the ROI to the image bounds
     let x1 = fx.min(w.saturating_sub(1));
     let y1 = fy.min(h.saturating_sub(1));
     let x2 = (fx + fw).min(w);
     let y2 = (fy + fh).min(h);
 
     if x2 <= x1 + 4 || y2 <= y1 + 4 {
-        return 0.5; // ROI trop petite → pas de décision
+        return 0.5; // ROI too small -> no decision
     }
 
-    // Normaliser les pixels de la ROI vers [0, 255].
-    // Rend l'algorithme indépendant du niveau d'exposition de la caméra IR
-    // (ex: caméra sans illuminateur actif → valeurs brutes ~30, Brio → ~120).
+    // Normalize the ROI pixels to [0, 255].
+    // Makes the algorithm independent of the IR camera's exposure level
+    // (e.g. camera without active illuminator -> raw values ~30, Brio -> ~120).
     let normalized = normalize_roi(gray_frame, w, x1, y1, x2, y2);
     let norm_frame: &[u8] = &normalized;
     let norm_w = x2 - x1;
     let norm_h = y2 - y1;
 
-    // Si la plage dynamique est trop faible, l'image IR est inutilisable
-    // (caméra hors champ, obturateur fermé, absence totale de signal).
-    // On retourne 0.5 = pas de décision plutôt que de pénaliser.
+    // If the dynamic range is too low, the IR image is unusable
+    // (camera out of frame, shutter closed, no signal at all).
+    // Return 0.5 = no decision rather than penalizing.
     let raw_range = {
         let mut mn = 255u8;
         let mut mx = 0u8;
@@ -61,28 +61,28 @@ pub fn ir_liveness_score(gray_frame: &[u8], w: u32, h: u32, face: &FaceRegion) -
     };
     if raw_range < 5 {
         tracing::debug!(
-            "Liveness IR: plage dynamique trop faible ({}), pas de décision",
+            "Liveness IR: dynamic range too low ({}), no decision",
             raw_range
         );
         return 0.5;
     }
 
-    // Travailler sur les pixels normalisés (ROI extraite, coordonnées locales)
+    // Work on the normalized pixels (extracted ROI, local coordinates)
     let norm_x1 = 0u32;
     let norm_y1 = 0u32;
     let norm_x2 = norm_w;
     let norm_y2 = norm_h;
 
-    // 1. Variance du Laplacien — mesure la richesse de texture
+    // 1. Laplacian variance — measures texture richness
     let laplacian_var = laplacian_variance(
         norm_frame, norm_w, norm_h, norm_x1, norm_y1, norm_x2, norm_y2,
     );
 
-    // 2. Stats d'intensité normalisées (mean ≈ 128 après normalisation)
+    // 2. Normalized intensity stats (mean ~= 128 after normalization)
     let (mean, intensity_var) =
         intensity_stats(norm_frame, norm_w, norm_x1, norm_y1, norm_x2, norm_y2);
 
-    // 3. Gradient moyen
+    // 3. Mean gradient
     let gradient_score = gradient_mean(
         norm_frame, norm_w, norm_h, norm_x1, norm_y1, norm_x2, norm_y2,
     );
@@ -92,24 +92,24 @@ pub fn ir_liveness_score(gray_frame: &[u8], w: u32, h: u32, face: &FaceRegion) -
         raw_range, laplacian_var, intensity_var, mean, gradient_score
     );
 
-    // Seuils calibrés sur pixels normalisés [0-255] :
-    //   Laplacian variance : < 50 → lisse (photo) ; > 500 → texturé (vrai visage)
+    // Thresholds calibrated on normalized pixels [0-255]:
+    //   Laplacian variance: < 50 -> smooth (photo); > 500 -> textured (real face)
     let lap_score = sigmoid_score(laplacian_var, 50.0, 500.0);
 
-    //   Intensité moyenne normalisée : attendue ~128. Trop uniforme = artefact.
+    //   Normalized mean intensity: expected ~128. Too uniform = artifact.
     let thermal_score = gaussian_score(mean, 128.0, 60.0);
 
-    //   Variance d'intensité normalisée : modérée (500–3000) = distribution naturelle
+    //   Normalized intensity variance: moderate (500-3000) = natural distribution
     let var_score = gaussian_score(intensity_var, 1500.0, 1000.0);
 
-    //   Gradient : > 0.04 = textures présentes
+    //   Gradient: > 0.04 = textures present
     let grad_score = sigmoid_score(gradient_score * 255.0, 10.0, 60.0);
 
     let score = 0.40 * lap_score + 0.20 * thermal_score + 0.15 * var_score + 0.25 * grad_score;
     score.clamp(0.0, 1.0)
 }
 
-/// Extrait la ROI et normalise les pixels vers [0, 255] (étirement de contraste).
+/// Extracts the ROI and normalizes the pixels to [0, 255] (contrast stretching).
 fn normalize_roi(gray: &[u8], w: u32, x1: u32, y1: u32, x2: u32, y2: u32) -> Vec<u8> {
     let mut roi: Vec<u8> = Vec::with_capacity(((x2 - x1) * (y2 - y1)) as usize);
     let mut mn = 255u8;
@@ -126,7 +126,7 @@ fn normalize_roi(gray: &[u8], w: u32, x1: u32, y1: u32, x2: u32, y2: u32) -> Vec
 
     let range = mx.saturating_sub(mn);
     if range == 0 {
-        return roi; // image uniforme, pas de normalisation possible
+        return roi; // uniform image, normalization not possible
     }
 
     for v in roi.iter_mut() {
@@ -135,7 +135,7 @@ fn normalize_roi(gray: &[u8], w: u32, x1: u32, y1: u32, x2: u32, y2: u32) -> Vec
     roi
 }
 
-/// Calcule la variance du filtre Laplacien 3×3 sur la ROI
+/// Computes the 3x3 Laplacian filter variance over the ROI
 fn laplacian_variance(gray: &[u8], w: u32, h: u32, x1: u32, y1: u32, x2: u32, y2: u32) -> f32 {
     let mut vals: Vec<f32> = Vec::new();
 
@@ -147,7 +147,7 @@ fn laplacian_variance(gray: &[u8], w: u32, h: u32, x1: u32, y1: u32, x2: u32, y2
                 gray[(ny * w + nx) as usize] as f32
             };
 
-            // Noyau Laplacien : 0 -1 0 / -1 4 -1 / 0 -1 0
+            // Laplacian kernel: 0 -1 0 / -1 4 -1 / 0 -1 0
             let lap = 4.0 * p(0, 0) - p(-1, 0) - p(1, 0) - p(0, -1) - p(0, 1);
             vals.push(lap);
         }
@@ -161,7 +161,7 @@ fn laplacian_variance(gray: &[u8], w: u32, h: u32, x1: u32, y1: u32, x2: u32, y2
     vals.iter().map(|v| (v - mean).powi(2)).sum::<f32>() / vals.len() as f32
 }
 
-/// Calcule la moyenne et la variance de l'intensité dans la ROI
+/// Computes the mean and variance of intensity within the ROI
 fn intensity_stats(gray: &[u8], w: u32, x1: u32, y1: u32, x2: u32, y2: u32) -> (f32, f32) {
     let mut sum = 0.0f32;
     let mut count = 0usize;
@@ -192,7 +192,7 @@ fn intensity_stats(gray: &[u8], w: u32, x1: u32, y1: u32, x2: u32, y2: u32) -> (
     (mean, var)
 }
 
-/// Gradient moyen (magnitude Sobel) dans la ROI
+/// Mean gradient (Sobel magnitude) within the ROI
 fn gradient_mean(gray: &[u8], w: u32, h: u32, x1: u32, y1: u32, x2: u32, y2: u32) -> f32 {
     let mut sum = 0.0f32;
     let mut count = 0usize;
@@ -219,13 +219,13 @@ fn gradient_mean(gray: &[u8], w: u32, h: u32, x1: u32, y1: u32, x2: u32, y2: u32
     }
 }
 
-/// Transforme une valeur en score [0,1] via sigmoïde linéaire entre low et high
+/// Maps a value to a [0,1] score via a linear sigmoid between low and high
 #[inline]
 fn sigmoid_score(val: f32, low: f32, high: f32) -> f32 {
     ((val - low) / (high - low)).clamp(0.0, 1.0)
 }
 
-/// Score gaussien centré sur `center` avec écart-type `sigma`
+/// Gaussian score centered on `center` with standard deviation `sigma`
 #[inline]
 fn gaussian_score(val: f32, center: f32, sigma: f32) -> f32 {
     let d = (val - center) / sigma;
@@ -239,10 +239,10 @@ mod tests {
 
     #[test]
     fn test_liveness_flat_image() {
-        // Image IR plate (papier uni) → score bas
+        // Flat IR image (plain paper) -> low score
         let w = 64u32;
         let h = 64u32;
-        let gray = vec![120u8; (w * h) as usize]; // intensité uniforme
+        let gray = vec![120u8; (w * h) as usize]; // uniform intensity
         let face = FaceRegion {
             bounding_box: (8, 8, 48, 48),
             confidence: 0.9,
@@ -251,14 +251,14 @@ mod tests {
         let score = ir_liveness_score(&gray, w, h, &face);
         assert!(
             score < 0.55,
-            "Image plate devrait donner score bas: {}",
+            "Flat image should give a low score: {}",
             score
         );
     }
 
     #[test]
     fn test_liveness_noisy_image() {
-        // Image IR avec forte variance (vrai visage simulé) → score élevé
+        // IR image with high variance (simulated real face) -> high score
         let w = 64u32;
         let h = 64u32;
         let gray: Vec<u8> = (0..(w * h) as usize)
@@ -272,7 +272,7 @@ mod tests {
         let score = ir_liveness_score(&gray, w, h, &face);
         assert!(
             score > 0.4,
-            "Image texturée devrait donner score correct: {}",
+            "Textured image should give a correct score: {}",
             score
         );
     }

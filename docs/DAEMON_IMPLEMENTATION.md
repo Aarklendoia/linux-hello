@@ -1,94 +1,94 @@
-# Daemon d'Authentification Faciale - Implémentation Complète
+# Facial Authentication Daemon - Full Implementation
 
-## État actuel (MVP - Minimum Viable Product)
+## Current State (MVP - Minimum Viable Product)
 
-Le daemon `hello_daemon` est maintenant **pleinement implémenté** avec toutes les fonctionnalités critiques :
+The `hello_daemon` daemon is now **fully implemented** with all critical features:
 
-### 1. **Cœur du daemon** (`lib.rs`)
+### 1. **Daemon Core** (`lib.rs`)
 
-- ✅ Structure `FaceAuthDaemon` avec tous les composants (storage, camera, matcher)
-- ✅ Méthode `register_face()` : enregistre un nouveau visage
-  - Capture N frames via `CameraManager`
-  - Extrait les embeddings
-  - Crée un FaceRecord unique avec ID `face_{user_id}_{timestamp}`
-  - Sauvegarde dans le stockage
+- ✅ `FaceAuthDaemon` structure with all components (storage, camera, matcher)
+- ✅ `register_face()` method: enrolls a new face
+  - Captures N frames via `CameraManager`
+  - Extracts embeddings
+  - Creates a unique FaceRecord with ID `face_{user_id}_{timestamp}`
+  - Saves to storage
   
-- ✅ Méthode `verify()` : authentifie un utilisateur
-  - Charge les visages enregistrés pour cet utilisateur
-  - Capture une frame
-  - Compare via matching (similarité cosinus)
-  - Retourne `VerifyResult` (Success, NoMatch, NoEnrollment, etc.)
+- ✅ `verify()` method: authenticates a user
+  - Loads the enrolled faces for that user
+  - Captures a frame
+  - Compares via matching (cosine similarity)
+  - Returns `VerifyResult` (Success, NoMatch, NoEnrollment, etc.)
 
-- ✅ Méthode `delete_face()` : supprime un ou tous les visages
-  - Suppression granulaire par face_id
-  - Suppression complète si face_id = None
+- ✅ `delete_face()` method: deletes one or all faces
+  - Granular deletion by face_id
+  - Full deletion if face_id = None
 
-- ✅ Méthode `list_faces()` : énumère les visages enregistrés
+- ✅ `list_faces()` method: lists enrolled faces
 
-- ✅ Contrôle d'accès : vérification des permissions (UID courant vs target)
+- ✅ Access control: permission check (current UID vs target)
 
-### 2. **Gestion du stockage** (`storage.rs`)
+### 2. **Storage Management** (`storage.rs`)
 
-- ✅ Classe `FaceStorage` pour persistence
-- ✅ Structure hiérarchique : `{base_path}/users/{uid}/face_{id}.{meta,embedding}.json`
-- ✅ Sérialisation JSON pour embeddings (vecteur + métadonnées)
-- ✅ Sécurité : vérification path traversal
-- ✅ Tests unitaires : sauvegarde, chargement, suppression
+- ✅ `FaceStorage` class for persistence
+- ✅ Hierarchical structure: `{base_path}/users/{uid}/face_{id}.{meta,embedding}.json`
+- ✅ JSON serialization for embeddings (vector + metadata)
+- ✅ Security: path traversal check
+- ✅ Unit tests: save, load, delete
 
-### 3. **Abstraction caméra** (`camera.rs`)
+### 3. **Camera Abstraction** (`camera.rs`)
 
-- ✅ Classe `CameraManager` pour capturer des frames
-- ✅ `capture_frames(num_frames, timeout)` : capture N frames et extrait embeddings
-- ✅ Support metadata dans embeddings (model, version, quality_score, timestamp)
-- ✅ MVP : simulation de données (implémentation réelle plus tard)
-- ✅ Tests async avec Tokio
+- ✅ `CameraManager` class for capturing frames
+- ✅ `capture_frames(num_frames, timeout)`: captures N frames and extracts embeddings
+- ✅ Metadata support in embeddings (model, version, quality_score, timestamp)
+- ✅ MVP: data simulation (real implementation later)
+- ✅ Async tests with Tokio
 
-### 4. **Matcher et scoring** (`matcher.rs`)
+### 4. **Matcher and Scoring** (`matcher.rs`)
 
-- ✅ Classe `FaceMatcher` pour comparaison des embeddings
-- ✅ Similarité cosinus implémentée
-- ✅ Seuils contextuels :
-  - login : 0.65
-  - sudo : 0.70
-  - screenlock : 0.60
-  - sddm : 0.65
-  - test : 0.50 (default)
-- ✅ Retourne `MatchResult` avec face_id, scores, et décision matched/no-match
-- ✅ Tests des calculs de similarité
+- ✅ `FaceMatcher` class for comparing embeddings
+- ✅ Cosine similarity implemented
+- ✅ Contextual thresholds:
+  - login: 0.65
+  - sudo: 0.70
+  - screenlock: 0.60
+  - sddm: 0.65
+  - test: 0.50 (default)
+- ✅ Returns `MatchResult` with face_id, scores, and matched/no-match decision
+- ✅ Similarity calculation tests
 
-### 5. **Interface D-Bus** (`dbus_interface.rs`)
+### 5. **D-Bus Interface** (`dbus_interface.rs`)
 
-- ✅ Types sérialisables pour requêtes/réponses :
+- ✅ Serializable types for requests/responses:
   - `RegisterFaceRequest/Response`
   - `DeleteFaceRequest`
   - `VerifyRequest/Result`
   - `ListFacesRequest`
   
-- ✅ Interface D-Bus `com.linuxhello.FaceAuth` avec méthodes :
+- ✅ `com.linuxhello.FaceAuth` D-Bus interface with methods:
   - `register_face(request_json) -> response_json`
   - `verify(request_json) -> result_json`
   - `delete_face(request_json) -> ()`
   - `list_faces(user_id) -> faces_json`
   - `ping() -> "pong"`
   
-- ✅ Propriétés :
-  - `version` : version du daemon
-  - `camera_available` : détection caméra
+- ✅ Properties:
+  - `version`: daemon version
+  - `camera_available`: camera detection
 
-### 6. **Binaire daemon** (`main.rs`)
+### 6. **Daemon Binary** (`main.rs`)
 
-- ✅ CLI avec arguments :
-  - `-s/--storage-path` : chemin stockage personnalisé
-  - `-d/--debug` : verbosité logs
-  - `--similarity-threshold` : seuil par défaut
+- ✅ CLI with arguments:
+  - `-s/--storage-path`: custom storage path
+  - `-d/--debug`: log verbosity
+  - `--similarity-threshold`: default threshold
   
-- ✅ Initialisation tracing (logs avec environment filter)
-- ✅ Startup en mode user ou root selon getuid()
+- ✅ Tracing initialization (logs with environment filter)
+- ✅ Startup in user or root mode depending on getuid()
 
-### 7. **Tests et qualité**
+### 7. **Tests and Quality**
 
 ```
-✅ 12/12 tests passent
+✅ 12/12 tests passing
 - config default
 - face record serialization
 - storage (save, load, list, delete)
@@ -97,75 +97,75 @@ Le daemon `hello_daemon` est maintenant **pleinement implémenté** avec toutes 
 - dbus interface (requests serialization, result display)
 ```
 
-## Architecture du flux d'authentification
+## Authentication Flow Architecture
 
 ```
-Utilisateur login/sudo
+User login/sudo
     ↓
-PAM appelle : daemon.verify(user_id, context, timeout_ms)
+PAM calls: daemon.verify(user_id, context, timeout_ms)
     ↓
 Daemon:
-  1. Charge les embeddings enregistrés du user
-  2. Demande à CameraManager de capturer une frame
-  3. Extrait embedding via simulation (plus tard: vrais modèles)
-  4. Compare avec FaceMatcher (cosinus similarity)
-  5. Compare au seuil contexte
+  1. Loads the user's enrolled embeddings
+  2. Asks CameraManager to capture a frame
+  3. Extracts embedding via simulation (later: real models)
+  4. Compares with FaceMatcher (cosine similarity)
+  5. Compares against the context threshold
     ↓
-Retourne: Success(face_id, score) ou NoMatch(score, threshold) ou autres
+Returns: Success(face_id, score) or NoMatch(score, threshold) or others
     ↓
-PAM interprète et valide/refuse l'authentification
+PAM interprets and grants/denies authentication
 ```
 
-## Prochaines étapes
+## Next Steps
 
-1. **Implémentation D-Bus réelle** :
-   - Exposer `FaceAuthDaemon` comme service D-Bus
-   - Déserialiser JSON des requêtes, appeler les méthodes, retourner JSON
+1. **Real D-Bus implementation**:
+   - Expose `FaceAuthDaemon` as a D-Bus service
+   - Deserialize request JSON, call the methods, return JSON
 
-2. **Intégration module PAM** :
-   - Lier le module PAM au daemon via D-Bus client
-   - Gérer la conversion PAM <-> JSON
+2. **PAM Module Integration**:
+   - Link the PAM module to the daemon via a D-Bus client
+   - Handle PAM <-> JSON conversion
 
-3. **Détection/extraction réelle** :
-   - Intégrer un modèle face detection (ONNX/TensorFlow)
-   - Remplacer les simulations dans `CameraManager`
+3. **Real Detection/Extraction**:
+   - Integrate a face detection model (ONNX/TensorFlow)
+   - Replace the simulations in `CameraManager`
 
-4. **Caméra réelle** :
-   - Utiliser `hello_camera` pour V4L2/PipeWire effectifs
-   - Gérer les buffers vidéo
+4. **Real Camera**:
+   - Use `hello_camera` for actual V4L2/PipeWire support
+   - Handle video buffers
 
-5. **Interface GUI** (Qt6/Kirigami) :
-   - Enregistrement graphique
-   - Test de reconnaissance
-   - Configuration par contexte
+5. **GUI Interface** (Qt6/Kirigami):
+   - Graphical enrollment
+   - Recognition testing
+   - Per-context configuration
 
-6. **Intégration système** :
+6. **System Integration**:
    - Systemd user service
-   - Installation PAM
-   - Permissions et ACL
+   - PAM installation
+   - Permissions and ACLs
 
-## Compilation et tests
+## Building and Testing
 
 ```bash
-# Compiler le daemon
+# Build the daemon
 cargo build -p hello_daemon
 
-# Tests unitaires (12/12 pass)
+# Unit tests (12/12 pass)
 cargo test -p hello_daemon --lib
 
-# Binaire standalone
+# Standalone binary
 ./target/debug/hello-daemon --help
 ```
 
-## Dépendances clés
+## Key Dependencies
 
-- `tokio` : runtime async
-- `zbus` : D-Bus (bindings Rust)
-- `serde/serde_json` : sérialisation
-- `hello_face_core` : types et traits
-- `hello_camera` : abstraction caméra
-- `tracing` : logging structuré
+- `tokio`: async runtime
+- `zbus`: D-Bus (Rust bindings)
+- `serde/serde_json`: serialization
+- `hello_face_core`: types and traits
+- `hello_camera`: camera abstraction
+- `tracing`: structured logging
 
 ---
 
-Le daemon est **prêt pour l'intégration D-Bus et PAM**. La structure est solide et extensible.
+The daemon is **ready for D-Bus and PAM integration**. The structure is solid and extensible.

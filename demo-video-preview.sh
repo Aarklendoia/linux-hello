@@ -1,24 +1,24 @@
 #!/bin/bash
-# Script de démonstration : capture vidéo en direct et affichage de l'aperçu
+# Demo script: live video capture and preview display
 
 set -e
 
-echo "🎬 Démonstration: Aperçu vidéo en direct Linux Hello"
+echo "🎬 Demo: Linux Hello live video preview"
 echo ""
 
-# Lancer le daemon si nécessaire
+# Start the daemon if needed
 if ! systemctl --user is-active --quiet hello-daemon; then
-    echo "▶️  Démarrage du daemon..."
+    echo "▶️  Starting the daemon..."
     systemctl --user start hello-daemon
     sleep 2
 fi
 
-echo "📸 Appel de StartCaptureStream via D-Bus..."
+echo "📸 Calling StartCaptureStream via D-Bus..."
 echo "   user_id=1000, num_frames=100, timeout=15000ms"
 echo ""
 
-# Démarrer la capture vidéo
-# Paramètres: user_id (uint32)=1000, num_frames (uint32)=100, timeout_ms (uint64)=15000
+# Start video capture
+# Parameters: user_id (uint32)=1000, num_frames (uint32)=100, timeout_ms (uint64)=15000
 RESULT=$(dbus-send --print-reply \
     --session \
     --dest=com.linuxhello.FaceAuth \
@@ -27,41 +27,41 @@ RESULT=$(dbus-send --print-reply \
     uint32:1000 \
     uint32:100 \
     uint64:15000 2>&1) || {
-    echo "⚠️  Appel D-Bus échoué:"
+    echo "⚠️  D-Bus call failed:"
     echo "$RESULT" | head -5
     echo ""
 }
 
-echo "$RESULT" | grep -E "string|OK" && echo "✅ Appel lancé avec succès" || echo "⚠️  Pas de confirmation"
+echo "$RESULT" | grep -E "string|OK" && echo "✅ Call launched successfully" || echo "⚠️  No confirmation"
 
 echo ""
-echo "⏳ Attente de quelques frames... (5 secondes)"
+echo "⏳ Waiting for a few frames... (5 seconds)"
 sleep 5
 
-# Vérifier que le fichier preview a été créé
+# Check that the preview file was created
 if [ -f /tmp/linux-hello-preview.jpg ]; then
     SIZE=$(du -h /tmp/linux-hello-preview.jpg | cut -f1)
-    echo "✅ Fichier d'aperçu créé: /tmp/linux-hello-preview.jpg ($SIZE)"
+    echo "✅ Preview file created: /tmp/linux-hello-preview.jpg ($SIZE)"
     echo ""
-    
-    # Afficher les informations de l'image
-    echo "📊 Détails de l'image:"
+
+    # Show image details
+    echo "📊 Image details:"
     file /tmp/linux-hello-preview.jpg || true
-    identify /tmp/linux-hello-preview.jpg 2>/dev/null || echo "   (ImageMagick non installé)"
+    identify /tmp/linux-hello-preview.jpg 2>/dev/null || echo "   (ImageMagick not installed)"
 else
-    echo "❌ Fichier d'aperçu non trouvé"
+    echo "❌ Preview file not found"
 fi
 
 echo ""
-echo "▶️  Arrêt de la capture..."
+echo "▶️  Stopping the capture..."
 dbus-send --print-reply \
     --session \
     --dest=com.linuxhello.FaceAuth \
     /com/linuxhello/FaceAuth \
     com.linuxhello.FaceAuth.StopCaptureStream 2>/dev/null || true
 
-echo "✅ Démo terminée"
+echo "✅ Demo complete"
 echo ""
-echo "💡 Vous pouvez maintenant lancer la GUI:"
+echo "💡 You can now launch the GUI:"
 echo "   linux-hello-config"
 echo ""

@@ -14,13 +14,13 @@ resolver = "2"
 opt-level = 3
 lto = true
 codegen-units = 1
-# abort : pas de dépilage à la sortie. Pour le daemon : crash immédiat → redémarrage systemd.
-# Pour pam_linux_hello (cdylib) : évite les atexit handlers Rust qui conflictuent
-# avec le runtime hôte (rust-sudo-rs) et provoquent un SIGSEGV.
+# abort: no unwinding on exit. For the daemon: immediate crash → systemd restart.
+# For pam_linux_hello (cdylib): avoids Rust atexit handlers that conflict
+# with the host runtime (rust-sudo-rs) and cause a SIGSEGV.
 panic = "abort"
 
-# Profil CI : compilation rapide, pas d'optimisations release
-# Évite le timeout d'1h causé par LTO + codegen-units=1
+# CI profile: fast compilation, no release optimizations
+# Avoids the 1h timeout caused by LTO + codegen-units=1
 [profile.ci]
 inherits = "test"
 opt-level = 1
@@ -80,12 +80,12 @@ sqlx = { version = "0.9", features = [
 sha2 = "0.11"
 rand = "0.10"
 
-# ML inference (pur Rust, zero dépendance native)
+# ML inference (pure Rust, zero native dependency)
 tract-onnx = "0.23"
 tract-core = "0.23"
 
-# ONNX Runtime via liaison dynamique (libonnxruntime.so.1.23)
-# api-23 correspond à ONNX Runtime 1.23.x installé sur le système
+# ONNX Runtime via dynamic linking (libonnxruntime.so.1.23)
+# api-23 matches the ONNX Runtime 1.23.x installed on the system
 ort = { version = "2.0.0-rc.12", features = [
     "load-dynamic",
     "ndarray",

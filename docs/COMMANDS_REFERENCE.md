@@ -1,54 +1,54 @@
-# Commandes Utiles - Linux Hello Project
+# Useful Commands - Linux Hello Project
 
-## 🏗️ Construction & Compilation
+## 🏗️ Build & Compilation
 
-### Build Release (Optimisé)
+### Release Build (Optimized)
 
 ```bash
 cargo build --release
 ```
 
-**Résultat**: Binaires optimisés dans `target/release/`
-**Temps**: ~52 secondes
-**Binaires**:
+**Result**: Optimized binaries in `target/release/`
+**Time**: ~52 seconds
+**Binaries**:
 
-- `hello-daemon` - Daemon PAM et D-Bus
+- `hello-daemon` - PAM and D-Bus daemon
 - `linux-hello` - CLI tool
 - `linux-hello-config` - GUI (Iced/Wayland)
 - `libpam_linux_hello.so` - PAM module
 
-### Build Debug (Développement)
+### Debug Build (Development)
 
 ```bash
 cargo build
 ```
 
-**Résultat**: Binaires avec symboles de debug
-**Temps**: ~1-2 minutes
-**Avantage**: Plus rapide à compiler, meilleur debugging
+**Result**: Binaries with debug symbols
+**Time**: ~1-2 minutes
+**Advantage**: Faster to compile, better debugging
 
-### Quick Check (Sans Linking)
+### Quick Check (No Linking)
 
 ```bash
 cargo check
 cargo check --release
 ```
 
-**Temps**: <1 seconde
-**Utilité**: Vérifier les erreurs rapidement sans compiler
+**Time**: <1 second
+**Use**: Check for errors quickly without compiling
 
 ---
 
 ## 🧪 Tests
 
-### Tous les Tests
+### All Tests
 
 ```bash
 cargo test --release
-# Résultat: 35 tests, tous ✅
+# Result: 35 tests, all ✅
 ```
 
-### Tests d'un Crate Spécifique
+### Tests for a Specific Crate
 
 ```bash
 cargo test --release -p hello_daemon
@@ -56,20 +56,20 @@ cargo test --release -p linux_hello_config
 cargo test --release -p hello_face_core
 ```
 
-### Un Test Unique
+### A Single Test
 
 ```bash
 cargo test --release preview::tests::test_get_display_data_with_frame
 cargo test --release camera::tests::test_start_capture_stream
 ```
 
-### Avec Output (Non-capturé)
+### With Output (Not Captured)
 
 ```bash
 cargo test --release -- --nocapture
 ```
 
-### Couverture de Code (Llvm-cov)
+### Code Coverage (Llvm-cov)
 
 ```bash
 cargo tarpaulin --release
@@ -79,22 +79,22 @@ cargo tarpaulin --release
 
 ## 📦 Installation
 
-### Binaires locaux
+### Local Binaries
 
 ```bash
 # Release build
 cargo build --release
 
-# Dans target/release/
-./target/release/hello-daemon    # Lancer le daemon
+# In target/release/
+./target/release/hello-daemon    # Start the daemon
 ./target/release/linux-hello     # CLI client
 ./target/release/linux-hello-config  # GUI
 ```
 
-### Package Debian (Phase B)
+### Debian Package (Phase B)
 
 ```bash
-# Généré dans debian/
+# Generated in debian/
 dpkg -i libpam-linux-hello_*.deb
 dpkg -i linux-hello_*.deb
 dpkg -i linux-hello-daemon_*.deb
@@ -103,29 +103,29 @@ dpkg -i linux-hello-tools_*.deb
 
 ---
 
-## 🚀 Exécution
+## 🚀 Running
 
 ### Daemon
 
 ```bash
-# Terminal 1 - Lancer le daemon
+# Terminal 1 - Start the daemon
 ./target/release/hello-daemon
 
-# Avec logs de debug
+# With debug logs
 RUST_LOG=debug ./target/release/hello-daemon
 ```
 
 ### GUI (KDE/Wayland)
 
 ```bash
-# Terminal 2 - Lancer la GUI
+# Terminal 2 - Start the GUI
 ./target/release/linux-hello-config
 ```
 
 ### CLI Client
 
 ```bash
-# Terminal 2 - Tester via D-Bus
+# Terminal 2 - Test via D-Bus
 ./target/release/linux-hello \
   --user testuser \
   --timeout 5000 \
@@ -141,7 +141,7 @@ RUST_LOG=debug ./target/release/hello-daemon
 ```bash
 # Build release
 time cargo build --release
-# → ~52 secondes
+# → ~52 seconds
 
 # Run tests
 time cargo test --release
@@ -149,44 +149,44 @@ time cargo test --release
 
 # Check only
 time cargo check
-# → <1 seconde
+# → <1 second
 
 # Test specific
 time cargo test --release camera::
-# → ~0.2 secondes
+# → ~0.2 seconds
 ```
 
 ---
 
 ## 🔍 Debugging
 
-### Voir les Warnings Détaillés
+### View Detailed Warnings
 
 ```bash
 cargo check 2>&1 | grep "warning:"
 ```
 
-### Voir les Erreurs Détaillés
+### View Detailed Errors
 
 ```bash
 cargo build 2>&1 | grep "error:"
 cargo check 2>&1 | grep "error:"
 ```
 
-### Clippy (Lint Avancé)
+### Clippy (Advanced Lint)
 
 ```bash
 cargo clippy --release
 cargo clippy --fix
 ```
 
-### Documenter & Ouvrir Docs
+### Document & Open Docs
 
 ```bash
 cargo doc --open
 ```
 
-### Voir les Dépendances
+### View Dependencies
 
 ```bash
 cargo tree
@@ -197,19 +197,19 @@ cargo outdated
 
 ## 📝 Documentation
 
-### Générer les Docs
+### Generate the Docs
 
 ```bash
 cargo doc --release --no-deps
 ```
 
-### Générer et Ouvrir
+### Generate and Open
 
 ```bash
 cargo doc --open
 ```
 
-### Voir les Doctests
+### View the Doctests
 
 ```bash
 cargo test --doc
@@ -217,21 +217,21 @@ cargo test --doc
 
 ---
 
-## 🧹 Nettoyage
+## 🧹 Cleanup
 
-### Supprimer les Artefacts
+### Remove the Artifacts
 
 ```bash
 cargo clean
 ```
 
-### Supprimer les Logs
+### Remove the Logs
 
 ```bash
 rm -rf target/
 ```
 
-### Supprimer les Built Packages
+### Remove the Built Packages
 
 ```bash
 rm -rf debian/linux-hello*/
@@ -240,19 +240,19 @@ rm -rf debian/libpam*/
 
 ---
 
-## 📋 Commandes Utiles Quotidiennes
+## 📋 Useful Daily Commands
 
-### Check & Test Rapide (Development)
+### Quick Check & Test (Development)
 
 ```bash
-# Moins de 5 secondes
+# Less than 5 seconds
 cargo check && cargo test --lib
 ```
 
-### Build Complet & Test
+### Full Build & Test
 
 ```bash
-# Environ 55 secondes
+# About 55 seconds
 cargo build --release && cargo test --release
 ```
 
@@ -272,29 +272,29 @@ cargo outdated
 
 ---
 
-## 🐛 Debugging Avancé
+## 🐛 Advanced Debugging
 
-### Avec GDB
+### With GDB
 
 ```bash
 rust-gdb ./target/release/hello-daemon
-# Dans gdb:
+# In gdb:
 # (gdb) b main
 # (gdb) run
 # (gdb) n
 ```
 
-### Avec LLDB
+### With LLDB
 
 ```bash
 lldb ./target/release/hello-daemon
-# Dans lldb:
+# In lldb:
 # (lldb) b main
 # (lldb) r
 # (lldb) n
 ```
 
-### Avec Valgrind (Memory)
+### With Valgrind (Memory)
 
 ```bash
 valgrind --leak-check=full ./target/release/hello-daemon
@@ -313,10 +313,10 @@ strace ./target/release/hello-daemon
 ### Build Debian Package
 
 ```bash
-# Voir Makefile
+# See Makefile
 make build-debian
 
-# Ou manuellement
+# Or manually
 dpkg-deb --build debian/linux-hello debian/
 ```
 
@@ -348,31 +348,31 @@ RUST_LOG=info,hello_daemon=debug cargo build
 ### Features Flag
 
 ```bash
-# Build avec fonctionnalités optionnelles
+# Build with optional features
 cargo build --release --features "feature1,feature2"
 ```
 
 ---
 
-## 📊 Statistiques du Code
+## 📊 Code Statistics
 
-### Compter les Lignes de Code
+### Count Lines of Code
 
 ```bash
-# Rust seulement
+# Rust only
 find . -name "*.rs" -type f | xargs wc -l | tail -1
 
-# Sans dépendances
+# Without dependencies
 find . -path ./target -prune -o -name "*.rs" -type f -print | xargs wc -l
 ```
 
-### Voir les TODO Comments
+### View TODO Comments
 
 ```bash
 grep -r "TODO\|FIXME\|XXX\|HACK" --include="*.rs" .
 ```
 
-### Complexité Cyclomatique
+### Cyclomatic Complexity
 
 ```bash
 cargo install cargo-cyclomatic
@@ -383,7 +383,7 @@ cargo cyclomatic
 
 ## 🎯 Git Workflow
 
-### Voir les Changements
+### View Changes
 
 ```bash
 git status
@@ -407,57 +407,57 @@ git push origin v0.3.3
 
 ---
 
-## 🚨 Résolution de Problèmes
+## 🚨 Troubleshooting
 
-### Le projet ne compile pas
+### The project doesn't compile
 
 ```bash
-# 1. Clean complètement
+# 1. Clean completely
 cargo clean
 
-# 2. Vérifier les dépendances
+# 2. Check dependencies
 cargo update
 
-# 3. Reconstruire
+# 3. Rebuild
 cargo build --release
 ```
 
-### Tests échouent
+### Tests fail
 
 ```bash
-# 1. Exécuter un test spécifique
+# 1. Run a specific test
 cargo test test_name -- --nocapture
 
-# 2. Voir les logs
+# 2. View the logs
 RUST_LOG=debug cargo test test_name
 
-# 3. Vérifier la mémoire
+# 3. Check memory
 valgrind --leak-check=full cargo test
 ```
 
-### Artefacts de build stale
+### Stale build artifacts
 
 ```bash
-# Nettoyer les incrémentaux
+# Clean the incrementals
 cargo clean
 cargo build --release
 
-# Ou juste le crate problématique
+# Or just the problematic crate
 cargo clean -p hello_daemon
 cargo build -p hello_daemon --release
 ```
 
 ---
 
-## 📚 Ressources Utiles
+## 📚 Useful Resources
 
-### Documentation Locale
+### Local Documentation
 
 ```bash
-# Ouvrir les docs du projet
+# Open the project docs
 cargo doc --open
 
-# Docs des dépendances
+# Dependency docs
 # https://docs.rs/ (web)
 ```
 
@@ -470,9 +470,9 @@ cargo doc --open
 
 ---
 
-## ⚙️ Configuration Système (Linux)
+## ⚙️ System Configuration (Linux)
 
-### Installer les dépendances de build
+### Install build dependencies
 
 ```bash
 # Ubuntu/Debian
@@ -494,61 +494,61 @@ sudo dnf install \
   wayland-devel
 ```
 
-### Permissions pour Camera
+### Camera Permissions
 
 ```bash
-# Ajouter l'utilisateur au groupe video
+# Add the user to the video group
 sudo usermod -a -G video $USER
 
-# Redémarrer la session ou:
+# Restart the session or:
 newgrp video
 ```
 
-### Permission pour PAM
+### Permission for PAM
 
 ```bash
-# Donner les permissions appropriées au module PAM
+# Give the appropriate permissions to the PAM module
 sudo chown root:root /usr/lib/x86_64-linux-gnu/libpam_linux_hello.so
 sudo chmod 755 /usr/lib/x86_64-linux-gnu/libpam_linux_hello.so
 ```
 
 ---
 
-## 📖 Commandes par Scénario
+## 📖 Commands by Scenario
 
-### "Je veux juste vérifier que tout compile"
+### "I just want to check that everything compiles"
 
 ```bash
 cargo check --release
 ```
 
-### "Je veux vérifier tous les tests"
+### "I want to check all the tests"
 
 ```bash
 cargo test --release
 ```
 
-### "Je veux builder et exécuter"
+### "I want to build and run"
 
 ```bash
 cargo build --release
 ./target/release/linux-hello-config
 ```
 
-### "Je veux créer un package Debian"
+### "I want to create a Debian package"
 
 ```bash
 make build-debian
-# Ou voir debian/rules pour plus de contrôle
+# Or see debian/rules for more control
 ```
 
-### "Je veux debugger un test"
+### "I want to debug a test"
 
 ```bash
 RUST_LOG=debug cargo test test_name -- --nocapture
 ```
 
-### "Je veux voir si le code est maintien propre"
+### "I want to see if the code stays clean"
 
 ```bash
 cargo fmt --check
@@ -558,5 +558,5 @@ cargo clippy --release
 ---
 
 **Version**: 0.3.3
-**Dernière mise à jour**: 2026-01-XX
-**Pour Phase**: 3.3 (Preview Rendering)
+**Last updated**: 2026-01-XX
+**For Phase**: 3.3 (Preview Rendering)

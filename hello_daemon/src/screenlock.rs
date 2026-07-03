@@ -1,11 +1,11 @@
-//! Surveillance du verrouillage d'écran et authentification faciale automatique
+//! Screen lock monitoring and automatic facial authentication
 //!
-//! Interroge org.freedesktop.ScreenSaver.GetActive() toutes les 500 ms pour détecter
-//! le verrouillage. Quand l'écran se verrouille, déclenche l'auth faciale sans que
-//! l'utilisateur appuie sur Entrée. Si le visage est reconnu, déverrouille via loginctl.
+//! Polls org.freedesktop.ScreenSaver.GetActive() every 500 ms to detect
+//! locking. When the screen locks, triggers facial auth without the user
+//! having to press Enter. If the face is recognized, unlocks via loginctl.
 //!
-//! On utilise le polling plutôt que la souscription au signal ActiveChanged pour éviter
-//! une dépendance conflictuelle sur futures-util (pinné à 0.3.32 par sqlx).
+//! Polling is used instead of subscribing to the ActiveChanged signal to avoid
+//! a conflicting dependency on futures-util (pinned to 0.3.32 by sqlx).
 
 use crate::dbus_interface::{VerifyRequest, VerifyResult};
 use crate::FaceAuthDaemon;
@@ -14,7 +14,7 @@ use tokio::sync::RwLock;
 use tracing::{error, info, warn};
 use zbus::proxy;
 
-/// Proxy pour org.freedesktop.ScreenSaver (bus session, chemin standard KDE)
+/// Proxy for org.freedesktop.ScreenSaver (session bus, standard KDE path)
 #[proxy(
     interface = "org.freedesktop.ScreenSaver",
     default_service = "org.freedesktop.ScreenSaver",
@@ -22,27 +22,27 @@ use zbus::proxy;
     gen_blocking = false
 )]
 trait ScreenSaver {
-    /// Retourne true si l'écran est actuellement verrouillé.
+    /// Returns true if the screen is currently locked.
     fn get_active(&self) -> zbus::Result<bool>;
 }
 
-/// Démarrer la surveillance du verrouillage d'écran.
+/// Start monitoring the screen lock.
 ///
-/// Retourne immédiatement ; la boucle de surveillance tourne dans une tâche tokio dédiée.
+/// Returns immediately; the monitoring loop runs in a dedicated tokio task.
 pub async fn start_screenlock_watcher(
     daemon: Arc<RwLock<FaceAuthDaemon>>,
     user_id: u32,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let session_id = get_session_id();
     info!(
-        "Démarrage surveillance écran (uid={}, session={})",
+        "Starting screen monitoring (uid={}, session={})",
         user_id, session_id
     );
 
     let connection = zbus::Connection::session().await?;
     let proxy = ScreenSaverProxy::new(&connection).await?;
 
-    // Vérifier que le proxy répond avant de lancer la boucle
+    // Verify that the proxy responds before starting the loop
     let _ = proxy.get_active().await?;
 
     tokio::spawn(async move {
@@ -52,7 +52,7 @@ pub async fn start_screenlock_watcher(
     Ok(())
 }
 
-/// Boucle principale : polling toutes les 500 ms, détection des transitions lock/unlock.
+/// Main loop: polling every 500 ms, detecting lock/unlock transitions.
 async fn screenlock_loop(
     proxy: ScreenSaverProxy<'_>,
     daemon: Arc<RwLock<FaceAuthDaemon>>,
@@ -60,10 +60,10 @@ async fn screenlock_loop(
     session_id: String,
 ) {
     let mut was_active = false;
-    // auth_running empêche de lancer plusieurs auths simultanées (ex: verrouillage rapide)
+    // auth_running prevents launching multiple simultaneous auths (e.g. rapid locking)
     let mut auth_running = false;
 
-    info!("Surveillance verrouillage d'écran active (polling 500 ms)");
+    info!("Screen lock monitoring active (polling 500 ms)");
 
     loop {
         tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
@@ -71,15 +71,15 @@ async fn screenlock_loop(
         let is_active = match proxy.get_active().await {
             Ok(v) => v,
             Err(e) => {
-                warn!("ScreenSaver.GetActive() error: {} — retry dans 2 s", e);
+                warn!("ScreenSaver.GetActive() error: {} — retrying in 2s", e);
                 tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
                 continue;
             }
         };
 
         if is_active && !was_active {
-            // Transition → verrouillé
-            info!("Écran verrouillé détecté → lancement auth faciale automatique");
+            // Transition → locked
+            info!("Screen lock detected → launching automatic facial auth");
             was_active = true;
 
             if !auth_running {
@@ -92,25 +92,25 @@ async fn screenlock_loop(
                 });
             }
         } else if !is_active && was_active {
-            // Transition → déverrouillé (par visage ou mot de passe)
-            info!("Écran déverrouillé");
+            // Transition → unlocked (via face or password)
+            info!("Screen unlocked");
             was_active = false;
             auth_running = false;
         }
     }
 }
 
-/// Tenter une authentification faciale et déverrouiller si succès.
+/// Attempt facial authentication and unlock on success.
 async fn try_face_unlock(
     daemon: Arc<RwLock<FaceAuthDaemon>>,
     user_id: u32,
     session_id: &str,
 ) {
-    // Laisser le temps au lock screen de s'afficher complètement.
+    // Give the lock screen time to fully render.
     tokio::time::sleep(tokio::time::Duration::from_millis(1200)).await;
 
     info!(
-        "Auth faciale automatique pour uid={} (context=screenlock, timeout=12 s)",
+        "Automatic facial auth for uid={} (context=screenlock, timeout=12s)",
         user_id
     );
 
@@ -130,36 +130,36 @@ async fn try_face_unlock(
             similarity_score,
         }) => {
             info!(
-                "Visage reconnu (id={}, score={:.3}) → déverrouillage",
+                "Face recognized (id={}, score={:.3}) → unlocking",
                 face_id, similarity_score
             );
             if let Err(e) = unlock_session(session_id).await {
-                error!("Échec déverrouillage loginctl: {}", e);
+                error!("loginctl unlock failed: {}", e);
             }
         }
         Ok(VerifyResult::NoEnrollment) => {
             info!(
-                "Aucun visage enregistré pour uid={} — pas d'auth automatique",
+                "No face registered for uid={} — no automatic auth",
                 user_id
             );
         }
         Ok(other) => {
             info!(
-                "Auth faciale non concluante ({}): l'utilisateur peut entrer son mot de passe",
+                "Facial auth inconclusive ({}): the user can enter their password",
                 other
             );
         }
         Err(e) => {
             warn!(
-                "Erreur auth faciale: {} — l'utilisateur peut entrer son mot de passe",
+                "Facial auth error: {} — the user can enter their password",
                 e
             );
         }
     }
 }
 
-/// Déverrouiller la session KDE via loginctl.
-/// loginctl envoie org.freedesktop.login1.Session.Unlock → kscreenlocker se ferme.
+/// Unlock the KDE session via loginctl.
+/// loginctl sends org.freedesktop.login1.Session.Unlock → kscreenlocker closes.
 async fn unlock_session(session_id: &str) -> Result<(), String> {
     let output = tokio::process::Command::new("loginctl")
         .args(["unlock-session", session_id])
@@ -168,7 +168,7 @@ async fn unlock_session(session_id: &str) -> Result<(), String> {
         .map_err(|e| format!("spawn loginctl: {}", e))?;
 
     if output.status.success() {
-        info!("loginctl unlock-session {} : succès", session_id);
+        info!("loginctl unlock-session {}: success", session_id);
         Ok(())
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -180,8 +180,8 @@ async fn unlock_session(session_id: &str) -> Result<(), String> {
     }
 }
 
-/// Obtenir le session ID logind du processus courant.
-/// Priorité : $XDG_SESSION_ID → loginctl list-sessions (première session de l'utilisateur).
+/// Get the logind session ID of the current process.
+/// Priority: $XDG_SESSION_ID → loginctl list-sessions (user's first session).
 fn get_session_id() -> String {
     if let Ok(id) = std::env::var("XDG_SESSION_ID") {
         if !id.is_empty() {
@@ -189,7 +189,7 @@ fn get_session_id() -> String {
         }
     }
 
-    // Fallback synchrone au démarrage
+    // Synchronous fallback at startup
     if let Ok(output) = std::process::Command::new("loginctl")
         .args(["--no-legend", "--no-pager", "list-sessions"])
         .output()
@@ -198,7 +198,7 @@ fn get_session_id() -> String {
         let uid = unsafe { libc::getuid() };
         for line in stdout.lines() {
             let parts: Vec<&str> = line.split_whitespace().collect();
-            // Format : SESSION_ID UID USER SEAT ...
+            // Format: SESSION_ID UID USER SEAT ...
             if parts.len() >= 2 {
                 if let Ok(line_uid) = parts[1].parse::<u32>() {
                     if line_uid == uid {

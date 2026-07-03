@@ -1,45 +1,45 @@
-//! Types et structures pour le streaming de capture en direct
+//! Types and structures for live capture streaming
 //!
-//! Fournit les événements et structures pour afficher une preview
-//! en temps réel avec détection de visage
+//! Provides the events and structures to display a real-time
+//! preview with face detection
 
 use serde::{Deserialize, Serialize};
 
-/// Événement d'une frame capturée pendant l'enregistrement
+/// Event for a frame captured during enrollment
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CaptureFrameEvent {
-    /// Numéro de la frame (0-indexed)
+    /// Frame number (0-indexed)
     pub frame_number: u32,
 
-    /// Nombre total de frames à capturer
+    /// Total number of frames to capture
     pub total_frames: u32,
 
-    /// Données brutes RGB (640×480×3)
-    /// Note: Pour transmission D-Bus, peut être compressée en JPEG
+    /// Raw RGB data (640x480x3)
+    /// Note: for D-Bus transmission, may be compressed to JPEG
     pub frame_data: Vec<u8>,
 
-    /// Largeur de l'image
+    /// Image width
     pub width: u32,
 
-    /// Hauteur de l'image
+    /// Image height
     pub height: u32,
 
-    /// Un visage a-t-il été détecté?
+    /// Was a face detected?
     pub face_detected: bool,
 
-    /// Bounding box du visage détecté (x, y, width, height)
-    /// None si aucun visage
+    /// Bounding box of the detected face (x, y, width, height)
+    /// None if no face
     pub face_box: Option<FaceBox>,
 
-    /// Score de qualité de cette frame (0.0-1.0)
+    /// Quality score of this frame (0.0-1.0)
     pub quality_score: f32,
 
-    /// Timestamp de capture (ms depuis début)
+    /// Capture timestamp (ms since start)
     pub timestamp_ms: u64,
 }
 
 impl CaptureFrameEvent {
-    /// Créer un nouvel événement de frame
+    /// Create a new frame event
     pub fn new(frame_number: u32, total_frames: u32, width: u32, height: u32) -> Self {
         Self {
             frame_number,
@@ -54,7 +54,7 @@ impl CaptureFrameEvent {
         }
     }
 
-    /// Progres en pourcentage (0-100)
+    /// Progress in percent (0-100)
     pub fn progress_percent(&self) -> u32 {
         if self.total_frames == 0 {
             return 0;
@@ -62,33 +62,33 @@ impl CaptureFrameEvent {
         ((self.frame_number + 1) * 100) / self.total_frames
     }
 
-    /// Est-ce la dernière frame?
+    /// Is this the last frame?
     pub fn is_last_frame(&self) -> bool {
         self.frame_number + 1 >= self.total_frames
     }
 }
 
-/// Bounding box d'un visage détecté
+/// Bounding box of a detected face
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub struct FaceBox {
-    /// Position X du coin supérieur gauche
+    /// X position of the top-left corner
     pub x: u32,
 
-    /// Position Y du coin supérieur gauche
+    /// Y position of the top-left corner
     pub y: u32,
 
-    /// Largeur du rectangle
+    /// Rectangle width
     pub width: u32,
 
-    /// Hauteur du rectangle
+    /// Rectangle height
     pub height: u32,
 
-    /// Confiance de la détection (0.0-1.0)
+    /// Detection confidence (0.0-1.0)
     pub confidence: f32,
 }
 
 impl FaceBox {
-    /// Créer une nouvelle bounding box
+    /// Create a new bounding box
     pub fn new(x: u32, y: u32, width: u32, height: u32, confidence: f32) -> Self {
         Self {
             x,
@@ -99,68 +99,68 @@ impl FaceBox {
         }
     }
 
-    /// Centrer la box dans une image
+    /// Center the box within an image
     pub fn center(&self) -> (u32, u32) {
         (self.x + self.width / 2, self.y + self.height / 2)
     }
 
-    /// Vérifier si un point est dans la box
+    /// Check whether a point is inside the box
     pub fn contains(&self, px: u32, py: u32) -> bool {
         px >= self.x && px < self.x + self.width && py >= self.y && py < self.y + self.height
     }
 }
 
-/// État d'une session de capture
+/// State of a capture session
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CaptureState {
-    /// Session non initialisée
+    /// Session not initialized
     Idle,
 
-    /// En attente de placement de la caméra
+    /// Waiting for camera placement
     Waiting,
 
-    /// Capture en cours
+    /// Capture in progress
     Capturing,
 
-    /// Capture terminée avec succès
+    /// Capture completed successfully
     Completed,
 
-    /// Erreur pendant la capture
+    /// Error during capture
     Failed,
 
-    /// Capture annulée par l'utilisateur
+    /// Capture cancelled by the user
     Cancelled,
 }
 
 impl std::fmt::Display for CaptureState {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            CaptureState::Idle => write!(f, "Inactif"),
-            CaptureState::Waiting => write!(f, "En attente"),
-            CaptureState::Capturing => write!(f, "Capture en cours"),
-            CaptureState::Completed => write!(f, "Terminé"),
-            CaptureState::Failed => write!(f, "Erreur"),
-            CaptureState::Cancelled => write!(f, "Annulé"),
+            CaptureState::Idle => write!(f, "Idle"),
+            CaptureState::Waiting => write!(f, "Waiting"),
+            CaptureState::Capturing => write!(f, "Capturing"),
+            CaptureState::Completed => write!(f, "Completed"),
+            CaptureState::Failed => write!(f, "Error"),
+            CaptureState::Cancelled => write!(f, "Cancelled"),
         }
     }
 }
 
-/// Configuration pour une session de capture
+/// Configuration for a capture session
 #[derive(Debug, Clone)]
 pub struct CaptureConfig {
-    /// Nombre de frames à capturer
+    /// Number of frames to capture
     pub num_frames: u32,
 
-    /// Timeout total en millisecondes (0 = infini)
+    /// Total timeout in milliseconds (0 = infinite)
     pub timeout_ms: u64,
 
-    /// Seuil de confiance minimum pour détection (0.0-1.0)
+    /// Minimum confidence threshold for detection (0.0-1.0)
     pub detection_confidence_threshold: f32,
 
-    /// Seuil de qualité minimum (0.0-1.0)
+    /// Minimum quality threshold (0.0-1.0)
     pub quality_threshold: f32,
 
-    /// Accepter les frames sans visage?
+    /// Accept frames without a face?
     pub accept_no_face: bool,
 }
 

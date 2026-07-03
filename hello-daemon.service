@@ -9,8 +9,8 @@ ExecStart=/usr/bin/hello-daemon
 Environment=ORT_DYLIB_PATH=/usr/lib/x86_64-linux-gnu/libonnxruntime.so.1.23
 Restart=on-failure
 RestartSec=2s
-# Arrêter les tentatives si le daemon crashe 5 fois en 60s (évite une boucle infinie).
-# Le module PAM bascule sur le mot de passe, donc la sécurité reste assurée.
+# Stop retrying if the daemon crashes 5 times in 60s (avoids an infinite loop).
+# The PAM module falls back to the password, so security is still ensured.
 StartLimitIntervalSec=60s
 StartLimitBurst=5
 

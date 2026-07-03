@@ -1,38 +1,38 @@
-//! Abstraction d'accès caméra multi-backend (V4L2, PipeWire)
+//! Multi-backend camera access abstraction (V4L2, PipeWire)
 
 use std::sync::Arc;
 use thiserror::Error;
 
-/// Erreurs caméra
+/// Camera errors
 #[derive(Debug, Error)]
 pub enum CameraError {
-    #[error("Caméra non disponible: {0}")]
+    #[error("Camera not available: {0}")]
     NotAvailable(String),
 
-    #[error("Erreur d'ouverture: {0}")]
+    #[error("Open error: {0}")]
     OpenFailed(String),
 
-    #[error("Erreur de capture: {0}")]
+    #[error("Capture error: {0}")]
     CaptureFailed(String),
 
-    #[error("Format non supporté: {0}")]
+    #[error("Unsupported format: {0}")]
     UnsupportedFormat(String),
 
-    #[error("Timeout de capture")]
+    #[error("Capture timeout")]
     CaptureTimeout,
 
     #[error("I/O error: {0}")]
     IoError(#[from] std::io::Error),
 }
 
-/// Format de frame supporté
+/// Supported frame format
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FrameFormat {
-    /// RGB 8 bits par canal
+    /// RGB 8 bits per channel
     Rgb8,
     /// Grayscale 8 bits
     Gray8,
-    /// MJPEG compressé
+    /// Compressed MJPEG
     MjPeg,
 }
 
@@ -41,47 +41,47 @@ impl FrameFormat {
         match self {
             FrameFormat::Rgb8 => 3,
             FrameFormat::Gray8 => 1,
-            FrameFormat::MjPeg => 3, // décodé en RGB
+            FrameFormat::MjPeg => 3, // decoded to RGB
         }
     }
 }
 
-/// Description d'une frame capturée
+/// Description of a captured frame
 #[derive(Debug, Clone)]
 pub struct Frame {
-    /// Données brutes des pixels
+    /// Raw pixel data
     pub data: Vec<u8>,
 
-    /// Largeur en pixels
+    /// Width in pixels
     pub width: u32,
 
-    /// Hauteur en pixels
+    /// Height in pixels
     pub height: u32,
 
-    /// Format de la frame
+    /// Frame format
     pub format: FrameFormat,
 
-    /// Timestamp de capture (ms depuis début)
+    /// Capture timestamp (ms since start)
     pub timestamp_ms: u64,
 }
 
 impl Frame {
-    /// Retourner le nombre de canaux
+    /// Return the number of channels
     pub fn channels(&self) -> u32 {
         self.format.channels()
     }
 
-    /// Vérifier que les données correspondent aux dimensions
+    /// Verify that the data matches the dimensions
     pub fn validate(&self) -> Result<(), CameraError> {
         let expected_size = match self.format {
             FrameFormat::Rgb8 => (self.width * self.height * 3) as usize,
             FrameFormat::Gray8 => (self.width * self.height) as usize,
-            FrameFormat::MjPeg => self.data.len(), // taille variable
+            FrameFormat::MjPeg => self.data.len(), // variable size
         };
 
         if self.format != FrameFormat::MjPeg && self.data.len() != expected_size {
             return Err(CameraError::CaptureFailed(format!(
-                "Mismatch taille frame: attendu {}, got {}",
+                "Frame size mismatch: expected {}, got {}",
                 expected_size,
                 self.data.len()
             )));
@@ -90,25 +90,25 @@ impl Frame {
     }
 }
 
-/// Configuration caméra
+/// Camera configuration
 #[derive(Debug, Clone)]
 pub struct CameraConfig {
-    /// Chemin du device (ex: /dev/video0)
+    /// Device path (e.g. /dev/video0)
     pub device_path: String,
 
-    /// Largeur souhaitée
+    /// Desired width
     pub width: u32,
 
-    /// Hauteur souhaitée
+    /// Desired height
     pub height: u32,
 
-    /// Format préféré
+    /// Preferred format
     pub preferred_format: FrameFormat,
 
-    /// FPS ciblés
+    /// Target FPS
     pub fps: u32,
 
-    /// Timeout de capture (ms)
+    /// Capture timeout (ms)
     pub capture_timeout_ms: u64,
 }
 
@@ -125,35 +125,35 @@ impl Default for CameraConfig {
     }
 }
 
-/// Trait pour caméra générique
+/// Trait for a generic camera
 pub trait CameraBackend: Send + Sync {
-    /// Démarrer la caméra
+    /// Start the camera
     fn open(&mut self) -> Result<(), CameraError>;
 
-    /// Arrêter la caméra
+    /// Stop the camera
     fn close(&mut self) -> Result<(), CameraError>;
 
-    /// Capturer une frame (bloquant)
+    /// Capture a frame (blocking)
     fn capture(&mut self, timeout_ms: u64) -> Result<Frame, CameraError>;
 
-    /// Nombre de frames en attente
+    /// Number of pending frames
     fn pending_frames(&self) -> usize;
 
-    /// Vider le buffer (utile avant vérification)
+    /// Flush the buffer (useful before verification)
     fn flush_buffers(&mut self) -> Result<(), CameraError>;
 
-    /// Vérifier que la caméra est ouverte
+    /// Check whether the camera is open
     fn is_open(&self) -> bool;
 
-    /// Nom du backend
+    /// Backend name
     fn backend_name(&self) -> &str;
 }
 
-/// Handle partagé pour une caméra
+/// Shared handle for a camera
 pub type SharedCamera = Arc<parking_lot::Mutex<Box<dyn CameraBackend>>>;
 
 // ============================================================================
-// Implémentation V4L2
+// V4L2 Implementation
 // ============================================================================
 
 #[cfg(feature = "v4l2")]
@@ -162,7 +162,7 @@ pub mod v4l2_backend {
     use std::time::Instant;
     use tracing::info;
 
-    /// Backend V4L2 réel avec accès direct aux devices Linux
+    /// Real V4L2 backend with direct access to Linux devices
     pub struct V4L2Camera {
         config: CameraConfig,
         device: Option<v4l::Device>,
@@ -182,50 +182,50 @@ pub mod v4l2_backend {
             }
         }
 
-        /// Ouvrir le device V4L2 et le configurer pour la capture
+        /// Open the V4L2 device and configure it for capture
         fn open_device(&mut self) -> Result<(), CameraError> {
             use v4l::video::Capture;
 
-            // Ouvrir le device V4L2
+            // Open the V4L2 device
             let dev = v4l::Device::with_path(&self.config.device_path).map_err(|e| {
                 CameraError::OpenFailed(format!(
-                    "Impossible d'ouvrir {}: {}",
+                    "Failed to open {}: {}",
                     self.config.device_path, e
                 ))
             })?;
 
-            // Obtenir le format courant et l'adapter
+            // Get the current format and adapt it
             let mut format = dev
                 .format()
-                .map_err(|e| CameraError::OpenFailed(format!("Erreur lecture format: {}", e)))?;
+                .map_err(|e| CameraError::OpenFailed(format!("Error reading format: {}", e)))?;
 
-            // Configurer la résolution
+            // Configure the resolution
             format.width = self.config.width;
             format.height = self.config.height;
 
-            // Choisir le format selon les préférences
+            // Choose the format according to preferences
             match self.config.preferred_format {
                 FrameFormat::Rgb8 => {
-                    // RGB24 (format standard V4L2: R,G,B,R,G,B...)
+                    // RGB24 (standard V4L2 format: R,G,B,R,G,B...)
                     format.fourcc = v4l::format::FourCC::new(b"RGB3");
                 }
                 FrameFormat::Gray8 => {
-                    // Format grayscale
+                    // Grayscale format
                     format.fourcc = v4l::format::FourCC::new(b"GREY");
                 }
                 FrameFormat::MjPeg => {
-                    // Format MJPEG (souvent plus efficace)
+                    // MJPEG format (often more efficient)
                     format.fourcc = v4l::format::FourCC::new(b"MJPG");
                 }
             }
 
-            // Appliquer la configuration
+            // Apply the configuration
             dev.set_format(&format).map_err(|e| {
-                CameraError::OpenFailed(format!("Erreur configuration format V4L2: {}", e))
+                CameraError::OpenFailed(format!("V4L2 format configuration error: {}", e))
             })?;
 
             info!(
-                "V4L2 device ouvert et configuré: {} ({}x{} @ {}fps)",
+                "V4L2 device opened and configured: {} ({}x{} @ {}fps)",
                 self.config.device_path, self.config.width, self.config.height, self.config.fps
             );
 
@@ -241,7 +241,7 @@ pub mod v4l2_backend {
             self.start_time = Instant::now();
 
             info!(
-                "V4L2 caméra ouverte: {}x{} at {}",
+                "V4L2 camera opened: {}x{} at {}",
                 self.config.width, self.config.height, self.config.device_path
             );
             Ok(())
@@ -251,7 +251,7 @@ pub mod v4l2_backend {
             self.device = None;
             self.stream_initialized = false;
             self.is_open = false;
-            info!("V4L2 caméra fermée");
+            info!("V4L2 camera closed");
             Ok(())
         }
 
@@ -260,20 +260,20 @@ pub mod v4l2_backend {
             use v4l::io::traits::CaptureStream;
 
             if !self.is_open || self.device.is_none() {
-                return Err(CameraError::CaptureFailed("Caméra non ouverte".to_string()));
+                return Err(CameraError::CaptureFailed("Camera not open".to_string()));
             }
 
             let dev = self.device.as_ref().unwrap();
 
-            // Créer un stream mmap à chaque capture (approche simple mais fonctionnelle)
-            // Dans une implémentation optimisée, on voudrait stocker ceci
-            // mais avec les génériques et lifetimes de v4l c'est complexe
+            // Create an mmap stream on each capture (simple but functional approach)
+            // In an optimized implementation, we'd want to store this,
+            // but with v4l's generics and lifetimes it's complex
             let mut stream = v4l::io::mmap::Stream::with_buffers(dev, Type::VideoCapture, 4)
                 .map_err(|e| {
-                    CameraError::CaptureFailed(format!("Erreur création stream: {}", e))
+                    CameraError::CaptureFailed(format!("Stream creation error: {}", e))
                 })?;
 
-            // Capturer une frame
+            // Capture a frame
             match stream.next() {
                 Ok((buf, _meta)) => {
                     let timestamp_ms = self.start_time.elapsed().as_millis() as u64;
@@ -287,7 +287,7 @@ pub mod v4l2_backend {
                     })
                 }
                 Err(e) => Err(CameraError::CaptureFailed(format!(
-                    "Erreur capture V4L2: {}",
+                    "V4L2 capture error: {}",
                     e
                 ))),
             }
@@ -302,10 +302,10 @@ pub mod v4l2_backend {
         }
 
         fn flush_buffers(&mut self) -> Result<(), CameraError> {
-            // Drainer les anciens buffers en capturant et jetant quelques frames
-            // Note: avec l'approche mmap, c'est plus simple
+            // Drain old buffers by capturing and discarding a few frames
+            // Note: with the mmap approach, it's simpler
             if self.is_open {
-                // Essayer de faire quelques captures fast pour vider les buffers
+                // Try a few quick captures to flush the buffers
                 for _ in 0..3 {
                     let _ = self.capture(100);
                 }
@@ -323,11 +323,11 @@ pub mod v4l2_backend {
     }
 }
 
-/// Convertir un buffer YUYV en RGB888, en tenant compte du stride (padding par ligne).
-/// `stride` = bytes par ligne tel que retourné par V4L2 (`applied.stride`).
+/// Convert a YUYV buffer to RGB888, taking the stride (per-row padding) into account.
+/// `stride` = bytes per row as returned by V4L2 (`applied.stride`).
 fn yuyv_to_rgb_strided(data: &[u8], width: u32, height: u32, stride: u32) -> Vec<u8> {
     let mut rgb = Vec::with_capacity((width * height * 3) as usize);
-    let row_bytes = (width * 2) as usize; // octets utiles par ligne en YUYV
+    let row_bytes = (width * 2) as usize; // useful bytes per row in YUYV
     let stride = stride as usize;
 
     for row in 0..height as usize {
@@ -354,25 +354,25 @@ fn yuyv_to_rgb_strided(data: &[u8], width: u32, height: u32, stride: u32) -> Vec
     rgb
 }
 
-/// Capturer `num_frames` frames depuis V4L2 en YUYV et les fournir en RGB via callback.
+/// Capture `num_frames` frames from V4L2 in YUYV and deliver them as RGB via callback.
 ///
-/// Ouvre `/dev/video0` (ou le chemin fourni), configure YUYV 640×480, crée **un seul**
-/// Résultat d'un scan des caméras disponibles
+/// Opens `/dev/video0` (or the given path), configures YUYV 640x480, creates a **single**
+/// Result of a scan of available cameras
 #[derive(Debug, Clone)]
 pub struct CameraInventory {
-    /// Device RGB principal (ex: /dev/video0)
+    /// Main RGB device (e.g. /dev/video0)
     pub rgb_device: String,
-    /// Device IR si trouvé (ex: /dev/video2 pour Logitech Brio)
+    /// IR device if found (e.g. /dev/video2 for Logitech Brio)
     pub ir_device: Option<String>,
 }
 
-/// Cherche automatiquement les caméras RGB et IR parmi /dev/video0..9.
+/// Automatically looks for RGB and IR cameras among /dev/video0..9.
 ///
-/// Critères IR :
-/// - Le nom du device contient "IR" ou "Infrared" (insensible à la casse)
-/// - OU seul le format GREY est supporté (pas de YUYV ni MJPG)
+/// IR criteria:
+/// - The device name contains "IR" or "Infrared" (case-insensitive)
+/// - OR only the GREY format is supported (no YUYV or MJPG)
 ///
-/// Retourne la première caméra RGB trouvée + la première IR si disponible.
+/// Returns the first RGB camera found + the first IR one if available.
 #[cfg(feature = "v4l2")]
 pub fn scan_cameras() -> CameraInventory {
     use v4l::video::Capture;
@@ -386,7 +386,7 @@ pub fn scan_cameras() -> CameraInventory {
             continue;
         };
 
-        // Lire les capabilities pour le nom du device
+        // Read the capabilities for the device name
         let is_ir_by_name = v4l::Device::query_caps(&dev)
             .map(|caps| {
                 let card = caps.card.to_lowercase();
@@ -394,7 +394,7 @@ pub fn scan_cameras() -> CameraInventory {
             })
             .unwrap_or(false);
 
-        // Lire les formats supportés
+        // Read the supported formats
         let formats: Vec<String> = dev
             .enum_formats()
             .unwrap_or_default()
@@ -409,19 +409,19 @@ pub fn scan_cameras() -> CameraInventory {
             .iter()
             .any(|f| f.contains("YUYV") || f.contains("MJPG") || f.contains("RGB"));
 
-        // Caméra IR : nommée IR ou uniquement GREY
+        // IR camera: named IR or GREY-only
         let is_ir = is_ir_by_name || (has_grey && !has_color);
 
         if is_ir && ir.is_none() {
             tracing::info!(
-                "Caméra IR détectée: {} (formats: {})",
+                "IR camera detected: {} (formats: {})",
                 path,
                 formats.join(", ")
             );
             ir = Some(path);
         } else if !is_ir && has_color && rgb.is_none() {
             tracing::info!(
-                "Caméra RGB détectée: {} (formats: {})",
+                "RGB camera detected: {} (formats: {})",
                 path,
                 formats.join(", ")
             );
@@ -443,10 +443,10 @@ pub fn scan_cameras() -> CameraInventory {
     }
 }
 
-/// Capturer `num_frames` frames en GREY (8-bit grayscale) depuis un device V4L2.
+/// Capture `num_frames` frames in GREY (8-bit grayscale) from a V4L2 device.
 ///
-/// Utilisé pour les caméras IR (ex: Logitech Brio canal infrarouge).
-/// Callback : `on_frame(gray_data: Vec<u8>, width, height)`
+/// Used for IR cameras (e.g. Logitech Brio infrared channel).
+/// Callback: `on_frame(gray_data: Vec<u8>, width, height)`
 #[cfg(feature = "v4l2")]
 pub fn capture_gray_stream_v4l2<F>(
     device_path: &str,
@@ -479,7 +479,7 @@ where
     let height = applied.height;
 
     let mut stream = v4l::io::mmap::Stream::with_buffers(&dev, Type::VideoCapture, 4)
-        .map_err(|e| CameraError::CaptureFailed(format!("Erreur stream GREY: {}", e)))?;
+        .map_err(|e| CameraError::CaptureFailed(format!("GREY stream error: {}", e)))?;
 
     let start = std::time::Instant::now();
     let timeout_dur = std::time::Duration::from_millis(timeout_ms);
@@ -490,18 +490,18 @@ where
         }
         let (buf, _meta) = stream
             .next()
-            .map_err(|e| CameraError::CaptureFailed(format!("Erreur capture GREY: {}", e)))?;
+            .map_err(|e| CameraError::CaptureFailed(format!("GREY capture error: {}", e)))?;
         on_frame(buf.to_vec(), width, height);
     }
 
     Ok(())
 }
 
-/// stream mmap persistant (plus efficace que d'en créer un par frame), puis appelle
-/// `on_frame(rgb_data, width, height)` pour chaque frame capturée.
+/// persistent mmap stream (more efficient than creating one per frame), then calls
+/// `on_frame(rgb_data, width, height)` for each captured frame.
 ///
-/// Retourne `Ok(())` si au moins une frame a été capturée, `Err` si la caméra n'est
-/// pas disponible ou si aucune frame n'a pu être acquise.
+/// Returns `Ok(())` if at least one frame was captured, `Err` if the camera is
+/// not available or no frame could be acquired.
 #[cfg(feature = "v4l2")]
 pub fn capture_rgb_stream_v4l2<F>(
     device_path: &str,
@@ -519,7 +519,7 @@ where
     let dev = v4l::Device::with_path(device_path)
         .map_err(|e| CameraError::NotAvailable(format!("{}: {}", device_path, e)))?;
 
-    // Configurer YUYV 640×480
+    // Configure YUYV 640x480
     let mut fmt = dev
         .format()
         .map_err(|e| CameraError::OpenFailed(e.to_string()))?;
@@ -534,9 +534,9 @@ where
     let width = applied.width;
     let height = applied.height;
 
-    // Un seul stream persistant pour toutes les frames
+    // A single persistent stream for all frames
     let mut stream = v4l::io::mmap::Stream::with_buffers(&dev, Type::VideoCapture, 4)
-        .map_err(|e| CameraError::CaptureFailed(format!("Erreur création stream: {}", e)))?;
+        .map_err(|e| CameraError::CaptureFailed(format!("Stream creation error: {}", e)))?;
 
     let start = std::time::Instant::now();
     let timeout_dur = std::time::Duration::from_millis(timeout_ms);
@@ -548,7 +548,7 @@ where
 
         let (buf, _meta) = stream
             .next()
-            .map_err(|e| CameraError::CaptureFailed(format!("Erreur capture: {}", e)))?;
+            .map_err(|e| CameraError::CaptureFailed(format!("Capture error: {}", e)))?;
 
         let rgb = yuyv_to_rgb_strided(buf, width, height, applied.stride);
         on_frame(rgb, width, height);
@@ -557,7 +557,7 @@ where
     Ok(())
 }
 
-/// Créer une caméra avec le backend par défaut disponible
+/// Create a camera with the default available backend
 pub fn create_camera(config: CameraConfig) -> Result<Box<dyn CameraBackend>, CameraError> {
     #[cfg(feature = "v4l2")]
     {
@@ -567,7 +567,7 @@ pub fn create_camera(config: CameraConfig) -> Result<Box<dyn CameraBackend>, Cam
     #[cfg(not(feature = "v4l2"))]
     {
         Err(CameraError::NotAvailable(
-            "Aucun backend caméra compilé".to_string(),
+            "No camera backend compiled".to_string(),
         ))
     }
 }

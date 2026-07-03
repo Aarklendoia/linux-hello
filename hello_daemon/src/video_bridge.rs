@@ -1,14 +1,14 @@
-//! Bridge pour exposer le flux V4L2 à Qt6/QML via FFI
+//! Bridge to expose the V4L2 stream to Qt6/QML via FFI
 //!
-//! Permet à la GUI QML d'afficher un flux vidéo en direct
-//! en convertissant les frames V4L2 en QVideoFrame Qt6
+//! Lets the QML GUI display a live video stream
+//! by converting V4L2 frames into Qt6 QVideoFrame
 
 use parking_lot::Mutex;
 use std::sync::Arc;
 
-/// Structure pour stocker les callbacks vers C++
+/// Structure for storing callbacks into C++
 pub struct VideoFrameBridge {
-    /// Pointeur vers la fonction C++ de traitement des frames
+    /// Pointer to the C++ frame processing function
     frame_callback: Arc<Mutex<Option<extern "C" fn(*const u8, usize, u32, u32)>>>,
 }
 
@@ -19,17 +19,17 @@ impl VideoFrameBridge {
         }
     }
 
-    /// Enregistrer le callback C++ pour recevoir les frames
+    /// Register the C++ callback to receive frames
     pub fn set_frame_callback(&self, callback: extern "C" fn(*const u8, usize, u32, u32)) {
         *self.frame_callback.lock() = Some(callback);
     }
 
-    /// Envoyer une frame V4L2 YUYV vers Qt6
+    /// Send a V4L2 YUYV frame to Qt6
     ///
     /// # Arguments
-    /// * `data` - Données brutes YUYV
-    /// * `width` - Largeur de l'image
-    /// * `height` - Hauteur de l'image
+    /// * `data` - Raw YUYV data
+    /// * `width` - Image width
+    /// * `height` - Image height
     pub fn push_frame(&self, data: &[u8], width: u32, height: u32) {
         if let Some(callback) = *self.frame_callback.lock() {
             callback(data.as_ptr(), data.len(), width, height);
@@ -37,7 +37,7 @@ impl VideoFrameBridge {
     }
 }
 
-/// Appel FFI depuis Rust — envoyer une frame à Qt
+/// FFI call from Rust — send a frame to Qt
 #[no_mangle]
 pub extern "C" fn video_bridge_push_frame(data: *const u8, len: usize, width: u32, height: u32) {
     if let Ok(bridge) = crate::get_video_bridge() {
@@ -46,7 +46,7 @@ pub extern "C" fn video_bridge_push_frame(data: *const u8, len: usize, width: u3
     }
 }
 
-/// Enregistrer le callback C++
+/// Register the C++ callback
 #[no_mangle]
 pub extern "C" fn video_bridge_set_callback(callback: extern "C" fn(*const u8, usize, u32, u32)) {
     if let Ok(bridge) = crate::get_video_bridge() {

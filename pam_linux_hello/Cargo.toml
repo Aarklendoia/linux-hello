@@ -10,10 +10,10 @@ crate-type = ["cdylib"]
 name = "pam_linux_hello"
 path = "src/lib.rs"
 
-# Dépendances minimales : pas de tokio, pas de hello_daemon/hello_face_core.
-# Un cdylib PAM chargé dans sudo (rust-sudo-rs) ne doit embarquer aucun runtime
-# async — leurs atexit handlers conflictuent avec le runtime Rust de l'hôte
-# et provoquent un SIGSEGV à la sortie du processus.
+# Minimal dependencies: no tokio, no hello_daemon/hello_face_core.
+# A PAM cdylib loaded into sudo (rust-sudo-rs) must not embed any async
+# runtime — their atexit handlers conflict with the host's Rust runtime
+# and cause a SIGSEGV on process exit.
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json.workspace = true

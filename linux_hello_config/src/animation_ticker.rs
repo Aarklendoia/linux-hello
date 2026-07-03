@@ -1,29 +1,29 @@
-//! Module pour gérer les ticks d'animation
+//! Module to manage animation ticks
 //!
-//! Fournit un système simple pour générer des messages d'animation
-//! à intervalles réguliers (~60fps)
+//! Provides a simple system for generating animation messages
+//! at regular intervals (~60fps)
 
 use std::sync::mpsc;
 use std::sync::{atomic::AtomicBool, atomic::Ordering, Arc};
 use std::thread;
 use std::time::Duration;
 
-/// Gestionnaire des ticks d'animation
+/// Animation tick manager
 pub struct AnimationTicker {
     sender: mpsc::Sender<AnimationEvent>,
     receiver: mpsc::Receiver<AnimationEvent>,
     running: Arc<AtomicBool>,
 }
 
-/// Événements d'animation
+/// Animation events
 #[derive(Debug, Clone)]
 pub enum AnimationEvent {
-    /// Tick d'animation à exécuter
+    /// Animation tick to execute
     Tick,
 }
 
 impl AnimationTicker {
-    /// Créer un nouveau ticker d'animation
+    /// Create a new animation ticker
     pub fn new() -> Self {
         let (sender, receiver) = mpsc::channel();
 
@@ -34,7 +34,7 @@ impl AnimationTicker {
         }
     }
 
-    /// Démarrer le ticker d'animation (60fps ~ 16.67ms)
+    /// Start the animation ticker (60fps ~ 16.67ms)
     pub fn start(&self) {
         let sender = self.sender.clone();
         let running = Arc::clone(&self.running);
@@ -51,12 +51,12 @@ impl AnimationTicker {
         });
     }
 
-    /// Arrêter le ticker d'animation
+    /// Stop the animation ticker
     pub fn stop(&self) {
         self.running.store(false, Ordering::SeqCst);
     }
 
-    /// Récupérer un tick s'il y en a un disponible (non-blocking)
+    /// Retrieve a tick if one is available (non-blocking)
     pub fn try_tick(&self) -> Option<AnimationEvent> {
         self.receiver.try_recv().ok()
     }
@@ -83,7 +83,7 @@ mod tests {
         let ticker = AnimationTicker::new();
         ticker.start();
 
-        // Attendre un tick
+        // Wait for a tick
         thread::sleep(Duration::from_millis(20));
 
         let tick = ticker.try_tick();
@@ -98,14 +98,14 @@ mod tests {
         ticker.start();
         ticker.stop();
 
-        // Attendre que le thread s'arrête
+        // Wait for the thread to stop
         thread::sleep(Duration::from_millis(50));
 
-        // Plus aucun tick après stop
+        // No more ticks after stop
         ticker.try_tick();
         ticker.try_tick();
         let tick = ticker.try_tick();
-        // Le dernier tick peut être None
+        // The last tick can be None
         let _ = tick;
     }
 }

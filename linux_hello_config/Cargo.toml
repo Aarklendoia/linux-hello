@@ -21,7 +21,7 @@ serde_json.workspace = true
 clap = { workspace = true, features = ["derive"] }
 parking_lot.workspace = true
 
-# D-Bus async client pour communiquer avec daemon
+# Async D-Bus client to communicate with the daemon
 async-trait = "0.1"
 
 # Configuration

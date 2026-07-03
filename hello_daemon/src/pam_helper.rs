@@ -1,13 +1,13 @@
-//! PAM Helper daemon pour contourner l'isolation D-Bus
+//! PAM Helper daemon to work around D-Bus isolation
 //!
-//! Problème : Le module PAM s'exécute en root et ne peut pas accéder au D-Bus utilisateur.
-//! Solution : Helper daemon qui tourne en user et fait la passerelle.
+//! Problem: The PAM module runs as root and cannot access the user's D-Bus.
+//! Solution: A helper daemon that runs as the user and acts as a bridge.
 //!
-//! Communication : Socket Unix à `/tmp/hello-pam-UID.socket`
+//! Communication: Unix socket at `/tmp/hello-pam-UID.socket`
 //!
-//! IMPORTANT : utilise tokio::net::UnixListener (async) car std::net::UnixListener
-//! devient non-bloquant quand il est utilisé dans un contexte tokio, ce qui provoque
-//! EAGAIN sur les read() côté PAM.
+//! IMPORTANT: uses tokio::net::UnixListener (async) because std::net::UnixListener
+//! becomes non-blocking when used in a tokio context, which causes
+//! EAGAIN on read() on the PAM side.
 
 use crate::dbus_interface::VerifyRequest;
 use serde::{Deserialize, Serialize};
@@ -16,7 +16,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixListener;
 use tracing::{debug, error, info};
 
-/// Requête PAM via socket
+/// PAM request via socket
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PamHelperRequest {
     pub user_id: u32,
@@ -24,7 +24,7 @@ pub struct PamHelperRequest {
     pub timeout_ms: u64,
 }
 
-/// Réponse du helper
+/// Helper response
 #[derive(Debug, Serialize, Deserialize)]
 pub enum PamHelperResponse {
     Success {
@@ -36,29 +36,29 @@ pub enum PamHelperResponse {
     },
 }
 
-/// Démarrer le listener socket PAM (async tokio)
+/// Start the PAM socket listener (async tokio)
 pub async fn start_pam_helper(
     uid: u32,
     daemon: std::sync::Arc<tokio::sync::RwLock<crate::FaceAuthDaemon>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // /run/hello-pam/ est créé par systemd-tmpfiles (mode 1777, sticky) :
-    //   - le daemon user (uid=1000) peut y créer sa socket
-    //   - polkitd (PrivateTmp=yes) peut y accéder : /run n'est pas isolé par PrivateTmp
-    //   - sudo-rs (uid=65534) et root peuvent s'y connecter
-    // La sécurité repose sur peer_cred dans handle_pam_request, pas sur le chemin.
+    // /run/hello-pam/ is created by systemd-tmpfiles (mode 1777, sticky):
+    //   - the user daemon (uid=1000) can create its socket there
+    //   - polkitd (PrivateTmp=yes) can access it: /run is not isolated by PrivateTmp
+    //   - sudo-rs (uid=65534) and root can connect to it
+    // Security relies on peer_cred in handle_pam_request, not on the path.
     let socket_path = format!("/run/hello-pam/{}.socket", uid);
 
-    // Nettoyer l'ancienne socket (crash précédent ou mise à jour)
+    // Clean up the old socket (previous crash or update)
     let _ = fs::remove_file(&socket_path);
 
-    // tokio::net::UnixListener : entièrement async, pas de problème EAGAIN
+    // tokio::net::UnixListener: fully async, no EAGAIN issue
     let listener = UnixListener::bind(&socket_path)?;
     info!("PAM Helper listening on {}", socket_path);
 
-    // 0o666 : accessible à tous les processus (polkitd, sudo-rs, etc.).
-    // La sécurité repose sur la validation peer_cred dans handle_pam_request :
-    // seuls root, l'utilisateur cible et nobody (sudo-rs) peuvent obtenir une réponse.
-    // Un processus tiers peut se connecter mais sera rejeté avec "Unauthorized".
+    // 0o666: accessible to all processes (polkitd, sudo-rs, etc.).
+    // Security relies on peer_cred validation in handle_pam_request:
+    // only root, the target user and nobody (sudo-rs) can get a response.
+    // A third-party process can connect but will be rejected with "Unauthorized".
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -87,7 +87,7 @@ pub async fn start_pam_helper(
     Ok(())
 }
 
-/// Envoyer une réponse d'échec et fermer le stream.
+/// Send a failure response and close the stream.
 async fn reject(
     mut stream: tokio::net::UnixStream,
     reason: &str,
@@ -101,19 +101,19 @@ async fn reject(
     Ok(())
 }
 
-/// Traiter une connexion PAM entrante
+/// Process an incoming PAM connection
 async fn handle_pam_request(
     mut stream: tokio::net::UnixStream,
     daemon: std::sync::Arc<tokio::sync::RwLock<crate::FaceAuthDaemon>>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    // Récupérer l'UID du processus connectant avant de lire quoi que ce soit.
-    // Cela évite qu'un attaquant forge un user_id différent du sien.
+    // Get the UID of the connecting process before reading anything.
+    // This prevents an attacker from forging a user_id different from their own.
     #[cfg(unix)]
     let peer_uid: Option<u32> = stream.peer_cred().ok().map(|c| c.uid());
     #[cfg(not(unix))]
     let peer_uid: Option<u32> = None;
 
-    // Lire tout ce que le client envoie (il fait shutdown(Write) après)
+    // Read everything the client sends (it does shutdown(Write) afterward)
     let mut buf = Vec::new();
     stream.read_to_end(&mut buf).await?;
 
@@ -122,15 +122,15 @@ async fn handle_pam_request(
     }
 
     let request_json = String::from_utf8(buf)?;
-    debug!("PAM Helper reçu: {}", request_json);
+    debug!("PAM Helper received: {}", request_json);
 
     let req: PamHelperRequest = serde_json::from_str(&request_json)?;
 
-    // Valider le pair :
-    // - uid=0      (root)    : sudo classique
-    // - uid=user   (edtech)  : appel direct CLI/GUI
+    // Validate the peer:
+    // - uid=0      (root)    : classic sudo
+    // - uid=user   (edtech)  : direct CLI/GUI call
     // - uid=65534  (nobody)  : sudo-rs sandbox
-    // - uid=polkitd          : pkexec et dialogues graphiques polkit
+    // - uid=polkitd          : pkexec and polkit graphical dialogs
     const NOBODY: u32 = 65534;
     let polkitd_uid: u32 = std::fs::read_to_string("/etc/passwd")
         .ok()
@@ -144,7 +144,7 @@ async fn handle_pam_request(
     if let Some(uid) = peer_uid {
         if uid != 0 && uid != req.user_id && uid != NOBODY && uid != polkitd_uid {
             error!(
-                "PAM helper: connexion refusée — peer uid={} demande user_id={}",
+                "PAM helper: connection refused — peer uid={} requested user_id={}",
                 uid, req.user_id
             );
             return reject(
@@ -161,7 +161,7 @@ async fn handle_pam_request(
         timeout_ms: req.timeout_ms,
     };
 
-    // Appeler le daemon (timeout = timeout demandé + 1s de marge)
+    // Call the daemon (timeout = requested timeout + 1s margin)
     let timeout = std::time::Duration::from_millis(verify_req.timeout_ms + 1000);
     let daemon_guard = daemon.read().await;
     let result = tokio::time::timeout(timeout, daemon_guard.verify(verify_req)).await;

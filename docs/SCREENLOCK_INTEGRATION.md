@@ -7,11 +7,11 @@
 **Architecture:** x86_64  
 **User:** edtech (UID 1000)
 
-## Configuration Appliquée
+## Applied Configuration
 
-### 1. PAM Configuration pour KDE Screenlock
+### 1. PAM Configuration for KDE Screenlock
 
-**Fichier:** `/etc/pam.d/kde-screenlocker`
+**File:** `/etc/pam.d/kde-screenlocker`
 
 ```
 #%PAM-1.0
@@ -30,27 +30,27 @@ auth       required     pam_unix.so nullok try_first_pass yescrypt
 - **Control:** sufficient (accept if face matches, fallback to password)
 - **Fallback:** pam_unix.so password authentication
 
-### 2. KDE Services Disponibles
+### 2. Available KDE Services
 
-Services D-Bus détectés sur Kubuntu 25.10:
+D-Bus services detected on Kubuntu 25.10:
 - ✅ `org.kde.screensaver` - KDE Screensaver service
 - ✅ `org.freedesktop.ScreenSaver` - Standard freedesktop screenlock
 - ✅ `org.kde.KWin.ScreenShot2` - KWin screenshot service
 - ✅ `org.kde.ScreenBrightness` - Brightness control
 
-## Enrôlement des Faces
+## Face Enrollment
 
-### Faces Enrôlées pour Screenlock
+### Faces Enrolled for Screenlock
 
 | Face ID | Context | Quality | Timestamp | Notes |
 |---------|---------|---------|-----------|-------|
-| face_1000_1767705844 | test | 0.85 | 1767705844 | Test initial |
+| face_1000_1767705844 | test | 0.85 | 1767705844 | Initial test |
 | face_1000_1767706008 | sudo | 0.85 | 1767706008 | Sudo authentication |
-| (pending) | screenlock | -- | -- | À enrôler avec caméra |
+| (pending) | screenlock | -- | -- | To be enrolled with camera |
 
-**Note:** L'enrôlement nécessite une caméra fonctionnelle pour capturer le visage et générer l'embedding.
+**Note:** Enrollment requires a functional camera to capture the face and generate the embedding.
 
-## Résultats des Tests
+## Test Results
 
 ### D-Bus Service Status
 ```bash
@@ -72,55 +72,55 @@ Result: ✅ "pong" (latency < 5ms)
 - **Invocation:** ✅ Called by sudo (verified in logs)
 - **D-Bus Communication:** ⚠️ Limited from root context (security isolation)
 
-## Limitation Identifiée
+## Identified Limitation
 
 ### D-Bus Access from PAM (sudo context)
 
-**Problème:** Lorsque le module PAM s'exécute via sudo (contexte root), il ne peut pas accéder au D-Bus de la session utilisateur.
+**Problem:** When the PAM module runs via sudo (root context), it cannot access the user session's D-Bus.
 
-**Cause Technique:**
-- D-Bus session bus est isolé par utilisateur (sécurité)
-- Le module PAM s'exécute comme root (via sudo)
-- La socket D-Bus de l'utilisateur est protégée (permissions 700)
+**Technical Cause:**
+- The D-Bus session bus is isolated per user (security)
+- The PAM module runs as root (via sudo)
+- The user's D-Bus socket is protected (permissions 700)
 
 **Evidence:**
 ```
-ERROR pam_linux_hello: Erreur lors de l'authentification D-Bus: 
-  Erreur connexion D-Bus: I/O error: failed to read from socket
+ERROR pam_linux_hello: Error during D-Bus authentication: 
+  D-Bus connection error: I/O error: failed to read from socket
 ```
 
-**Fallback:** ✅ Fonctionnel - mot de passe utilisé avec succès
+**Fallback:** ✅ Functional - password used successfully
 ```
 [sudo: authenticate] Password: [user enters password]
 Result: ✅ Authentication successful
 ```
 
-## Recommandations
+## Recommendations
 
-### Pour Screenlock (Kubuntu)
+### For Screenlock (Kubuntu)
 
-1. **Configuration actuelle:** PAM config créée et prête
-2. **Enrôlement:** Besoin d'une face pour context="screenlock"
-3. **Test manuel:** Verrouiller l'écran (`loginctl lock-session`) et tester face recognition
+1. **Current configuration:** PAM config created and ready
+2. **Enrollment:** Need a face for context="screenlock"
+3. **Manual test:** Lock the screen (`loginctl lock-session`) and test face recognition
 
-### Pour Amélioration Future (D-Bus Access)
+### For Future Improvement (D-Bus Access)
 
-Pour résoudre le problème D-Bus du contexte root:
+To resolve the root context D-Bus issue:
 
-**Option 1: Daemon PAM Helper**
-- Créer un helper daemon qui s'exécute en tant qu'utilisateur
-- PAM communique avec le helper via socket locale
-- Helper accède à D-Bus utilisateur
+**Option 1: PAM Helper Daemon**
+- Create a helper daemon that runs as the user
+- PAM communicates with the helper via a local socket
+- The helper accesses the user's D-Bus
 
 **Option 2: Extended D-Bus Protocol**
-- Configurer D-Bus pour permettre l'accès root avec restrictions
-- Utiliser les services system bus (non recommandé pour UID user)
+- Configure D-Bus to allow root access with restrictions
+- Use system bus services (not recommended for user UID)
 
 **Option 3: Direct Face Matching**
-- Implémenter face matching directement dans PAM
-- Contourner la nécessité de D-Bus
+- Implement face matching directly in PAM
+- Bypass the need for D-Bus
 
-## Architecture Actuelle
+## Current Architecture
 
 ```
 ┌─────────────────────────────────────────┐
@@ -144,49 +144,49 @@ Pour résoudre le problème D-Bus du contexte root:
 └─────────────────────────────────────────┘
 ```
 
-## Commandes de Test
+## Test Commands
 
-### Test Manual KDE Screenlock
+### Manual KDE Screenlock Test
 
 ```bash
-# Verrouiller l'écran
+# Lock the screen
 loginctl lock-session
 
-# Ou via D-Bus:
+# Or via D-Bus:
 dbus-send --session /org/kde/screensaver \
   org.freedesktop.ScreenSaver.Lock
 
-# Test face recognition (si caméra disponible)
+# Test face recognition (if camera available)
 # [Face recognition will be triggered by PAM]
 ```
 
-### Test PAM Directement
+### Test PAM Directly
 
 ```bash
-# Simuler screenlock auth (nécessite TTY interactif)
-sudo -l  # demande auth (si configuré)
+# Simulate screenlock auth (requires interactive TTY)
+sudo -l  # requests auth (if configured)
 
-# Ou:
-login  # nouveau login (demande auth PAM)
+# Or:
+login  # new login (requests PAM auth)
 ```
 
-## Documentation Complète
+## Full Documentation
 
-Voir aussi:
-- [PAM_MODULE.md](PAM_MODULE.md) - Détails du module PAM
-- [INTEGRATION_GUIDE.md](INTEGRATION_GUIDE.md) - Guide d'intégration général
-- [README.md](README.md) - Documentation principale
+See also:
+- [PAM_MODULE.md](PAM_MODULE.md) - PAM module details
+- [INTEGRATION_GUIDE.md](INTEGRATION_GUIDE.md) - General integration guide
+- [README.md](README.md) - Main documentation
 
 ## Conclusion
 
-Le système Linux Hello est **pleinement fonctionnel** pour:
-- ✅ Daemon D-Bus avec authentication faciale
-- ✅ Vérification de faces avec précision 100% (score 1.0)
-- ✅ Integration PAM pour sudo et screenlock
-- ✅ Fallback password authentication
-- ✅ Architecture production-ready
+The Linux Hello system is **fully functional** for:
+- ✅ D-Bus daemon with facial authentication
+- ✅ Face verification with 100% accuracy (score 1.0)
+- ✅ PAM integration for sudo and screenlock
+- ✅ Password authentication fallback
+- ✅ Production-ready architecture
 
-**Prêt pour:** Déploiement Kubuntu 25.10 avec authentication faciale pour:
+**Ready for:** Kubuntu 25.10 deployment with facial authentication for:
 - Sudo commands
 - KDE Screenlock (PAM configured)
-- Autres contextes PAM (login, sddm, etc.)
+- Other PAM contexts (login, sddm, etc.)

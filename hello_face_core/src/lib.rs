@@ -1,9 +1,9 @@
-//! Moteur de reconnaissance faciale - Abstraction et types principaux
+//! Face recognition engine - Core abstraction and types
 //!
-//! Cette crate expose une API générique et backend-agnostique pour :
-//! - Détection de visages dans des frames
-//! - Extraction d'embeddings (signatures faciales)
-//! - Comparaison d'embeddings et scoring de similarité
+//! This crate exposes a generic, backend-agnostic API for:
+//! - Face detection in frames
+//! - Embedding extraction (facial signatures)
+//! - Embedding comparison and similarity scoring
 
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -18,66 +18,66 @@ pub mod scrfd_detector;
 #[cfg(feature = "tract")]
 pub mod arcface_extractor;
 
-/// Résultat de détection de visage
+/// Face detection result
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FaceRegion {
-    /// Boîte englobante: (x, y, largeur, hauteur) en pixels
+    /// Bounding box: (x, y, width, height) in pixels
     pub bounding_box: (u32, u32, u32, u32),
 
-    /// Confiance en cette détection (0.0 à 1.0)
+    /// Confidence in this detection (0.0 to 1.0)
     pub confidence: f32,
 
-    /// Landmarks optionnels: position des yeux, nez, bouche, etc.
-    /// Format: [(x, y), ...] en pixels relatifs à la région
+    /// Optional landmarks: position of eyes, nose, mouth, etc.
+    /// Format: [(x, y), ...] in pixels relative to the region
     pub landmarks: Vec<(f32, f32)>,
 }
 
-/// Embedding (empreinte faciale) - vecteur haute dimension
+/// Embedding (facial fingerprint) - high-dimensional vector
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Embedding {
-    /// Vecteur de valeurs flottantes (généralement 128, 256 ou 512 dims)
+    /// Vector of float values (typically 128, 256 or 512 dims)
     pub vector: Vec<f32>,
 
-    /// Métadonnées d'extraction
+    /// Extraction metadata
     pub metadata: EmbeddingMetadata,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EmbeddingMetadata {
-    /// Model utilisé pour extraire (ex: "arcface_mobilenet", "facenet")
+    /// Model used for extraction (e.g. "arcface_mobilenet", "facenet")
     pub model: String,
 
-    /// Version du modèle
+    /// Model version
     pub model_version: String,
 
-    /// Timestamp d'extraction (Unix timestamp)
+    /// Extraction timestamp (Unix timestamp)
     pub extracted_at: u64,
 
-    /// Qualité estimée de l'extraction (0.0-1.0)
+    /// Estimated extraction quality (0.0-1.0)
     pub quality_score: f32,
 }
 
-/// Résultat de vérification faciale
+/// Face verification result
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum MatchResult {
-    /// Correspondance réussie
+    /// Successful match
     Success {
-        /// Score de similarité (0.0 à 1.0 ou distance euclidienne)
+        /// Similarity score (0.0 to 1.0 or Euclidean distance)
         score: f32,
-        /// Méthode utilisée
+        /// Method used
         method: String,
     },
 
-    /// Aucun visage détecté
+    /// No face detected
     NoFace,
 
-    /// Visage détecté mais confiance insuffisante
+    /// Face detected but confidence insufficient
     LowConfidence { score: f32, required_threshold: f32 },
 
-    /// Utilisateur a annulé
+    /// Cancelled by the user
     AbortedByUser,
 
-    /// Erreur interne
+    /// Internal error
     InternalError(String),
 }
 
@@ -85,65 +85,65 @@ impl fmt::Display for MatchResult {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             MatchResult::Success { score, method } => {
-                write!(f, "Succès ({}): score {:.2}", method, score)
+                write!(f, "Success ({}): score {:.2}", method, score)
             }
-            MatchResult::NoFace => write!(f, "Aucun visage détecté"),
+            MatchResult::NoFace => write!(f, "No face detected"),
             MatchResult::LowConfidence {
                 score,
                 required_threshold,
             } => {
                 write!(
                     f,
-                    "Confiance insuffisante: {:.2} < {:.2}",
+                    "Insufficient confidence: {:.2} < {:.2}",
                     score, required_threshold
                 )
             }
-            MatchResult::AbortedByUser => write!(f, "Annulé par l'utilisateur"),
-            MatchResult::InternalError(e) => write!(f, "Erreur interne: {}", e),
+            MatchResult::AbortedByUser => write!(f, "Cancelled by user"),
+            MatchResult::InternalError(e) => write!(f, "Internal error: {}", e),
         }
     }
 }
 
-/// Erreurs possibles du moteur de reconnaissance
+/// Possible errors from the recognition engine
 #[derive(Debug, Error)]
 pub enum FaceError {
-    #[error("Chargement du modèle échoué: {0}")]
+    #[error("Model loading failed: {0}")]
     ModelLoadError(String),
 
-    #[error("Détection échouée: {0}")]
+    #[error("Detection failed: {0}")]
     DetectionFailed(String),
 
-    #[error("Extraction d'embedding échouée: {0}")]
+    #[error("Embedding extraction failed: {0}")]
     EmbeddingFailed(String),
 
-    #[error("Extraction échouée: {0}")]
+    #[error("Extraction failed: {0}")]
     ExtractionFailed(String),
 
-    #[error("Frame invalide: {0}")]
+    #[error("Invalid frame: {0}")]
     InvalidFrame(String),
 
-    #[error("Aucun backend disponible")]
+    #[error("No backend available")]
     NoBackendAvailable,
 
-    #[error("Erreur de configuration: {0}")]
+    #[error("Configuration error: {0}")]
     ConfigError(String),
 
     #[error("I/O error: {0}")]
     IoError(#[from] std::io::Error),
 }
 
-/// Trait pour implémentation de détection de visages
+/// Trait for face detection implementations
 pub trait FaceDetector: Send + Sync {
-    /// Détecter les visages dans une frame RGB/grayscale
+    /// Detect faces in an RGB/grayscale frame
     ///
     /// # Arguments
-    /// * `frame_data` - données brutes des pixels
-    /// * `width` - largeur en pixels
-    /// * `height` - hauteur en pixels
-    /// * `channels` - nombre de canaux (1 pour grayscale, 3 pour RGB)
+    /// * `frame_data` - raw pixel data
+    /// * `width` - width in pixels
+    /// * `height` - height in pixels
+    /// * `channels` - number of channels (1 for grayscale, 3 for RGB)
     ///
     /// # Returns
-    /// Vecteur de régions de visages détectés
+    /// Vector of detected face regions
     fn detect(
         &self,
         frame_data: &[u8],
@@ -152,26 +152,26 @@ pub trait FaceDetector: Send + Sync {
         channels: u32,
     ) -> Result<Vec<FaceRegion>, FaceError>;
 
-    /// Nom du détecteur (ex: "retinaface", "yolov8-face")
+    /// Detector name (e.g. "retinaface", "yolov8-face")
     fn name(&self) -> &str;
 
-    /// Version du modèle utilisé
+    /// Version of the model used
     fn model_version(&self) -> &str;
 }
 
-/// Trait pour implémentation d'extraction d'embeddings
+/// Trait for embedding extraction implementations
 pub trait EmbeddingExtractor: Send + Sync {
-    /// Extraire un embedding d'une région faciale
+    /// Extract an embedding from a face region
     ///
     /// # Arguments
-    /// * `face_region` - région détectée du visage
-    /// * `frame_data` - données brutes de la frame
-    /// * `width` - largeur de la frame
-    /// * `height` - hauteur de la frame
-    /// * `channels` - canaux
+    /// * `face_region` - detected face region
+    /// * `frame_data` - raw frame data
+    /// * `width` - frame width
+    /// * `height` - frame height
+    /// * `channels` - channels
     ///
     /// # Returns
-    /// Embedding haute dimension
+    /// High-dimensional embedding
     fn extract(
         &self,
         face_region: &FaceRegion,
@@ -181,45 +181,45 @@ pub trait EmbeddingExtractor: Send + Sync {
         channels: u32,
     ) -> Result<Embedding, FaceError>;
 
-    /// Nom du modèle (ex: "arcface", "facenet")
+    /// Model name (e.g. "arcface", "facenet")
     fn model_name(&self) -> &str;
 
     /// Version
     fn model_version(&self) -> &str;
 
-    /// Dimension attendue du vecteur
+    /// Expected vector dimension
     fn embedding_dimension(&self) -> usize;
 }
 
-/// Trait pour calcul de similarité/distance
+/// Trait for similarity/distance computation
 pub trait SimilarityMetric: Send + Sync {
-    /// Comparer deux embeddings
+    /// Compare two embeddings
     ///
     /// # Returns
-    /// Score entre 0.0 et 1.0 (ou distance selon la métrique)
-    /// Plus élevé = plus similaire
+    /// Score between 0.0 and 1.0 (or distance depending on the metric)
+    /// Higher = more similar
     fn compare(&self, embedding1: &Embedding, embedding2: &Embedding) -> Result<f32, FaceError>;
 
-    /// Nom de la métrique (ex: "euclidean", "cosine")
+    /// Metric name (e.g. "euclidean", "cosine")
     fn metric_name(&self) -> &str;
 }
 
-/// Configuration de vérification
+/// Verification configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VerificationConfig {
-    /// Seuil de confiance requis (0.0 à 1.0)
+    /// Required confidence threshold (0.0 to 1.0)
     pub confidence_threshold: f32,
 
-    /// Seuil de similarité requis
+    /// Required similarity threshold
     pub similarity_threshold: f32,
 
-    /// Timeout max pour la détection (ms)
+    /// Max timeout for detection (ms)
     pub detection_timeout_ms: u64,
 
-    /// Nombre de tentatives autorisées
+    /// Number of allowed attempts
     pub max_attempts: u32,
 
-    /// Contexte (login, sudo, screenlock, sddm)
+    /// Context (login, sudo, screenlock, sddm)
     pub context: String,
 }
 
@@ -235,12 +235,12 @@ impl Default for VerificationConfig {
     }
 }
 
-/// Implémentation simple par histogramme pour prototype
+/// Simple histogram-based implementation for prototyping
 pub mod simple_implementation {
     use super::*;
     use std::time::SystemTime;
 
-    /// Détecteur simple par analyse de contrastes locaux
+    /// Simple detector based on local contrast analysis
     pub struct SimpleDetector;
 
     impl FaceDetector for SimpleDetector {
@@ -251,9 +251,9 @@ pub mod simple_implementation {
             height: u32,
             _channels: u32,
         ) -> Result<Vec<FaceRegion>, FaceError> {
-            // Heuristique simple: chercher les régions de haute variance (caractéristiques faciales)
-            // Pour prototype, on retourne une région centrale fixe (où les visages sont généralement)
-            // Une vraie implémentation utiliserait Haar Cascade ou YOLO
+            // Simple heuristic: look for high-variance regions (facial features)
+            // For prototyping, return a fixed central region (where faces usually are)
+            // A real implementation would use Haar Cascade or YOLO
 
             let region_w = (width as f32 * 0.5) as u32;
             let region_h = (height as f32 * 0.6) as u32;
@@ -276,7 +276,7 @@ pub mod simple_implementation {
         }
     }
 
-    /// Extracteur d'embedding simple par histogramme
+    /// Simple histogram-based embedding extractor
     pub struct SimpleEmbedder;
 
     impl EmbeddingExtractor for SimpleEmbedder {
@@ -290,7 +290,7 @@ pub mod simple_implementation {
         ) -> Result<Embedding, FaceError> {
             let (x, y, w, h) = face_region.bounding_box;
 
-            // Extraire l'histogramme de la région du visage
+            // Extract the histogram from the face region
             let mut hist_r = [0u32; 32];
             let mut hist_g = [0u32; 32];
             let mut hist_b = [0u32; 32];
@@ -310,7 +310,7 @@ pub mod simple_implementation {
                 }
             }
 
-            // Normaliser l'histogramme en vecteur
+            // Normalize the histogram into a vector
             let total = (w * h) as f32;
             let mut vector = Vec::with_capacity(96);
 
@@ -347,23 +347,23 @@ pub mod simple_implementation {
         }
 
         fn embedding_dimension(&self) -> usize {
-            96 // 32 bins par canal RGB
+            96 // 32 bins per RGB channel
         }
     }
 }
 
-/// Chemin par défaut du dossier de modèles
+/// Default path of the models directory
 pub fn default_models_dir() -> std::path::PathBuf {
-    // 1. Variable d'environnement runtime (override tests/développement)
+    // 1. Runtime environment variable (test/development override)
     if let Ok(p) = std::env::var("LINUX_HELLO_MODELS_DIR") {
         return std::path::PathBuf::from(p);
     }
-    // 2. Chemin système (paquet linux-hello-models installé)
+    // 2. System path (installed linux-hello-models package)
     let system_path = std::path::PathBuf::from("/usr/share/linux-hello/models");
     if system_path.exists() {
         return system_path.clone();
     }
-    // 3. Chemin compilé par build.rs (développement/CI)
+    // 3. Path compiled in by build.rs (development/CI)
     if let Some(p) = option_env!("LINUX_HELLO_MODELS_DIR") {
         let path = std::path::PathBuf::from(p);
         if path.exists() {
@@ -381,10 +381,10 @@ pub fn default_models_dir() -> std::path::PathBuf {
     system_path
 }
 
-/// Crée le détecteur de visages le plus capable disponible.
+/// Creates the most capable face detector available.
 ///
-/// Si le modèle ONNX est présent et que la feature "tract" est activée,
-/// retourne un `ScrfdDetector`. Sinon, retourne le fallback stub.
+/// If the ONNX model is present and the "tract" feature is enabled,
+/// returns a `ScrfdDetector`. Otherwise, returns the stub fallback.
 pub fn create_detector(models_dir: &std::path::Path) -> Box<dyn FaceDetector> {
     #[cfg(feature = "tract")]
     {
@@ -392,25 +392,25 @@ pub fn create_detector(models_dir: &std::path::Path) -> Box<dyn FaceDetector> {
         if model_path.exists() {
             match scrfd_detector::ScrfdDetector::load(&model_path) {
                 Ok(det) => {
-                    tracing::info!("Détecteur SCRFD-500M chargé depuis {:?}", model_path);
+                    tracing::info!("SCRFD-500M detector loaded from {:?}", model_path);
                     return Box::new(det);
                 }
                 Err(e) => {
-                    tracing::warn!("Échec chargement SCRFD: {}, fallback stub", e);
+                    tracing::warn!("SCRFD loading failed: {}, falling back to stub", e);
                 }
             }
         } else {
-            tracing::warn!("Modèle SCRFD absent: {:?}, fallback stub", model_path);
+            tracing::warn!("SCRFD model missing: {:?}, falling back to stub", model_path);
         }
     }
-    tracing::info!("Utilisation du détecteur stub (fallback)");
+    tracing::info!("Using stub detector (fallback)");
     scrfd_detector_fallback()
 }
 
-/// Crée l'extracteur d'embeddings le plus capable disponible.
+/// Creates the most capable embedding extractor available.
 ///
-/// Si le modèle ONNX est présent et que la feature "tract" est activée,
-/// retourne un `ArcFaceExtractor`. Sinon, retourne le fallback stub.
+/// If the ONNX model is present and the "tract" feature is enabled,
+/// returns an `ArcFaceExtractor`. Otherwise, returns the stub fallback.
 pub fn create_extractor(models_dir: &std::path::Path) -> Box<dyn EmbeddingExtractor> {
     #[cfg(feature = "tract")]
     {
@@ -418,22 +418,22 @@ pub fn create_extractor(models_dir: &std::path::Path) -> Box<dyn EmbeddingExtrac
         if model_path.exists() {
             match arcface_extractor::ArcFaceExtractor::load(&model_path) {
                 Ok(ext) => {
-                    tracing::info!("Extracteur ArcFace chargé depuis {:?}", model_path);
+                    tracing::info!("ArcFace extractor loaded from {:?}", model_path);
                     return Box::new(ext);
                 }
                 Err(e) => {
-                    tracing::warn!("Échec chargement ArcFace: {}, fallback stub", e);
+                    tracing::warn!("ArcFace loading failed: {}, falling back to stub", e);
                 }
             }
         } else {
-            tracing::warn!("Modèle ArcFace absent: {:?}, fallback stub", model_path);
+            tracing::warn!("ArcFace model missing: {:?}, falling back to stub", model_path);
         }
     }
-    tracing::info!("Utilisation de l'extracteur stub (fallback)");
+    tracing::info!("Using stub extractor (fallback)");
     arcface_extractor_fallback()
 }
 
-// Fonctions internes pour instancier les fallbacks sans la feature tract
+// Internal functions to instantiate fallbacks without the tract feature
 fn scrfd_detector_fallback() -> Box<dyn FaceDetector> {
     #[cfg(feature = "tract")]
     {
@@ -464,7 +464,7 @@ mod factory_tests {
     fn test_create_detector_fallback() {
         let tmp = std::path::Path::new("/tmp/nonexistent_models_dir_test");
         let det = create_detector(tmp);
-        // Doit retourner un détecteur valide même sans modèles
+        // Must return a valid detector even without models
         let frame = vec![128u8; 640 * 480 * 3];
         let result = det.detect(&frame, 640, 480, 3);
         assert!(result.is_ok());

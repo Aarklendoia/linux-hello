@@ -4,7 +4,7 @@ import QtQuick
 QtObject {
     id: controller
 
-    // État de l'application
+    // Application state
     property bool capturing: false
     property int progress: 0
     property var facesList: []
@@ -12,19 +12,19 @@ QtObject {
     property string lastRegisteredFaceId: ""
     property var uidNameCache: ({})
 
-    // Signaux d'état
+    // State signals
     signal appProgressChanged(int value)
     signal captureCompletedSignal
     signal captureErrorSignal(string message)
 
-    // Signaux de navigation — main.qml écoute et fait le vrai pageStack.replace
+    // Navigation signals — main.qml listens and performs the actual pageStack.replace
     signal navigateToHomeSignal
     signal navigateToEnrollSignal
     signal navigateToSettingsSignal
     signal navigateToManageFacesSignal
     signal navigateToTestAuthSignal
 
-    // Signal interne pour relancer le timer d'animation (qui vit dans main.qml)
+    // Internal signal to restart the animation timer (which lives in main.qml)
     signal restartTimerNeeded
 
     Component.onCompleted: {
@@ -33,11 +33,11 @@ QtObject {
         xhr.send();
         if (xhr.responseText !== "") {
             ctrlPort = xhr.responseText.trim();
-            console.log("🔌 ctrlPort lu:", ctrlPort);
+            console.log("🔌 ctrlPort read:", ctrlPort);
         } else {
-            console.log("⚠ Impossible de lire le port de contrôle");
+            console.log("⚠ Unable to read the control port");
         }
-        // Construire le cache UID → nom de compte depuis /etc/passwd
+        // Build the UID → account name cache from /etc/passwd
         var px = new XMLHttpRequest();
         px.open("GET", "file:///etc/passwd", false);
         px.send();
@@ -61,14 +61,14 @@ QtObject {
         xhr.open("GET", "http://127.0.0.1:" + ctrlPort + "/start-capture", true);
         xhr.onreadystatechange = function () {
             if (xhr.readyState === XMLHttpRequest.DONE)
-                console.log("✓ start-capture réponse HTTP", xhr.status, ":", xhr.responseText);
+                console.log("✓ start-capture HTTP response", xhr.status, ":", xhr.responseText);
         };
         xhr.send();
         animateProgress();
     }
 
     function registerFace() {
-        console.log("📸 Envoi /register-face vers port:", ctrlPort);
+        console.log("📸 Sending /register-face to port:", ctrlPort);
         var xhr = new XMLHttpRequest();
         xhr.open("GET", "http://127.0.0.1:" + ctrlPort + "/register-face", true);
         xhr.onreadystatechange = function () {
@@ -80,18 +80,18 @@ QtObject {
                     var resp = JSON.parse(xhr.responseText);
                     if (resp.ok) {
                         controller.lastRegisteredFaceId = resp.face_id || "";
-                        console.log("✓ Visage enregistré, face_id:", controller.lastRegisteredFaceId);
+                        console.log("✓ Face registered, face_id:", controller.lastRegisteredFaceId);
                         controller.captureCompletedSignal();
                     } else {
-                        console.log("✗ Erreur enregistrement:", resp.error);
+                        console.log("✗ Registration error:", resp.error);
                         controller.captureErrorSignal(resp.error || "Erreur inconnue");
                     }
                 } catch (e) {
-                    console.log("✗ Réponse invalide:", xhr.responseText);
+                    console.log("✗ Invalid response:", xhr.responseText);
                     controller.captureErrorSignal("Réponse invalide du serveur");
                 }
             } else {
-                console.log("✗ Erreur HTTP:", xhr.status, xhr.responseText);
+                console.log("✗ HTTP error:", xhr.status, xhr.responseText);
                 controller.captureErrorSignal("Erreur HTTP " + xhr.status);
             }
         };
@@ -106,11 +106,11 @@ QtObject {
     }
 
     function saveSettings() {
-        console.log("Paramètres sauvegardés");
+        console.log("Settings saved");
     }
 
     function loadFaces() {
-        console.log("🔄 loadFaces appelé, ctrlPort=", ctrlPort);
+        console.log("🔄 loadFaces called, ctrlPort=", ctrlPort);
         if (ctrlPort === "0")
             return;
         var xhr = new XMLHttpRequest();
@@ -122,9 +122,9 @@ QtObject {
                 try {
                     var parsed = JSON.parse(xhr.responseText);
                     controller.facesList = Array.isArray(parsed) ? parsed : [];
-                    console.log("🔄 facesList mis à jour:", controller.facesList.length, "visages");
+                    console.log("🔄 facesList updated:", controller.facesList.length, "faces");
                 } catch (e) {
-                    console.log("✗ Erreur parsing faces:", e);
+                    console.log("✗ Error parsing faces:", e);
                     controller.facesList = [];
                 }
             }
@@ -165,8 +165,8 @@ QtObject {
         navigateToTestAuthSignal();
     }
 
-    // Lance un test d'authentification via /test-auth et appelle callback(ok, data).
-    // data est le VerifyResult JSON parsé (ou un message d'erreur string si !ok).
+    // Runs an authentication test via /test-auth and calls callback(ok, data).
+    // data is the parsed VerifyResult JSON (or an error message string if !ok).
     function testAuth(context, callback) {
         if (ctrlPort === "0") {
             callback(false, "Daemon non disponible");

@@ -13,7 +13,7 @@ Kirigami.Page {
     Layout.fillWidth: true
     Layout.fillHeight: true
 
-    // Recharger la liste à chaque fois que la page devient visible
+    // Reload the list every time the page becomes visible
     Component.onCompleted: AppController.loadFaces()
 
     ColumnLayout {
@@ -116,7 +116,7 @@ Kirigami.Page {
                             }
                         }
 
-                        // Delete button — largeur fixe, toujours à droite
+                        // Delete button — fixed width, always on the right
                         Button {
                             text: I18n.tr("manageFaces.deleteBtn")
                             Layout.preferredWidth: Kirigami.Units.gridUnit * 6

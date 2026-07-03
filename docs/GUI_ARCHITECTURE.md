@@ -1,67 +1,67 @@
-# Architecture GUI KDE/Wayland - Linux Hello Configuration
+# KDE/Wayland GUI Architecture - Linux Hello Configuration
 
-## 📋 Vue d'ensemble
+## 📋 Overview
 
-Le système de configuration GUI intègre:
+The GUI configuration system integrates:
 
-1. **hello_daemon** - Capture et détection
-2. **linux_hello_config** - Interface utilisateur
-3. **D-Bus** - Communication inter-processus
+1. **hello_daemon** - Capture and detection
+2. **linux_hello_config** - User interface
+3. **D-Bus** - Inter-process communication
 
-## 🏗️ Architecture Complète
+## 🏗️ Full Architecture
 
-### Modules Créés
+### Modules Created
 
 ```
 linux-hello-rust/
 ├── hello_daemon/
-│   └── capture_stream.rs (NOUVEAU)      # Types streaming
+│   └── capture_stream.rs (NEW)      # Streaming types
 │
 ├── hello_face_core/
-│   └── stub_detector.rs (NOUVEAU)       # Détection rapide
+│   └── stub_detector.rs (NEW)       # Fast detection
 │
-└── linux_hello_config/ (NOUVEAU)
-    ├── main.rs                           # Application principale (Iced)
-    ├── ui.rs                             # Écrans de navigation
-    ├── preview.rs                        # Affichage caméra
-    ├── config.rs                         # Gestion configuration
-    └── Cargo.toml                        # Dépendances GUI
+└── linux_hello_config/ (NEW)
+    ├── main.rs                           # Main application (Iced)
+    ├── ui.rs                             # Navigation screens
+    ├── preview.rs                        # Camera display
+    ├── config.rs                         # Configuration management
+    └── Cargo.toml                        # GUI dependencies
 ```
 
-## 🎨 Écrans Principaux
+## 🎨 Main Screens
 
-### 1. **Home (Accueil)**
+### 1. **Home**
 
-- Boutons rapides: Enregistrement, Paramètres, Gérer visages
-- État du système: Caméra disponible?, Daemon actif?
+- Quick buttons: Enrollment, Settings, Manage faces
+- System state: Camera available?, Daemon active?
 
-### 2. **Enrollment (Enregistrement)**
+### 2. **Enrollment**
 
-- **Preview en direct** (640×480 RGB)
-- **Détection visage**:
-  - ✅ Carré vert autour du visage détecté
-  - ❌ Aucun visage = pas de carré
-- **Barre de progression**: 5/30 frames
-- Boutons: Démarrer, Arrêter, Annuler
-- Indicateur qualité: Score qualité frame actuelle
+- **Live preview** (640×480 RGB)
+- **Face detection**:
+  - ✅ Green square around the detected face
+  - ❌ No face = no square
+- **Progress bar**: 5/30 frames
+- Buttons: Start, Stop, Cancel
+- Quality indicator: Current frame quality score
 
-### 3. **Settings (Paramètres)**
+### 3. **Settings**
 
-- Nombre de frames à capturer (default: 30)
-- Timeout d'enregistrement (default: 2 min)
-- Seuil de confiance détection (0.6)
-- Seuil de qualité (0.5)
-- Device caméra (/dev/video0)
+- Number of frames to capture (default: 30)
+- Enrollment timeout (default: 2 min)
+- Detection confidence threshold (0.6)
+- Quality threshold (0.5)
+- Camera device (/dev/video0)
 
-### 4. **Manage Faces (Gérer Visages)**
+### 4. **Manage Faces**
 
-- Liste des visages enregistrés
-- Supprimer un visage
-- Voir les détails (date, qualité)
+- List of enrolled faces
+- Delete a face
+- View details (date, quality)
 
-## 📡 Communication D-Bus
+## 📡 D-Bus Communication
 
-### Signaux Streaming (Daemon → GUI)
+### Streaming Signals (Daemon → GUI)
 
 ```
 com.linuxhello.FaceAuth.CaptureProgress
@@ -71,33 +71,33 @@ com.linuxhello.FaceAuth.CaptureProgress
 ├── width: u32                 # 640
 ├── height: u32                # 480
 ├── face_detected: b           # bool
-├── face_box: (iiii)           # x, y, w, h optionnel
+├── face_box: (iiii)           # x, y, w, h optional
 └── quality_score: d           # f32 (0.0-1.0)
 ```
 
-### Méthodes D-Bus (GUI → Daemon)
+### D-Bus Methods (GUI → Daemon)
 
 ```
 com.linuxhello.FaceAuth.StartCapture(
     user_id: u32,
     num_frames: u32,
     timeout_ms: u64
-) → OK ou erreur
+) → OK or error
 
 com.linuxhello.FaceAuth.CancelCapture() → OK
 
 com.linuxhello.FaceAuth.ListFaces(user_id: u32) → [FaceInfo]
 ```
 
-## 🔄 Flow d'Enregistrement
+## 🔄 Enrollment Flow
 
 ```
 ┌──────────────────────────────┐
-│  GUI: Écran Enrollment       │
-│  Affiche: "Appuyez pour      │
-│   commencer"                 │
+│  GUI: Enrollment Screen      │
+│  Displays: "Press to         │
+│   start"                     │
 └──────────────┬───────────────┘
-               │ Clic "Démarrer"
+               │ Click "Start"
                ▼
 ┌──────────────────────────────┐
 │  GUI → D-Bus                 │
@@ -108,42 +108,42 @@ com.linuxhello.FaceAuth.ListFaces(user_id: u32) → [FaceInfo]
                ▼
 ┌──────────────────────────────┐
 │  Daemon: capture_frames()     │
-│  - V4L2 caméra ouvre         │
-│  - Boucle 30 frames          │
+│  - V4L2 camera opens         │
+│  - 30-frame loop              │
 └──────────────┬───────────────┘
-               │ (Boucle)
+               │ (Loop)
                ▼
 ┌──────────────────────────────┐
-│  Pour chaque frame:          │
-│  1. Capturer V4L2            │
-│  2. StubDetector.detect()    │
-│  3. Émettre signal D-Bus     │
-└──────────────┬───────────────┘
-               │
-               ▼
-┌──────────────────────────────┐
-│  GUI reçoit signal           │
-│  1. Affiche la frame RGB     │
-│  2. Dessine carré visage     │
-│  3. Met à jour barre 5/30    │
-└──────────────┬───────────────┘
-               │ (Répète x30)
-               ▼
-┌──────────────────────────────┐
-│  Daemon: 30 frames captées   │
-│  Sélectionne meilleure       │
-│  Extrait embedding           │
-│  Sauvegarde                  │
+│  For each frame:              │
+│  1. Capture V4L2              │
+│  2. StubDetector.detect()     │
+│  3. Emit D-Bus signal         │
 └──────────────┬───────────────┘
                │
                ▼
 ┌──────────────────────────────┐
-│  GUI: Résultat "Succès!"     │
-│  "Visage enregistré"         │
+│  GUI receives signal         │
+│  1. Displays the RGB frame   │
+│  2. Draws the face square    │
+│  3. Updates the bar 5/30     │
+└──────────────┬───────────────┘
+               │ (Repeats x30)
+               ▼
+┌──────────────────────────────┐
+│  Daemon: 30 frames captured  │
+│  Selects the best one         │
+│  Extracts embedding           │
+│  Saves                        │
+└──────────────┬───────────────┘
+               │
+               ▼
+┌──────────────────────────────┐
+│  GUI: Result "Success!"      │
+│  "Face enrolled"              │
 └──────────────────────────────┘
 ```
 
-## 🎯 Types de Données
+## 🎯 Data Types
 
 ### CaptureFrameEvent (Streaming)
 
@@ -154,10 +154,10 @@ pub struct CaptureFrameEvent {
     pub frame_data: Vec<u8>,         // RGB 640×480×3
     pub width: u32,                  // 640
     pub height: u32,                 // 480
-    pub face_detected: bool,         // Visage?
+    pub face_detected: bool,         // Face?
     pub face_box: Option<FaceBox>,   // Bounding box
     pub quality_score: f32,          // 0.0-1.0
-    pub timestamp_ms: u64,           // Depuis début
+    pub timestamp_ms: u64,           // Since start
 }
 ```
 
@@ -167,9 +167,9 @@ pub struct CaptureFrameEvent {
 pub struct FaceBox {
     pub x: u32,                      // Pixel X
     pub y: u32,                      // Pixel Y
-    pub width: u32,                  // Largeur box
-    pub height: u32,                 // Hauteur box
-    pub confidence: f32,             // Confiance détection
+    pub width: u32,                  // Box width
+    pub height: u32,                 // Box height
+    pub confidence: f32,             // Detection confidence
 }
 ```
 
@@ -177,102 +177,102 @@ pub struct FaceBox {
 
 ```rust
 pub enum CaptureState {
-    Idle,           // Pas de capture
-    Waiting,        // En attente de placement
-    Capturing,      // Capture en cours
-    Completed,      // Succès
-    Failed,         // Erreur
-    Cancelled,      // Annulé
+    Idle,           // No capture
+    Waiting,        // Waiting for positioning
+    Capturing,      // Capture in progress
+    Completed,      // Success
+    Failed,         // Error
+    Cancelled,      // Cancelled
 }
 ```
 
-## 🎨 Stack Technologique
+## 🎨 Technology Stack
 
 ### Frontend (GUI)
 
-- **Iced** v0.12 - Framework UI cross-platform Rust
-  - ✅ Wayland natif
-  - ✅ Rendu GPU (wgpu)
-  - ✅ Moderne et réactif
-- **pixels** v0.13 - Pixel buffer pour rendu RGB frames
-- **image** v0.24 - Traitement images
+- **Iced** v0.12 - Cross-platform Rust UI framework
+  - ✅ Native Wayland
+  - ✅ GPU rendering (wgpu)
+  - ✅ Modern and reactive
+- **pixels** v0.13 - Pixel buffer for RGB frame rendering
+- **image** v0.24 - Image processing
 
 ### Backend (Daemon)
 
-- **D-Bus** - Communication inter-processus (zbus)
+- **D-Bus** - Inter-process communication (zbus)
 - **tokio** - Async runtime
-- **hello_camera** - Capture V4L2
-- **hello_face_core** - Détection (stub pour MVP)
+- **hello_camera** - V4L2 capture
+- **hello_face_core** - Detection (stub for MVP)
 
-### Détection (MVP)
+### Detection (MVP)
 
-- **StubDetector** - Détection basée contraste simple
-  - Identifie région centrale 640×480
-  - Calcule moyenne pixel RGB
-  - Retourne si [50, 200] (stub)
-  - À remplacer par YOLO/RetinaFace
+- **StubDetector** - Simple contrast-based detection
+  - Identifies the central 640×480 region
+  - Computes average RGB pixel
+  - Returns match if in [50, 200] (stub)
+  - To be replaced with YOLO/RetinaFace
 
-## 📊 Performance Estimée
+## 📊 Estimated Performance
 
 | Operation | Latency | CPU | RAM |
 |-----------|---------|-----|-----|
-| Capture V4L2 | ~33ms (30fps) | ✓ Low | ✓ 1-2MB |
-| Détection stub | ~1ms | ✓ Low | ✓ 1MB |
-| Rendu frame + box | ~16ms (60fps) | ✓ Low | ✓ 5MB |
-| Signal D-Bus | ~5ms | ✓ Low | ✓ 1MB |
-| **Total par frame** | **~55ms** | ✓ | ✓ **~8MB** |
+| V4L2 Capture | ~33ms (30fps) | ✓ Low | ✓ 1-2MB |
+| Stub detection | ~1ms | ✓ Low | ✓ 1MB |
+| Frame + box rendering | ~16ms (60fps) | ✓ Low | ✓ 5MB |
+| D-Bus signal | ~5ms | ✓ Low | ✓ 1MB |
+| **Total per frame** | **~55ms** | ✓ | ✓ **~8MB** |
 
-**Résultat**: Capture 30 frames en ~1.65 secondes, affichage fluide 30fps
+**Result**: Captures 30 frames in ~1.65 seconds, smooth 30fps display
 
-## 🔌 État d'Implémentation
+## 🔌 Implementation Status
 
-### ✅ Fait
+### ✅ Done
 
-- [x] Types streaming (CaptureFrameEvent, FaceBox, CaptureState)
-- [x] StubDetector pour détection rapide
-- [x] Module GUI skeleton (Iced)
+- [x] Streaming types (CaptureFrameEvent, FaceBox, CaptureState)
+- [x] StubDetector for fast detection
+- [x] GUI skeleton module (Iced)
 - [x] Configuration structure
-- [x] Modules UI, preview, config
-- [x] Compilation complète
+- [x] UI, preview, config modules
+- [x] Full compilation
 
-### 🚧 À Faire (Prochaines Étapes)
+### 🚧 To Do (Next Steps)
 
-- [ ] Modifier CameraManager pour streaming async
-- [ ] Ajouter signaux D-Bus au daemon
-- [ ] Implémenter GUI enrollment avec preview
-- [ ] Rendu cadre/bounding box sur frame RGB
-- [ ] Barre de progression visuelle
-- [ ] Tester intégration D-Bus
-- [ ] Remplacer StubDetector par détection réelle (YOLO)
-- [ ] Écran settings avec enregistrement config
-- [ ] Écran manage faces
+- [ ] Modify CameraManager for async streaming
+- [ ] Add D-Bus signals to the daemon
+- [ ] Implement GUI enrollment with preview
+- [ ] Render frame/bounding box on the RGB frame
+- [ ] Visual progress bar
+- [ ] Test D-Bus integration
+- [ ] Replace StubDetector with real detection (YOLO)
+- [ ] Settings screen with config saving
+- [ ] Manage faces screen
 
 ## 🧪 Tests
 
-Tous les 23 tests passent:
+All 23 tests pass:
 
-- ✅ 2 tests hello_camera
-- ✅ 15 tests hello_daemon (incluant capture_stream)
-- ✅ 5 tests hello_face_core (incluant stub_detector)
-- ✅ 1 test pam_linux_hello
+- ✅ 2 hello_camera tests
+- ✅ 15 hello_daemon tests (including capture_stream)
+- ✅ 5 hello_face_core tests (including stub_detector)
+- ✅ 1 pam_linux_hello test
 
-## 🚀 Prochaines Étapes
+## 🚀 Next Steps
 
-1. **Intégration D-Bus complète**
-   - Ajouter trait `CaptureSession` au daemon
-   - Émettre signaux D-Bus pour chaque frame
+1. **Full D-Bus Integration**
+   - Add `CaptureSession` trait to the daemon
+   - Emit D-Bus signals for each frame
 
-2. **Rendu Preview en direct**
-   - Décoder frames RGB
-   - Dessiner bounding box vert
-   - Afficher barre progression
+2. **Live Preview Rendering**
+   - Decode RGB frames
+   - Draw green bounding box
+   - Display progress bar
 
-3. **Détection Réelle**
-   - Intégrer YOLO détection faciale
-   - Optimiser latence
-   - Calibrer seuils
+3. **Real Detection**
+   - Integrate YOLO face detection
+   - Optimize latency
+   - Calibrate thresholds
 
-4. **Tests et Polish**
-   - Tests d'intégration D-Bus
-   - Gestion d'erreurs complète
+4. **Tests and Polish**
+   - D-Bus integration tests
+   - Full error handling
    - UI/UX refinement

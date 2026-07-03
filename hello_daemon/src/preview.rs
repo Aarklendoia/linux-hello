@@ -1,35 +1,35 @@
-//! Fonctions d'exportation de preview vidéo - serveur MJPEG HTTP
+//! Video preview export functions - MJPEG HTTP server
 //!
-//! Encode les frames V4L2 en JPEG et les diffuse en temps réel
-//! via un serveur HTTP multipart sur 127.0.0.1:17823.
+//! Encodes V4L2 frames to JPEG and streams them in real time
+//! via a multipart HTTP server on 127.0.0.1:17823.
 
 use image::{ImageBuffer, Rgb};
 use std::path::Path;
 use std::sync::{Mutex, OnceLock};
 use tokio::sync::broadcast;
 
-/// Port fixe du serveur MJPEG (loopback uniquement)
+/// Fixed port of the MJPEG server (loopback only)
 pub const MJPEG_PORT: u16 = 17823;
 
-/// Canal broadcast : capacité 1 = on garde toujours la frame la plus récente.
+/// Broadcast channel: capacity 1 = always keep the most recent frame.
 static MJPEG_TX: OnceLock<broadcast::Sender<Vec<u8>>> = OnceLock::new();
 
-/// État lissé EMA du rectangle de détection : (x, y, w, h) en f32.
+/// EMA-smoothed state of the detection rectangle: (x, y, w, h) as f32.
 type SmoothBoxState = Mutex<Option<(f32, f32, f32, f32)>>;
 static SMOOTH_BOX: OnceLock<SmoothBoxState> = OnceLock::new();
 
-/// Démarrer le serveur MJPEG HTTP sur 127.0.0.1:17823.
-/// Doit être appelé une seule fois au démarrage du daemon (runtime tokio actif).
+/// Start the MJPEG HTTP server on 127.0.0.1:17823.
+/// Must be called only once at daemon startup (with an active tokio runtime).
 pub async fn start_mjpeg_server() -> anyhow::Result<()> {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
 
     let (tx, _) = broadcast::channel::<Vec<u8>>(1);
-    // Ignorer l'erreur si `start_mjpeg_server` est appelée deux fois
+    // Ignore the error if `start_mjpeg_server` is called twice
     let _ = MJPEG_TX.set(tx.clone());
 
     let listener = TcpListener::bind(format!("127.0.0.1:{}", MJPEG_PORT)).await?;
-    tracing::info!("Serveur MJPEG démarré : http://127.0.0.1:{}", MJPEG_PORT);
+    tracing::info!("MJPEG server started: http://127.0.0.1:{}", MJPEG_PORT);
 
     tokio::spawn(async move {
         loop {
@@ -38,11 +38,11 @@ pub async fn start_mjpeg_server() -> anyhow::Result<()> {
                     let mut rx = tx.subscribe();
                     tokio::spawn(async move {
                         let (mut reader, mut writer) = stream.into_split();
-                        // Lire et ignorer la requête HTTP entrante
+                        // Read and discard the incoming HTTP request
                         let mut buf = [0u8; 1024];
                         let _ = reader.read(&mut buf).await;
 
-                        // En-têtes HTTP multipart MJPEG
+                        // MJPEG multipart HTTP headers
                         let headers = b"HTTP/1.1 200 OK\r\nContent-Type: multipart/x-mixed-replace; boundary=frame\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n";
                         if writer.write_all(headers).await.is_err() {
                             return;
@@ -72,7 +72,7 @@ pub async fn start_mjpeg_server() -> anyhow::Result<()> {
                         }
                     });
                 }
-                Err(e) => tracing::error!("Erreur accept MJPEG: {}", e),
+                Err(e) => tracing::error!("MJPEG accept error: {}", e),
             }
         }
     });
@@ -80,7 +80,7 @@ pub async fn start_mjpeg_server() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Convertir une frame YUYV en RGB888
+/// Convert a YUYV frame to RGB888
 fn yuyv_to_rgb(data: &[u8], width: u32, height: u32) -> Vec<u8> {
     let mut rgb = Vec::with_capacity((width * height * 3) as usize);
 
@@ -91,7 +91,7 @@ fn yuyv_to_rgb(data: &[u8], width: u32, height: u32) -> Vec<u8> {
             let y2 = chunk[2] as i32;
             let v = chunk[3] as i32 - 128;
 
-            // Convertir Y,U,V en R,G,B
+            // Convert Y,U,V to R,G,B
             for y in [y1, y2].iter() {
                 let r = (y + (1402 * v) / 1000).clamp(0, 255) as u8;
                 let g = (y - (344 * u) / 1000 - (714 * v) / 1000).clamp(0, 255) as u8;
@@ -107,38 +107,38 @@ fn yuyv_to_rgb(data: &[u8], width: u32, height: u32) -> Vec<u8> {
     rgb
 }
 
-/// Écrire une frame YUYV en JPEG
+/// Write a YUYV frame as JPEG
 pub fn write_frame_preview(
     data: &[u8],
     width: u32,
     height: u32,
     path: &std::path::Path,
 ) -> anyhow::Result<()> {
-    // Convertir YUYV en RGB
+    // Convert YUYV to RGB
     let rgb_data = yuyv_to_rgb(data, width, height);
 
-    // Créer une image RGB
+    // Create an RGB image
     let img = ImageBuffer::<Rgb<u8>, Vec<u8>>::from_raw(width, height, rgb_data)
         .ok_or_else(|| anyhow::anyhow!("Failed to create image buffer"))?;
 
-    // Sauvegarder en JPEG (85% qualité)
+    // Save as JPEG (85% quality)
     img.save(path)?;
 
     Ok(())
 }
 
-/// Écrire la preview pour l'affichage GUI (données déjà en RGB)
+/// Write the preview for GUI display (data already in RGB)
 pub fn export_preview_frame(data: &[u8], width: u32, height: u32) -> anyhow::Result<()> {
     let path = Path::new("/tmp/linux-hello-preview.jpg");
     write_frame_preview(data, width, height, path)
 }
 
-/// Écrire la preview pour l'affichage GUI (données déjà en RGB, pas de conversion).
-/// Détecte le visage par skin-color (YCbCr) et dessine un rectangle vert autour.
+/// Write the preview for GUI display (data already in RGB, no conversion).
+/// Detects the face via skin color (YCbCr) and draws a green rectangle around it.
 pub fn export_preview_frame_rgb(data: &[u8], width: u32, height: u32) -> anyhow::Result<()> {
     let mut pixels = data.to_vec();
 
-    // Détection skin-color + lissage EMA du rectangle
+    // Skin-color detection + EMA smoothing of the rectangle
     if let Some((rx, ry, rw, rh)) = detect_face_region(&pixels, width, height) {
         let lock = SMOOTH_BOX.get_or_init(|| Mutex::new(None));
         let (sx, sy, sw, sh) = {
@@ -172,14 +172,14 @@ pub fn export_preview_frame_rgb(data: &[u8], width: u32, height: u32) -> anyhow:
     let img = ImageBuffer::<Rgb<u8>, Vec<u8>>::from_raw(width, height, pixels)
         .ok_or_else(|| anyhow::anyhow!("Failed to create image buffer"))?;
 
-    // Réduire à 320×240 pour diminuer la latence (moins de données JPEG).
+    // Downscale to 320x240 to reduce latency (less JPEG data).
     let small = image::DynamicImage::ImageRgb8(img).resize_exact(
         320,
         240,
         image::imageops::FilterType::Triangle,
     );
 
-    // Encoder en JPEG qualité 65 (bon compromis taille/qualité pour une preview).
+    // Encode as JPEG quality 65 (good size/quality tradeoff for a preview).
     let mut jpeg_bytes: Vec<u8> = Vec::new();
     let mut cursor = std::io::Cursor::new(&mut jpeg_bytes);
     let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut cursor, 65);
@@ -191,13 +191,13 @@ pub fn export_preview_frame_rgb(data: &[u8], width: u32, height: u32) -> anyhow:
     Ok(())
 }
 
-/// Détecte la région du visage par critères YCbCr (couleur peau).
-/// Cherche le centroïde dans le tiers supérieur de l'image (front/joues)
-/// pour éviter que les mains au niveau du menton ne biaisent le résultat.
-/// Retourne (x, y, largeur, hauteur) ou None si aucun visage trouvé.
+/// Detects the face region using YCbCr criteria (skin color).
+/// Looks for the centroid in the upper third of the image (forehead/cheeks)
+/// to avoid hands near the chin biasing the result.
+/// Returns (x, y, width, height) or None if no face is found.
 fn detect_face_region(rgb: &[u8], width: u32, height: u32) -> Option<(u32, u32, u32, u32)> {
-    // Chercher de 10% à 60% de la hauteur : évite le plafond en haut
-    // et les mains/épaules en bas. Le centroïde tombe sur les yeux/nez.
+    // Search from 10% to 60% of the height: avoids the ceiling at the top
+    // and hands/shoulders at the bottom. The centroid falls on the eyes/nose.
     let y_start = height / 10;
     let search_height = height * 3 / 5;
     let mut sum_x: u64 = 0;
@@ -219,11 +219,11 @@ fn detect_face_region(rgb: &[u8], width: u32, height: u32) -> Option<(u32, u32, 
                 continue;
             }
 
-            // Conversion RGB → YCbCr
+            // RGB → YCbCr conversion
             let cb = 128.0 - 0.168736 * r - 0.331264 * g + 0.5 * b;
             let cr = 128.0 + 0.5 * r - 0.418688 * g - 0.081312 * b;
 
-            // Plage couleur peau Chai & Ngan
+            // Chai & Ngan skin color range
             if (77.0..=127.0).contains(&cb) && (133.0..=173.0).contains(&cr) {
                 sum_x += x as u64;
                 sum_y += y as u64;
@@ -232,7 +232,7 @@ fn detect_face_region(rgb: &[u8], width: u32, height: u32) -> Option<(u32, u32, 
         }
     }
 
-    // Pas assez de peau dans la zone principale → étendre jusqu'à 70%
+    // Not enough skin in the main area → extend up to 70%
     if count < 400 {
         let search_height2 = height * 7 / 10;
         for y in search_height..search_height2 {
@@ -260,17 +260,17 @@ fn detect_face_region(rgb: &[u8], width: u32, height: u32) -> Option<(u32, u32, 
         }
     }
 
-    // Seuil global minimum
+    // Global minimum threshold
     if count < 600 {
         return None;
     }
 
-    // Centroïde
+    // Centroid
     let cx = (sum_x / count) as u32;
     let cy = (sum_y / count) as u32;
 
-    // La boîte est asymétrique : 20% au-dessus du centroïde (front/sourcils), 22% en dessous (menton).
-    // Largeur : 16% de chaque côté.
+    // The box is asymmetric: 20% above the centroid (forehead/eyebrows), 22% below (chin).
+    // Width: 16% on each side.
     let above = height * 20 / 100;
     let below = height * 22 / 100;
     let half_w = width * 16 / 100;
@@ -283,12 +283,12 @@ fn detect_face_region(rgb: &[u8], width: u32, height: u32) -> Option<(u32, u32, 
     Some((x, y, x2 - x, y2 - y))
 }
 
-/// Dessine un rectangle de couleur `color` (épaisseur 3px) dans un buffer RGB.
+/// Draws a rectangle of color `color` (3px thick) in an RGB buffer.
 fn draw_rect_rgb(rgb: &mut [u8], width: u32, x: u32, y: u32, w: u32, h: u32, color: [u8; 3]) {
     let thickness = 3u32;
     let stride = width as usize * 3;
 
-    // Bords horizontaux (haut + bas)
+    // Horizontal edges (top + bottom)
     for dx in x..x + w {
         for t in 0..thickness {
             let top =
@@ -304,7 +304,7 @@ fn draw_rect_rgb(rgb: &mut [u8], width: u32, x: u32, y: u32, w: u32, h: u32, col
         }
     }
 
-    // Bords verticaux (gauche + droite)
+    // Vertical edges (left + right)
     for dy in y..y + h {
         for t in 0..thickness {
             let left =

@@ -10,21 +10,21 @@ Kirigami.ApplicationWindow {
     height: 700
     visible: true
 
-    // Signal pour les changements de langue
+    // Signal for language changes
     signal languageChanged
 
-    // Thème Breeze automatique via Kirigami
+    // Automatic Breeze theme via Kirigami
     palette.buttonText: Kirigami.Theme.textColor
     color: Kirigami.Theme.backgroundColor
 
-    // Stack de pages pour navigation
+    // Page stack for navigation
     pageStack {
         initialPage: homeComponent
-        // Forcer le mode une seule colonne en Kirigami 6
+        // Force single-column mode in Kirigami 6
         columnView.columnWidth: mainWindow.width
     }
 
-    // Désactiver les ToolTips complexes de Kirigami pour éviter les binding loops
+    // Disable Kirigami's complex ToolTips to avoid binding loops
     property bool showToolTips: false
 
     Timer {
@@ -62,7 +62,7 @@ Kirigami.ApplicationWindow {
         }
     }
 
-    // Page d'accueil (seule page pré-créée, pas de ProgressBar)
+    // Home page (the only pre-created page, no ProgressBar)
     Component {
         id: homeComponent
         Home {}

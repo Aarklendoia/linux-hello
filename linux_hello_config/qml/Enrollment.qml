@@ -9,11 +9,11 @@ Kirigami.Page {
     id: enrollPage
     title: I18n.tr("enrollment.title")
 
-    // Propriétés pour pageStack
+    // Properties for pageStack
     Layout.fillWidth: true
     Layout.fillHeight: true
 
-    // Démarrer le lecteur MJPEG à la création (page créée uniquement quand navigée via URL)
+    // Start the MJPEG player on creation (page is only created when navigated to via URL)
     Component.onCompleted: {
         mjpegPlayer.play();
     }
@@ -21,7 +21,7 @@ Kirigami.Page {
     Component.onDestruction: {
         mjpegPlayer.stop();
     }
-    // Lecteur MJPEG — se connecte au serveur du daemon sur 127.0.0.1:17823
+    // MJPEG player — connects to the daemon's server on 127.0.0.1:17823
     MediaPlayer {
         id: mjpegPlayer
         videoOutput: cameraPreview
@@ -117,7 +117,7 @@ Kirigami.Page {
                 palette.button: Kirigami.Theme.highlightColor
 
                 onClicked: {
-                    console.log("🎬 Bouton Démarrer cliqué");
+                    console.log("🎬 Start button clicked");
                     AppController.startCapture();
                 }
             }
@@ -145,7 +145,7 @@ Kirigami.Page {
         }
     }
 
-    // Retour automatique à l'accueil 2 secondes après succès
+    // Automatic return to home 2 seconds after success
     Timer {
         id: navigateHomeTimer
         interval: 2000

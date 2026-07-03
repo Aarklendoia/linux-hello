@@ -1,43 +1,43 @@
-# Module PAM Linux Hello
+# Linux Hello PAM Module
 
-Module d'authentification PAM pour Linux Hello - permet l'authentification faciale via PAM pour login, sudo, screenlock, etc.
+PAM authentication module for Linux Hello - enables facial authentication via PAM for login, sudo, screenlock, etc.
 
-## Compilation
+## Building
 
 ```bash
 cargo build -p pam_linux_hello --release
 ```
 
-Le module compilé sera dans `target/release/libpam_linux_hello.so`
+The compiled module will be at `target/release/libpam_linux_hello.so`
 
 ## Installation
 
-### Installation système
+### System installation
 
 ```bash
 sudo install -m 644 target/release/libpam_linux_hello.so /lib/x86_64-linux-gnu/security/
 ```
 
-### Ou installation local de test
+### Or local test installation
 
-Utiliser le chemin complet dans la configuration PAM pour tester sans droits root.
+Use the full path in the PAM configuration to test without root privileges.
 
-## Configuration PAM
+## PAM Configuration
 
-### Format de base
+### Basic format
 
 ```
 auth [sufficient|required] /path/to/libpam_linux_hello.so [options]
 ```
 
-### Options disponibles
+### Available options
 
-- `context=<context>` : Contexte d'authentification (login, sudo, screenlock, sddm, test, etc.) [défaut: default]
-- `timeout_ms=<ms>` : Timeout en millisecondes pour la capture [défaut: 5000]
-- `similarity_threshold=<0.0-1.0>` : Seuil de similarité [défaut: 0.6]
-- `debug` : Activer les logs debug
+- `context=<context>`: Authentication context (login, sudo, screenlock, sddm, test, etc.) [default: default]
+- `timeout_ms=<ms>`: Timeout in milliseconds for capture [default: 5000]
+- `similarity_threshold=<0.0-1.0>`: Similarity threshold [default: 0.6]
+- `debug`: Enable debug logs
 
-### Exemples d'utilisation
+### Usage Examples
 
 #### Login (SDDM/GDM)
 
@@ -58,53 +58,53 @@ auth sufficient /lib/x86_64-linux-gnu/security/pam_linux_hello.so context=sudo t
 #### Screenlock (KDE/GNOME)
 
 ```bash
-# /etc/pam.d/kde ou /etc/pam.d/gnome
+# /etc/pam.d/kde or /etc/pam.d/gnome
 auth sufficient /lib/x86_64-linux-gnu/security/pam_linux_hello.so context=screenlock timeout_ms=3000
 auth required pam_permit.so
 ```
 
-## Codes de retour PAM
+## PAM Return Codes
 
-- `PAM_SUCCESS` : Authentification réussie (visage reconnu)
-- `PAM_AUTH_ERR` : Authentification échouée (visage pas reconnu ou erreur système)
-- `PAM_SYSTEM_ERR` : Erreur système (daemon non disponible, etc.)
-- `PAM_IGNORE` : Module ne peut pas authentifier (mode debug)
+- `PAM_SUCCESS`: Authentication succeeded (face recognized)
+- `PAM_AUTH_ERR`: Authentication failed (face not recognized or system error)
+- `PAM_SYSTEM_ERR`: System error (daemon unavailable, etc.)
+- `PAM_IGNORE`: Module cannot authenticate (debug mode)
 
-## Contextes recommandés et seuils
+## Recommended Contexts and Thresholds
 
-Les seuils de similarité varient selon le contexte:
+Similarity thresholds vary depending on the context:
 
-| Contexte | Seuil par défaut | Recommandation |
+| Context | Default Threshold | Recommendation |
 |----------|------------------|---|
 | login | 0.65 | Strict |
 | sddm | 0.65 | Strict |
-| sudo | 0.70 | Très strict |
-| screenlock | 0.60 | Modéré |
-| test | 0.50 | Permissif (test) |
+| sudo | 0.70 | Very strict |
+| screenlock | 0.60 | Moderate |
+| test | 0.50 | Permissive (test) |
 
-## Dépendances système
+## System Dependencies
 
-Le module PAM requiert:
-- D-Bus session bus en cours d'exécution
-- Daemon Linux Hello en cours d'exécution (`hello-daemon`)
-- Visages enregistrés pour l'utilisateur
+The PAM module requires:
+- D-Bus session bus running
+- Linux Hello daemon running (`hello-daemon`)
+- Faces enrolled for the user
 
-## Test
+## Testing
 
-### Test D-Bus direct (sans PAM)
+### Direct D-Bus test (without PAM)
 
 ```bash
-# Démarrer le daemon
+# Start the daemon
 ./target/debug/hello-daemon --debug &
 
-# Enregistrer un visage
+# Enroll a face
 dbus-send --session --print-reply \
   --dest=com.linuxhello.FaceAuth \
   /com/linuxhello/FaceAuth \
   com.linuxhello.FaceAuth.RegisterFace \
   string:'{"user_id":1000,"context":"test","timeout_ms":5000,"num_samples":3}'
 
-# Vérifier le visage
+# Verify the face
 dbus-send --session --print-reply \
   --dest=com.linuxhello.FaceAuth \
   /com/linuxhello/FaceAuth \
@@ -112,42 +112,42 @@ dbus-send --session --print-reply \
   string:'{"user_id":1000,"context":"test","timeout_ms":5000}'
 ```
 
-### Test PAM avec pamtester
+### PAM Test with pamtester
 
 ```bash
-# Voir les sources du projet pour script de test complet
+# See the project sources for the full test script
 ./test-pam-full.sh
 ```
 
-## Sécurité
+## Security
 
-Le module PAM implémente:
-- Vérification basée sur UID de l'utilisateur
-- Accès au daemon D-Bus session (isolation par session)
-- Logs structurés pour audit
-- Timeouts pour éviter les blocages
+The PAM module implements:
+- Verification based on the user's UID
+- Access to the D-Bus session daemon (session isolation)
+- Structured logs for auditing
+- Timeouts to prevent blocking
 
 ## Troubleshooting
 
 ### "The name com.linuxhello.FaceAuth was not provided by any .service files"
 
-Le daemon Linux Hello n'est pas en cours d'exécution. Lancez-le:
+The Linux Hello daemon is not running. Start it:
 
 ```bash
 ./target/debug/hello-daemon
 ```
 
-### "Impossible de récupérer UID pour l'utilisateur"
+### "Unable to retrieve UID for user"
 
-L'utilisateur n'existe pas ou `getpwnam` n'est pas disponible. Vérifier avec:
+The user doesn't exist or `getpwnam` is unavailable. Check with:
 
 ```bash
 id username
 ```
 
-### Module ne compile pas
+### Module doesn't compile
 
-Assurez-vous que les dépendances Rust sont à jour:
+Make sure the Rust dependencies are up to date:
 
 ```bash
 cargo update -p hello_daemon -p pam_linux_hello
@@ -174,18 +174,18 @@ Login/Sudo/Screenlock
  Camera + Face Matching
 ```
 
-## Limitations actuelles
+## Current Limitations
 
-- Utilise caméra simulée (frames virtuels)
-- Pas de support multi-face par probe
-- Timeout global pour capture+matching
-- Pas de log persistant
+- Uses simulated camera (virtual frames)
+- No multi-face support per probe
+- Global timeout for capture+matching
+- No persistent logging
 
-## Futures améliorations
+## Future Improvements
 
-- [ ] Intégration vraie caméra (V4L2/PipeWire)
-- [ ] Machine learning réel (ONNX/TensorFlow)
-- [ ] Support multi-modal (IR, Depth)
-- [ ] Polkit pour sudo sans PAM
-- [ ] API REST en plus de D-Bus
-- [ ] Database persistante (sqlite)
+- [ ] Real camera integration (V4L2/PipeWire)
+- [ ] Real machine learning (ONNX/TensorFlow)
+- [ ] Multi-modal support (IR, Depth)
+- [ ] Polkit for sudo without PAM
+- [ ] REST API in addition to D-Bus
+- [ ] Persistent database (sqlite)

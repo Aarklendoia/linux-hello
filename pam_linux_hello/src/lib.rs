@@ -1,17 +1,17 @@
-//! Module PAM Rust pour Linux Hello
+//! Rust PAM module for Linux Hello
 //!
 //! Compilation: cargo build --release
 //! Installation: cp target/release/libpam_linux_hello.so /lib/security/pam_linux_hello.so
 //!
-//! Utilisation dans /etc/pam.d/service:
+//! Usage in /etc/pam.d/service:
 //! ```
 //! auth sufficient pam_linux_hello.so context=login timeout_ms=5000
 //! auth include system-login
 //! ```
 
-// Utiliser l'allocateur système (libc malloc) au lieu de l'allocateur Rust.
-// Évite le conflit entre deux runtimes Rust quand le .so est chargé par
-// un binaire Rust (rust-sudo-rs) : les deux partagent le même malloc système.
+// Use the system allocator (libc malloc) instead of the Rust allocator.
+// Avoids the conflict between two Rust runtimes when the .so is loaded by
+// a Rust binary (rust-sudo-rs): both share the same system malloc.
 #[global_allocator]
 static ALLOCATOR: std::alloc::System = std::alloc::System;
 
@@ -23,7 +23,7 @@ use std::os::raw::{c_char, c_int};
 use std::os::unix::fs::OpenOptionsExt;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-// Bindings C basiques
+// Basic C bindings
 #[repr(C)]
 pub struct PamHandle {
     _private: [u8; 0],
@@ -34,35 +34,35 @@ extern "C" {
         -> c_int;
 }
 
-// Constantes PAM
+// PAM constants
 const PAM_SUCCESS: c_int = 0;
 
 // Retcodes
 const PAM_AUTH_ERR: c_int = 7;
 const PAM_IGNORE: c_int = 25;
 
-// Styles de message PAM conversation
+// PAM conversation message styles
 const PAM_TEXT_INFO: c_int = 4;
 const PAM_ERROR_MSG: c_int = 3;
 
-// Item type pour récupérer la fonction de conversation
+// Item type to retrieve the conversation function
 const PAM_CONV_ITEM: c_int = 5;
 
-/// Structure message PAM (voir <security/pam_appl.h>)
+/// PAM message structure (see <security/pam_appl.h>)
 #[repr(C)]
 struct PamMessage {
     msg_style: c_int,
     msg: *const c_char,
 }
 
-/// Structure réponse PAM
+/// PAM response structure
 #[repr(C)]
 struct PamResponse {
     resp: *mut c_char,
     resp_retcode: c_int,
 }
 
-/// Structure de la fonction de conversation PAM
+/// Structure of the PAM conversation function
 #[repr(C)]
 struct PamConv {
     conv: Option<
@@ -84,22 +84,22 @@ extern "C" {
     ) -> c_int;
 }
 
-/// Options du module PAM
+/// PAM module options
 #[derive(Debug, Clone)]
 struct PamOptions {
-    /// Contexte d'authentification (login, sudo, screenlock, sddm, etc.)
+    /// Authentication context (login, sudo, screenlock, sddm, etc.)
     context: String,
 
-    /// Timeout en ms pour la capture
+    /// Timeout in ms for capture
     timeout_ms: u64,
 
-    /// Seuil de similarité (0.0-1.0)
+    /// Similarity threshold (0.0-1.0)
     similarity_threshold: f32,
 
-    /// Si true, demander confirmation avant succès
+    /// If true, ask for confirmation before success
     confirm: bool,
 
-    /// Mode debug
+    /// Debug mode
     debug: bool,
 }
 
@@ -115,7 +115,7 @@ impl Default for PamOptions {
     }
 }
 
-/// Parser les options PAM
+/// Parse PAM options
 fn parse_options(argc: c_int, argv: *const *const c_char) -> PamOptions {
     let mut opts = PamOptions::default();
 
@@ -131,7 +131,7 @@ fn parse_options(argc: c_int, argv: *const *const c_char) -> PamOptions {
             }
 
             if let Ok(arg_cstr) = CStr::from_ptr(arg_ptr).to_str() {
-                // Parser key=value
+                // Parse key=value
                 if let Some((key, value)) = arg_cstr.split_once('=') {
                     match key {
                         "context" => opts.context = value.to_string(),
@@ -160,8 +160,8 @@ fn parse_options(argc: c_int, argv: *const *const c_char) -> PamOptions {
     opts
 }
 
-/// Détecter la langue courante depuis les variables d'environnement PAM.
-/// Retourne le code de langue à 2 lettres (ex: "fr", "de"), ou "en" par défaut.
+/// Detect the current language from the PAM environment variables.
+/// Returns the 2-letter language code (e.g. "fr", "de"), or "en" by default.
 fn detect_lang() -> String {
     for var in &["LC_ALL", "LC_MESSAGES", "LANG", "LANGUAGE"] {
         if let Ok(val) = std::env::var(var) {
@@ -174,44 +174,44 @@ fn detect_lang() -> String {
     "en".to_string()
 }
 
-/// Traduire un message PAM selon la langue détectée.
-/// Clés reconnues : "looking", "recognized", "not_recognized"
+/// Translate a PAM message according to the detected language.
+/// Recognized keys: "looking", "recognized", "not_recognized"
 fn pam_t(key: &str) -> &'static str {
     let lang = detect_lang();
     match (lang.as_str(), key) {
-        // Anglais (défaut)
+        // English (default)
         (_, "looking") if lang == "en" => "🔍 Look at the camera...",
         (_, "recognized") if lang == "en" => "✓ Face recognized",
         (_, "not_recognized") if lang == "en" => "✗ Face not recognized",
-        // Français
+        // French
         ("fr", "looking") => "🔍 Regardez vers la caméra...",
         ("fr", "recognized") => "✓ Visage reconnu",
         ("fr", "not_recognized") => "✗ Visage non reconnu",
-        // Allemand
+        // German
         ("de", "looking") => "🔍 Schauen Sie in die Kamera...",
         ("de", "recognized") => "✓ Gesicht erkannt",
         ("de", "not_recognized") => "✗ Gesicht nicht erkannt",
-        // Espagnol
+        // Spanish
         ("es", "looking") => "🔍 Mire hacia la cámara...",
         ("es", "recognized") => "✓ Rostro reconocido",
         ("es", "not_recognized") => "✗ Rostro no reconocido",
-        // Portugais
+        // Portuguese
         ("pt", "looking") => "🔍 Olhe para a câmera...",
         ("pt", "recognized") => "✓ Rosto reconhecido",
         ("pt", "not_recognized") => "✗ Rosto não reconhecido",
-        // Russe
+        // Russian
         ("ru", "looking") => "🔍 Посмотрите на камеру...",
         ("ru", "recognized") => "✓ Лицо распознано",
         ("ru", "not_recognized") => "✗ Лицо не распознано",
-        // Japonais
+        // Japanese
         ("ja", "looking") => "🔍 カメラを見てください...",
         ("ja", "recognized") => "✓ 顔が認識されました",
         ("ja", "not_recognized") => "✗ 顔が認識されませんでした",
-        // Chinois
+        // Chinese
         ("zh", "looking") => "🔍 请看向摄像头...",
         ("zh", "recognized") => "✓ 人脸已识别",
         ("zh", "not_recognized") => "✗ 人脸未识别",
-        // Arabe
+        // Arabic
         ("ar", "looking") => "🔍 انظر إلى الكاميرا...",
         ("ar", "recognized") => "✓ تم التعرف على الوجه",
         ("ar", "not_recognized") => "✗ لم يتم التعرف على الوجه",
@@ -219,7 +219,7 @@ fn pam_t(key: &str) -> &'static str {
         ("hi", "looking") => "🔍 कैमरे की ओर देखें...",
         ("hi", "recognized") => "✓ चेहरा पहचाना गया",
         ("hi", "not_recognized") => "✗ चेहरा नहीं पहचाना गया",
-        // Défaut anglais
+        // English default
         (_, "looking") => "🔍 Look at the camera...",
         (_, "recognized") => "✓ Face recognized",
         (_, "not_recognized") => "✗ Face not recognized",
@@ -227,9 +227,9 @@ fn pam_t(key: &str) -> &'static str {
     }
 }
 
-/// Envoyer un message via la PAM conversation (pam_conv).
-/// On envoie même si PAM_SILENT est actif : l'utilisateur doit savoir
-/// que la caméra est en cours d'utilisation (retour biométrique essentiel).
+/// Send a message via the PAM conversation (pam_conv).
+/// We send even if PAM_SILENT is active: the user must know
+/// that the camera is in use (essential biometric feedback).
 fn pam_conv_send(pamh: *mut PamHandle, _flags: c_int, msg_style: c_int, msg: &str) {
     log_pam(&format!(
         "pam_conv_send: msg_style={} msg={}",
@@ -240,7 +240,7 @@ fn pam_conv_send(pamh: *mut PamHandle, _flags: c_int, msg_style: c_int, msg: &st
     let msg_cstr = match CString::new(msg) {
         Ok(s) => s,
         Err(e) => {
-            log_pam(&format!("pam_conv_send: CString::new échoué: {}", e));
+            log_pam(&format!("pam_conv_send: CString::new failed: {}", e));
             return;
         }
     };
@@ -261,7 +261,7 @@ fn pam_conv_send(pamh: *mut PamHandle, _flags: c_int, msg_style: c_int, msg: &st
         let conv_fn = match conv.conv {
             Some(f) => f,
             None => {
-                log_pam("pam_conv_send: conv.conv est None");
+                log_pam("pam_conv_send: conv.conv is None");
                 return;
             }
         };
@@ -276,7 +276,7 @@ fn pam_conv_send(pamh: *mut PamHandle, _flags: c_int, msg_style: c_int, msg: &st
         let ret = (conv_fn)(1, &msg_ptr, &mut resp_ptr, conv.appdata_ptr);
         log_pam(&format!("pam_conv_send: conv_fn ret={}", ret));
 
-        // Libérer la réponse allouée par l'application
+        // Free the response allocated by the application
         if !resp_ptr.is_null() {
             let resp = &*resp_ptr;
             if !resp.resp.is_null() {
@@ -287,18 +287,18 @@ fn pam_conv_send(pamh: *mut PamHandle, _flags: c_int, msg_style: c_int, msg: &st
     }
 }
 
-/// Fonction principale PAM: authentication
+/// Main PAM function: authentication
 ///
 /// # Arguments
 /// * `pamh` - PAM handle
-/// * `flags` - Flags PAM (PAM_SILENT, etc.)
-/// * `argc` - Nombre d'arguments
-/// * `argv` - Arguments (argv\[0\] est le nom du module, argv\[1..\] sont les options)
+/// * `flags` - PAM flags (PAM_SILENT, etc.)
+/// * `argc` - Number of arguments
+/// * `argv` - Arguments (argv\[0\] is the module name, argv\[1..\] are the options)
 ///
 /// # Returns
-/// PAM_SUCCESS si authentification réussie
-/// PAM_AUTH_ERR si authentification échouée
-/// PAM_IGNORE si le module ne peut pas authentifier (laisser continuer)
+/// PAM_SUCCESS if authentication succeeded
+/// PAM_AUTH_ERR if authentication failed
+/// PAM_IGNORE if the module cannot authenticate (let the next one continue)
 ///
 /// # Safety
 /// This function dereferences raw pointers passed from C code (pamh and argv).
@@ -312,10 +312,10 @@ pub unsafe extern "C" fn pam_sm_authenticate(
     argc: c_int,
     argv: *const *const c_char,
 ) -> c_int {
-    log_pam("pam_sm_authenticate appelé");
-    log_pam("pam_sm_authenticate commencé");
+    log_pam("pam_sm_authenticate called");
+    log_pam("pam_sm_authenticate started");
 
-    // Parser les options
+    // Parse the options
     let opts = parse_options(argc, argv);
 
     if opts.debug {
@@ -325,64 +325,64 @@ pub unsafe extern "C" fn pam_sm_authenticate(
         ));
     }
 
-    // Récupérer l'utilisateur PAM
+    // Retrieve the PAM user
     let username = unsafe {
         let mut user_ptr: *const c_char = std::ptr::null();
         let ret = pam_get_user(pamh, &mut user_ptr, std::ptr::null());
 
         if ret != PAM_SUCCESS {
-            log_pam("Impossible de récupérer utilisateur PAM");
+            log_pam("Failed to retrieve PAM user");
             return PAM_AUTH_ERR;
         }
 
         if user_ptr.is_null() {
-            log_pam("Utilisateur PAM est null");
+            log_pam("PAM user is null");
             return PAM_AUTH_ERR;
         }
 
         match CStr::from_ptr(user_ptr).to_str() {
             Ok(u) => u.to_string(),
             Err(_) => {
-                log_pam("Impossible de convertir utilisateur en UTF-8");
+                log_pam("Failed to convert user to UTF-8");
                 return PAM_AUTH_ERR;
             }
         }
     };
 
     log_pam(&format!(
-        "Authentification faciale pour l'utilisateur: {}",
+        "Face authentication for user: {}",
         username
     ));
     log_pam(&format!(
-        "pam_sm_authenticate utilisateur={} context={} timeout_ms={}",
+        "pam_sm_authenticate user={} context={} timeout_ms={}",
         username, &opts.context, opts.timeout_ms
     ));
 
-    // Récupérer le UID de l'utilisateur
+    // Retrieve the user's UID
     let user_id = match uid_from_name(&username) {
         Some(uid) => uid,
         None => {
             log_pam(&format!(
-                "Impossible de récupérer UID pour l'utilisateur: {}",
+                "Failed to retrieve UID for user: {}",
                 username
             ));
             return PAM_AUTH_ERR;
         }
     };
 
-    log_pam(&format!("UID de l'utilisateur {}: {}", username, user_id));
+    log_pam(&format!("UID for user {}: {}", username, user_id));
 
-    // Informer l'utilisateur que la reconnaissance est en cours
+    // Inform the user that recognition is in progress
     pam_conv_send(pamh, flags, PAM_TEXT_INFO, pam_t("looking"));
 
-    // Créer la requête pour le helper PAM
+    // Build the request for the PAM helper
     let helper_req = PamHelperRequest {
         user_id,
         context: opts.context.clone(),
         timeout_ms: opts.timeout_ms,
     };
 
-    // Appeler le helper via socket au lieu de D-Bus
+    // Call the helper via socket instead of D-Bus
     match call_pam_helper_sync(&helper_req) {
         Ok(response) => match response {
             PamHelperResponse::Success {
@@ -390,7 +390,7 @@ pub unsafe extern "C" fn pam_sm_authenticate(
                 similarity_score,
             } => {
                 log_pam(&format!(
-                    "Authentification réussie pour {}: face_id={}, score={}",
+                    "Authentication succeeded for {}: face_id={}, score={}",
                     username, face_id, similarity_score
                 ));
                 log_pam(&format!(
@@ -402,7 +402,7 @@ pub unsafe extern "C" fn pam_sm_authenticate(
             }
             PamHelperResponse::Failure { reason } => {
                 log_pam(&format!(
-                    "Authentification échouée pour {}: {}",
+                    "Authentication failed for {}: {}",
                     username, reason
                 ));
                 log_pam(&format!(
@@ -414,13 +414,13 @@ pub unsafe extern "C" fn pam_sm_authenticate(
             }
         },
         Err(e) => {
-            // Erreur ou helper non disponible = ignorer et laisser pam_unix.so prendre le relais
+            // Error or helper unavailable = ignore and let pam_unix.so take over
             log_pam(&format!(
-                "PAM helper non disponible ou erreur: {}. Passant au fallback password.",
+                "PAM helper unavailable or error: {}. Falling back to password.",
                 e
             ));
             log_pam(&format!("helper error user={} err={}", username, e));
-            PAM_IGNORE // ← IMPORTANT: PAM_IGNORE pour passer au suivant, pas PAM_SYSTEM_ERR
+            PAM_IGNORE // <- IMPORTANT: PAM_IGNORE to move to the next module, not PAM_SYSTEM_ERR
         }
     }
 }
@@ -433,11 +433,11 @@ pub extern "C" fn pam_sm_setcred(
     _argc: c_int,
     _argv: *const *const c_char,
 ) -> c_int {
-    log_pam("pam_sm_setcred appelé");
+    log_pam("pam_sm_setcred called");
     PAM_SUCCESS
 }
 
-/// Fonction PAM pour fermeture de session
+/// PAM function for session closing
 #[allow(non_snake_case)]
 #[no_mangle]
 pub extern "C" fn pam_sm_close_session(
@@ -450,7 +450,7 @@ pub extern "C" fn pam_sm_close_session(
     PAM_SUCCESS
 }
 
-/// Fonction PAM pour changement de mot de passe (pas d'action nécessaire)
+/// PAM function for password change (no action necessary)
 #[allow(non_snake_case)]
 #[no_mangle]
 pub extern "C" fn pam_sm_chauthtok(
@@ -463,7 +463,7 @@ pub extern "C" fn pam_sm_chauthtok(
     PAM_IGNORE
 }
 
-/// Fonction PAM pour gestion de session (pas d'action nécessaire)
+/// PAM function for session management (no action necessary)
 #[allow(non_snake_case)]
 #[no_mangle]
 pub extern "C" fn pam_sm_open_session(
@@ -476,7 +476,7 @@ pub extern "C" fn pam_sm_open_session(
     PAM_SUCCESS
 }
 
-/// Fonction PAM pour gestion d'accès (pas nécessaire pour authentication)
+/// PAM function for access management (not necessary for authentication)
 #[allow(non_snake_case)]
 #[no_mangle]
 pub extern "C" fn pam_sm_acct_mgmt(
@@ -493,7 +493,7 @@ pub extern "C" fn pam_sm_acct_mgmt(
 // Helpers
 // ============================================================================
 
-/// Traduire un nom d'utilisateur en UID
+/// Translate a username into a UID
 fn uid_from_name(username: &str) -> Option<u32> {
     use std::ffi::CString;
 
@@ -503,7 +503,7 @@ fn uid_from_name(username: &str) -> Option<u32> {
             Err(_) => return None,
         };
 
-        // getpwnam est une fonction C de libc
+        // getpwnam is a C function from libc
         extern "C" {
             fn getpwnam(name: *const c_char) -> *mut libc::passwd;
         }
@@ -517,7 +517,7 @@ fn uid_from_name(username: &str) -> Option<u32> {
     }
 }
 
-/// Structure de requête pour le helper PAM via socket
+/// Request structure for the PAM helper via socket
 #[derive(Serialize, Deserialize, Debug)]
 struct PamHelperRequest {
     user_id: u32,
@@ -525,7 +525,7 @@ struct PamHelperRequest {
     timeout_ms: u64,
 }
 
-/// Structure de réponse du helper PAM
+/// Response structure from the PAM helper
 #[derive(Serialize, Deserialize, Debug)]
 enum PamHelperResponse {
     Success {
@@ -537,28 +537,28 @@ enum PamHelperResponse {
     },
 }
 
-/// Appeler le helper PAM via socket Unix créée par le daemon utilisateur.
-/// Chemin : /tmp/hello-pam-<uid>.socket (/tmp est 1777, accessible à tous les processus).
-/// La sécurité repose sur peer_cred côté daemon (pas sur les permissions du chemin).
+/// Call the PAM helper via a Unix socket created by the user daemon.
+/// Path: /tmp/hello-pam-<uid>.socket (/tmp is 1777, accessible to all processes).
+/// Security relies on peer_cred on the daemon side (not on path permissions).
 fn call_pam_helper_sync(req: &PamHelperRequest) -> Result<PamHelperResponse, String> {
     use std::io::{Read, Write};
     use std::os::unix::net::UnixStream;
 
-    // /run/hello-pam/ est créé par systemd-tmpfiles (mode 1777, sticky).
-    // /run n'est pas affecté par PrivateTmp=yes de polkitd (contrairement à /tmp).
+    // /run/hello-pam/ is created by systemd-tmpfiles (mode 1777, sticky).
+    // /run is not affected by polkitd's PrivateTmp=yes (unlike /tmp).
     let socket_path = format!("/run/hello-pam/{}.socket", req.user_id);
     log_pam(&format!("Connecting to socket: {}", socket_path));
 
-    // Timeout de connexion court : si le daemon est down, on échoue vite
-    // et le mot de passe prend le relais sans attendre 30s.
-    // connect() sur socket Unix est immédiat : ECONNREFUSED si le daemon est down,
-    // succès instantané sinon. Pas besoin de timeout de connexion.
+    // Short connection timeout: if the daemon is down, fail fast
+    // and let the password take over without waiting 30s.
+    // connect() on a Unix socket is immediate: ECONNREFUSED if the daemon is down,
+    // instant success otherwise. No need for a connection timeout.
     let mut stream = UnixStream::connect(&socket_path)
-        .map_err(|e| format!("Socket {} inaccessible: {}", socket_path, e))?;
+        .map_err(|e| format!("Socket {} unreachable: {}", socket_path, e))?;
 
-    // Timeout de lecture = durée de reconnaissance + 2s de marge.
-    // Si le daemon crashe en cours de verify(), le stream se ferme et read_to_end
-    // retourne immédiatement avec données vides → Err → PAM_IGNORE → mot de passe.
+    // Read timeout = recognition duration + 2s margin.
+    // If the daemon crashes during verify(), the stream closes and read_to_end
+    // returns immediately with empty data -> Err -> PAM_IGNORE -> password.
     stream
         .set_read_timeout(Some(std::time::Duration::from_millis(
             req.timeout_ms + 2000,
@@ -572,7 +572,7 @@ fn call_pam_helper_sync(req: &PamHelperRequest) -> Result<PamHelperResponse, Str
     stream
         .write_all(request_json.as_bytes())
         .map_err(|e| format!("Write: {}", e))?;
-    // Signaler la fin de l'écriture pour que le daemon sache parser la requête
+    // Signal the end of writing so the daemon knows to parse the request
     stream.shutdown(std::net::Shutdown::Write).ok();
 
     let mut response = Vec::new();
@@ -582,7 +582,7 @@ fn call_pam_helper_sync(req: &PamHelperRequest) -> Result<PamHelperResponse, Str
 
     serde_json::from_slice(&response).map_err(|e| {
         format!(
-            "Deserialize: {} (reçu: {})",
+            "Deserialize: {} (received: {})",
             e,
             String::from_utf8_lossy(&response)
         )
@@ -614,9 +614,9 @@ fn log_pam(message: &str) {
     let _ = writeln!(file, "{}", line);
 }
 
-// Les anciennes fonctions restent pour compatibilité (pas utilisées)
+// The old functions remain for compatibility (unused)
 #[allow(dead_code)]
-/// Structure de requête D-Bus pour Verify
+/// D-Bus request structure for Verify
 #[derive(Serialize, Deserialize, Debug)]
 struct VerifyRequest {
     user_id: u32,
@@ -625,7 +625,7 @@ struct VerifyRequest {
 }
 
 #[allow(dead_code)]
-/// Structure de réponse D-Bus pour Verify
+/// D-Bus response structure for Verify
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(untagged)]
 enum VerifyResponse {
@@ -645,7 +645,7 @@ mod tests {
 
     #[test]
     fn test_parse_options() {
-        // Créer des arguments de test
+        // Create test arguments
         let opts = PamOptions::default();
         assert_eq!(opts.context, "default");
         assert_eq!(opts.timeout_ms, 30000);

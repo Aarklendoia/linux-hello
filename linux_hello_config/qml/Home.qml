@@ -9,7 +9,7 @@ Kirigami.Page {
 
     title: I18n.tr("home.title")
 
-    // Propriétés pour pageStack
+    // Properties for pageStack
     Layout.fillWidth: true
     Layout.fillHeight: true
 

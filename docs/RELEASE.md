@@ -1,30 +1,30 @@
 # Release Process
 
-Guide pour les releases de Linux Hello.
+Guide for Linux Hello releases.
 
-## Prérequis
+## Prerequisites
 
-- Accès push au repository
-- Accès aux secrets GitHub
-- Version de développement prête
+- Push access to the repository
+- Access to GitHub secrets
+- Development version ready
 
-## Étapes de release
+## Release Steps
 
-### 1. Préparation
+### 1. Preparation
 
 ```bash
-# Mettre à jour les versions
+# Update versions
 # - Cargo.toml
 # - debian/changelog
-# - VERSION file (si présent)
+# - VERSION file (if present)
 
-# Vérifier que tous les tests passent
+# Verify that all tests pass
 make test
 make lint
 make audit
 ```
 
-### 2. Commit de version
+### 2. Version commit
 
 ```bash
 git add Cargo.toml debian/changelog VERSION
@@ -35,7 +35,7 @@ git commit -m "chore: Release version X.Y.Z"
 
 ```bash
 git tag -a vX.Y.Z -m "Release version X.Y.Z"
-# ou pour une release candidate
+# or for a release candidate
 git tag -a vX.Y.Z-rc1 -m "Release candidate vX.Y.Z-rc1"
 ```
 
@@ -46,83 +46,83 @@ git push origin main
 git push origin vX.Y.Z
 ```
 
-## CI/CD automatique
+## Automatic CI/CD
 
-Une fois le tag pushé, GitHub Actions :
+Once the tag is pushed, GitHub Actions:
 
-1. **Build Debian packages** - Crée les paquets Debian
-2. **Run tests** - Lance tous les tests
-3. **Run linting** - Vérifie la qualité du code
-4. **Create Release** - Crée une release GitHub avec les artefacts
+1. **Build Debian packages** - Creates the Debian packages
+2. **Run tests** - Runs all the tests
+3. **Run linting** - Checks code quality
+4. **Create Release** - Creates a GitHub release with the artifacts
 
-Les paquets sont automatiquement :
-- Buildés avec dpkg-buildpackage
-- Vérifiés avec lintian
-- Uploadés comme artifacts
-- Ajoutés à la release GitHub
+The packages are automatically:
+- Built with dpkg-buildpackage
+- Checked with lintian
+- Uploaded as artifacts
+- Added to the GitHub release
 
 ## Versioning
 
-Linux Hello suit le [Semantic Versioning](https://semver.org/lang/fr/) :
+Linux Hello follows [Semantic Versioning](https://semver.org/lang/fr/):
 
-- **MAJOR** - Changements incompatibles
-- **MINOR** - Nouvelles fonctionnalités
-- **PATCH** - Corrections de bugs
+- **MAJOR** - Incompatible changes
+- **MINOR** - New features
+- **PATCH** - Bug fixes
 
-Exemple : `1.2.3`
+Example: `1.2.3`
 
 ## Changelog
 
-Le changelog suit le format [Keep a Changelog](https://keepachangelog.com/lang/fr/) :
+The changelog follows the [Keep a Changelog](https://keepachangelog.com/lang/fr/) format:
 
 ```markdown
 ## [X.Y.Z] - YYYY-MM-DD
 
 ### Added
-- Nouvelle fonctionnalité
+- New feature
 
 ### Changed
-- Changements
+- Changes
 
 ### Fixed
-- Corrections de bugs
+- Bug fixes
 
 ### Deprecated
-- Fonctionnalités dépréciées
+- Deprecated features
 
 ### Removed
-- Fonctionnalités supprimées
+- Removed features
 
 ### Security
-- Corrections de sécurité
+- Security fixes
 ```
 
 ## Debian Changelog
 
-Mettre à jour `debian/changelog` :
+Update `debian/changelog`:
 
 ```bash
 dch -i
-# ou
+# or
 dch --distribution bookworm --urgency medium
 ```
 
-## Vérifications avant release
+## Pre-release Checks
 
-- [ ] Tous les tests passent
-- [ ] Linting et formatage OK
-- [ ] Pas de vulnérabilités (cargo audit)
-- [ ] Documentation à jour
-- [ ] Changelog mis à jour
-- [ ] Version mise à jour
-- [ ] Pas de TODO/FIXME critiques
+- [ ] All tests pass
+- [ ] Linting and formatting OK
+- [ ] No vulnerabilities (cargo audit)
+- [ ] Documentation up to date
+- [ ] Changelog updated
+- [ ] Version updated
+- [ ] No critical TODO/FIXME
 
-## Support des versions
+## Version Support
 
-- **Latest** - Version actuelle (main branch)
-- **LTS** - Long-term support (branche dédiée)
-- **EOL** - End of life (pas de support)
+- **Latest** - Current version (main branch)
+- **LTS** - Long-term support (dedicated branch)
+- **EOL** - End of life (no support)
 
-## Reporting de bugs
+## Bug Reporting
 
-Les bugs de sécurité doivent être rapportés de manière privée à l'équipe de maintenance.
+Security bugs should be reported privately to the maintenance team.

@@ -1,16 +1,16 @@
-//! Module Preview - affichage de la caméra en direct avec pixels crate
+//! Preview module - live camera display with the pixels crate
 //!
-//! Responsable de:
-//! - Afficher les frames RGB en temps réel
-//! - Dessiner la bounding box autour du visage détecté
-//! - Afficher la barre de progression
-//! - Gérer les animations et transitions
+//! Responsible for:
+//! - Displaying RGB frames in real time
+//! - Drawing the bounding box around the detected face
+//! - Displaying the progress bar
+//! - Managing animations and transitions
 
 use crate::streaming::{CaptureFrame, FaceBox};
 
-/// Utilitaires d'animation
+/// Animation utilities
 pub mod animation {
-    /// Interpolation linéaire entre deux valeurs
+    /// Linear interpolation between two values
     pub fn lerp(current: f32, target: f32, speed: f32) -> f32 {
         if (current - target).abs() < 0.001 {
             target
@@ -30,7 +30,7 @@ pub mod animation {
     }
 }
 
-/// État du preview
+/// Preview state
 pub struct PreviewState {
     pub current_frame: Option<CaptureFrame>,
     pub width: u32,
@@ -38,7 +38,7 @@ pub struct PreviewState {
 }
 
 impl PreviewState {
-    /// Créer un nouveau state de preview
+    /// Create a new preview state
     pub fn new() -> Self {
         Self {
             current_frame: None,
@@ -47,14 +47,14 @@ impl PreviewState {
         }
     }
 
-    /// Mettre à jour avec une nouvelle frame
+    /// Update with a new frame
     pub fn update_frame(&mut self, frame: CaptureFrame) {
         self.width = frame.width;
         self.height = frame.height;
         self.current_frame = Some(frame);
     }
 
-    /// Obtenir le pourcentage de progression
+    /// Get the progress percentage
     pub fn progress_percent(&self) -> f32 {
         if let Some(ref frame) = self.current_frame {
             if frame.total_frames == 0 {
@@ -67,7 +67,7 @@ impl PreviewState {
         }
     }
 
-    /// Obtenir le texte de progression
+    /// Get the progress text
     pub fn progress_text(&self) -> String {
         if let Some(ref frame) = self.current_frame {
             format!("{}/{} frames", frame.frame_number + 1, frame.total_frames)
@@ -76,12 +76,12 @@ impl PreviewState {
         }
     }
 
-    /// Obtenir le texte du statut de détection
+    /// Get the detection status text
     pub fn detection_status(&self) -> String {
         if let Some(ref frame) = self.current_frame {
             if frame.face_detected {
                 format!(
-                    "✓ Visage détecté (confiance: {:.1}%)",
+                    "✓ Face detected (confidence: {:.1}%)",
                     frame
                         .face_box
                         .as_ref()
@@ -89,14 +89,14 @@ impl PreviewState {
                         .unwrap_or(0.0)
                 )
             } else {
-                "⚠ Aucun visage détecté".to_string()
+                "⚠ No face detected".to_string()
             }
         } else {
-            "En attente de capture...".to_string()
+            "Waiting for capture...".to_string()
         }
     }
 
-    /// Obtenir les données RGB24 prêtes à afficher
+    /// Get the RGB24 data ready for display
     pub fn get_display_data(&self) -> Option<Vec<u8>> {
         self.current_frame.as_ref().map(|frame| {
             let mut data = frame.frame_data.clone();
@@ -105,7 +105,7 @@ impl PreviewState {
         })
     }
 
-    /// Dessiner un bounding box sur les données RGB
+    /// Draw a bounding box on the RGB data
     pub fn draw_bounding_box(&self, frame_data: &mut [u8]) {
         if let Some(ref frame) = self.current_frame {
             if let Some(ref face_box) = frame.face_box {
@@ -114,21 +114,21 @@ impl PreviewState {
         }
     }
 
-    /// Dessiner un rectangle vert autour du visage
+    /// Draw a green rectangle around the face
     fn draw_box_rect(&self, frame_data: &mut [u8], face_box: &FaceBox, width: u32) {
-        // Couleur verte (RGB)
+        // Green color (RGB)
         let green_r = 0;
         let green_g = 255;
         let green_b = 0;
         let thickness = 2;
 
-        // Limites du box
+        // Box boundaries
         let left = face_box.x as usize;
         let top = face_box.y as usize;
         let right = std::cmp::min(face_box.x + face_box.width, width) as usize;
         let bottom = std::cmp::min(face_box.y + face_box.height, 480) as usize;
 
-        // Dessiner les lignes (simplifié: juste marquer les coins)
+        // Draw the lines (simplified: just mark the edges)
         for y in top..std::cmp::min(top + thickness as usize, bottom) {
             for x in left..right {
                 let idx = (y * width as usize + x) * 3;
@@ -211,7 +211,7 @@ mod tests {
     #[test]
     fn test_detection_status() {
         let state = PreviewState::new();
-        assert!(state.detection_status().contains("En attente"));
+        assert!(state.detection_status().contains("Waiting"));
     }
 
     #[test]

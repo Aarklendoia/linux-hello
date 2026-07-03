@@ -1,33 +1,33 @@
 # 🚀 Quick Start - Linux Hello
 
-## 5 Minutes pour Tester
+## 5 Minutes to Test
 
-### 1. Compiler (1 min)
+### 1. Build (1 min)
 
 ```bash
 cd ~/Documents/linux-hello-rust
 cargo build --release
 ```
 
-### 2. Enregistrer un Visage (1 min)
+### 2. Enroll a Face (1 min)
 
 ```bash
 ./prepare-pam-test.sh
 ```
 
-### 3. Tester Sudo (1 min)
+### 3. Test Sudo (1 min)
 
 ```bash
 ./test-sudo.sh
 ```
 
-### 4. Tester Screenlock (1 min)
+### 4. Test Screenlock (1 min)
 
 ```bash
 ./test-screenlock.sh
 ```
 
-### 5. Vérifier le Status (1 min)
+### 5. Check the Status (1 min)
 
 ```bash
 ./overview.sh
@@ -35,67 +35,67 @@ cargo build --release
 
 ---
 
-## Installation Réelle (10 minutes)
+## Real Installation (10 minutes)
 
-### Prérequis
-- Droits sudo
+### Prerequisites
+- Sudo rights
 - Terminal
-- Visage enregistré (étape 2 ci-dessus)
+- Enrolled face (step 2 above)
 
-### Étapes
+### Steps
 
 ```bash
-# 1. Installer le module PAM
+# 1. Install the PAM module
 sudo install -m 644 target/release/libpam_linux_hello.so \
   /lib/x86_64-linux-gnu/security/pam_linux_hello.so
 
-# 2. Backup configuration sudo
+# 2. Backup sudo configuration
 sudo cp /etc/pam.d/sudo /etc/pam.d/sudo.backup
 
-# 3. Éditer /etc/pam.d/sudo
+# 3. Edit /etc/pam.d/sudo
 sudo nano /etc/pam.d/sudo
 ```
 
-Dans l'éditeur, **ajouter EN DÉBUT** (avant tout `auth`):
+In the editor, **add AT THE BEGINNING** (before any `auth`):
 
 ```
 # Linux Hello - Face authentication for sudo
 auth sufficient /lib/x86_64-linux-gnu/security/pam_linux_hello.so context=sudo timeout_ms=3000 debug
 ```
 
-Sauvegarder: `Ctrl+O`, `Enter`, `Ctrl+X`
+Save: `Ctrl+O`, `Enter`, `Ctrl+X`
 
 ```bash
-# 4. Lancer le daemon
+# 4. Start the daemon
 ./target/release/hello-daemon &
 
-# 5. Tester!
+# 5. Test it!
 sudo -v
 ```
 
-Vous devriez être invité à la reconnaissance faciale!
+You should be prompted for facial recognition!
 
 ---
 
-## Problème? Restaurer!
+## Problem? Restore!
 
 ```bash
-# Restaurer sudo original
+# Restore original sudo
 sudo cp /etc/pam.d/sudo.backup /etc/pam.d/sudo
 
-# Arrêter daemon
+# Stop daemon
 pkill hello-daemon
 ```
 
 ---
 
-## Commandes Utiles
+## Useful Commands
 
 ```bash
-# Démarrer daemon avec debug
+# Start daemon with debug
 ./target/release/hello-daemon --debug
 
-# Lister visages enregistrés
+# List enrolled faces
 dbus-send --session --print-reply \
   --dest=com.linuxhello.FaceAuth \
   /com/linuxhello/FaceAuth \
@@ -108,17 +108,17 @@ dbus-send --session --print-reply \
   /com/linuxhello/FaceAuth \
   com.linuxhello.FaceAuth.Ping
 
-# Voir logs daemon
+# View daemon logs
 journalctl --user -u hello-daemon -f
 ```
 
 ---
 
-## Docs Complètes
+## Full Docs
 
-- `INTEGRATION_GUIDE.md` - Installation détaillée + troubleshooting
-- `PAM_MODULE.md` - Référence technique
+- `INTEGRATION_GUIDE.md` - Detailed installation + troubleshooting
+- `PAM_MODULE.md` - Technical reference
 
 ---
 
-**Bon test! 🎉**
+**Happy testing! 🎉**

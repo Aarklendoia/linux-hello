@@ -4,7 +4,7 @@ import QtQuick
 QtObject {
     id: i18n
 
-    // Traductions en dur en anglais (fallback)
+    // Hardcoded English translations (fallback)
     property var translations: ({
         "home.title": "Home",
         "home.welcome": "Welcome to Linux Hello",
@@ -40,7 +40,7 @@ QtObject {
     })
     property string currentLanguage: "en"
 
-    // Liste des langues disponibles
+    // List of available languages
     readonly property var languages: ["en", "zh", "es", "hi", "ar", "pt", "ru", "ja", "de", "fr"]
     readonly property var languageNames: ({
         "en": "English",
@@ -56,8 +56,8 @@ QtObject {
     })
 
     function loadLanguage(lang) {
-        // En Qt6 avec XMLHttpRequest, le chargement de fichiers locaux est bloqué
-        // Nous utilisons les traductions hardcodées comme fallback
+        // In Qt6 with XMLHttpRequest, loading local files is blocked
+        // We use the hardcoded translations as a fallback
         try {
             var paths = [
                 "file:///usr/share/linux-hello/qml-modules/Linux/Hello/i18n/" + lang + ".json",
@@ -65,7 +65,7 @@ QtObject {
                 "qrc:/i18n/" + lang + ".json"
             ]
             
-            // Essayer d'abord via Qt
+            // Try via Qt first
             var qmlPath = Qt.resolvedUrl("./i18n/" + lang + ".json")
             var xhr = new XMLHttpRequest()
             xhr.open("GET", qmlPath, false)
@@ -80,13 +80,13 @@ QtObject {
                     }
                 }
             } catch (e) {
-                // Fallback silencieux
+                // Silent fallback
             }
         } catch (e) {
-            // Silencieux
+            // Silent
         }
-        
-        // Si pas de fichier JSON, utiliser les traductions hardcodées en anglais
+
+        // If there is no JSON file, use the hardcoded English translations
         currentLanguage = "en"
         return true
     }
@@ -96,12 +96,12 @@ QtObject {
             return key
         }
         
-        // Vérifier d'abord si la clé existe directement (pour les clés plates)
+        // First check if the key exists directly (for flat keys)
         if (key in translations) {
             return translations[key]
         }
         
-        // Essayer de naviguer par points (pour les clés imbriquées)
+        // Try navigating by dots (for nested keys)
         var keys = key.split('.')
         var value = translations
         
@@ -109,7 +109,7 @@ QtObject {
             if (value && typeof value === 'object' && keys[i] in value) {
                 value = value[keys[i]]
             } else {
-                // Si la clé n'existe pas, retourner la clé elle-même comme fallback
+                // If the key does not exist, return the key itself as a fallback
                 return key
             }
         }
@@ -118,12 +118,12 @@ QtObject {
     }
 
     Component.onCompleted: {
-        // Charger la langue du système
+        // Load the system language
         var systemLang = Qt.locale().name.substring(0, 2).toLowerCase()
         if (languages.includes(systemLang)) {
             loadLanguage(systemLang)
         } else {
-            // English par défaut
+            // Default to English
             loadLanguage("en")
         }
     }

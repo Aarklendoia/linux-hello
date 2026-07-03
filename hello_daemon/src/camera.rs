@@ -1,7 +1,7 @@
-//! Abstraction caméra pour le daemon
+//! Camera abstraction for the daemon
 //!
-//! Fournit une interface simple pour capturer des frames
-//! et les passer au moteur de reconnaissance
+//! Provides a simple interface to capture frames
+//! and pass them to the recognition engine
 
 use crate::capture_stream::CaptureFrameEvent;
 use hello_camera::{Frame, FrameFormat};
@@ -11,62 +11,62 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 use tracing::{debug, info, warn};
 
-/// Erreurs caméra
+/// Camera errors
 #[derive(Debug, Error)]
 pub enum CameraError {
-    #[error("Caméra non disponible")]
+    #[error("Camera not available")]
     NotAvailable,
 
-    #[error("Timeout capture")]
+    #[error("Capture timeout")]
     Timeout,
 
-    #[error("Erreur capture: {0}")]
+    #[error("Capture error: {0}")]
     CaptureError(String),
 
-    #[error("Erreur extraction: {0}")]
+    #[error("Extraction error: {0}")]
     ExtractionError(String),
 }
 
-/// Résultat d'une capture caméra
+/// Result of a camera capture
 pub struct CaptureResult {
-    /// Frames RGB capturées
+    /// Captured RGB frames
     pub frames: Vec<Frame>,
 
-    /// Frames IR capturées (None si pas de caméra IR)
+    /// Captured IR frames (None if no IR camera)
     pub ir_frames: Option<Vec<Frame>>,
 
-    /// Embeddings extraits
+    /// Extracted embeddings
     pub embeddings: Vec<Embedding>,
 
-    /// Score de qualité moyen
+    /// Average quality score
     pub quality_score: f32,
 
-    /// Score de vivacité IR (None si pas de caméra IR)
+    /// IR liveness score (None if no IR camera)
     pub ir_liveness: Option<f32>,
 }
 
-/// Gestionnaire caméra pour le daemon
+/// Camera manager for the daemon
 pub struct CameraManager {
-    /// Timeout par défaut pour les captures (ms)
+    /// Default timeout for captures (ms)
     default_timeout_ms: u64,
-    /// Chemin du device RGB
+    /// Path of the RGB device
     pub rgb_device: String,
-    /// Chemin du device IR (si détecté)
+    /// Path of the IR device (if detected)
     pub ir_device: Option<String>,
-    /// Détecteur de visages (SCRFD ou fallback)
+    /// Face detector (SCRFD or fallback)
     detector: Arc<Box<dyn FaceDetector>>,
-    /// Extracteur d'embeddings (ArcFace ou fallback)
+    /// Embedding extractor (ArcFace or fallback)
     extractor: Arc<Box<dyn EmbeddingExtractor>>,
 }
 
 impl CameraManager {
-    /// Créer un gestionnaire caméra en scannant les devices disponibles
+    /// Create a camera manager by scanning available devices
     pub fn new(default_timeout_ms: u64) -> Self {
         let inventory = hello_camera::scan_cameras();
         info!(
-            "Inventaire caméras: RGB={}, IR={}",
+            "Camera inventory: RGB={}, IR={}",
             inventory.rgb_device,
-            inventory.ir_device.as_deref().unwrap_or("aucune")
+            inventory.ir_device.as_deref().unwrap_or("none")
         );
         let models_dir = hello_face_core::default_models_dir();
         let detector = Arc::new(hello_face_core::create_detector(&models_dir));
@@ -80,12 +80,12 @@ impl CameraManager {
         }
     }
 
-    /// Vérifier si une caméra RGB est disponible
+    /// Check whether an RGB camera is available
     pub fn is_available(&self) -> bool {
         std::path::Path::new(&self.rgb_device).exists()
     }
 
-    /// Vérifier si une caméra IR est disponible
+    /// Check whether an IR camera is available
     pub fn has_ir(&self) -> bool {
         self.ir_device
             .as_ref()
@@ -93,7 +93,7 @@ impl CameraManager {
             .unwrap_or(false)
     }
 
-    /// Capturer N frames RGB (+ IR si disponible) et extraire les embeddings
+    /// Capture N RGB frames (+ IR if available) and extract the embeddings
     pub async fn capture_frames(
         &self,
         num_frames: u32,
@@ -106,22 +106,22 @@ impl CameraManager {
         };
 
         info!(
-            "Capture de {} frames, timeout={}ms, rgb={}, ir={}",
+            "Capturing {} frames, timeout={}ms, rgb={}, ir={}",
             num_frames,
             timeout,
             self.rgb_device,
-            self.ir_device.as_deref().unwrap_or("aucune")
+            self.ir_device.as_deref().unwrap_or("none")
         );
 
         let rgb_device = self.rgb_device.clone();
         let ir_device = self.ir_device.clone();
 
-        // Capture RGB en thread bloquant (V4L2 n'est pas async)
+        // RGB capture in a blocking thread (V4L2 is not async)
         let (rgb_frames, ir_frames) = tokio::task::spawn_blocking(move || {
             let mut rgb_frames: Vec<Frame> = Vec::new();
             let mut ir_frames: Vec<Frame> = Vec::new();
 
-            // Capture RGB
+            // RGB capture
             let rgb_result = hello_camera::capture_rgb_stream_v4l2(
                 &rgb_device,
                 num_frames,
@@ -142,11 +142,11 @@ impl CameraManager {
             );
 
             if let Err(e) = rgb_result {
-                warn!("Capture RGB V4L2 échouée ({}), fallback simulation", e);
+                warn!("RGB V4L2 capture failed ({}), falling back to simulation", e);
                 rgb_frames.clear();
             }
 
-            // Compléter avec des frames stub si la capture n'a pas fourni assez de frames
+            // Pad with stub frames if the capture didn't provide enough frames
             let existing = rgb_frames.len() as u32;
             for i in existing..num_frames {
                 rgb_frames.push(Frame {
@@ -158,7 +158,7 @@ impl CameraManager {
                 });
             }
 
-            // Capture IR (parallèle, optionnelle)
+            // IR capture (parallel, optional)
             if let Some(ref ir_path) = ir_device {
                 let ir_result = hello_camera::capture_gray_stream_v4l2(
                     ir_path,
@@ -179,7 +179,7 @@ impl CameraManager {
                     },
                 );
                 if let Err(e) = ir_result {
-                    warn!("Capture IR échouée ({}), désactivée pour cette session", e);
+                    warn!("IR capture failed ({}), disabled for this session", e);
                 }
             }
 
@@ -194,7 +194,7 @@ impl CameraManager {
         .await
         .map_err(|e| CameraError::CaptureError(e.to_string()))?;
 
-        // Extraire embeddings depuis les frames RGB via détecteur + extracteur
+        // Extract embeddings from the RGB frames via detector + extractor
         let detector = Arc::clone(&self.detector);
         let extractor = Arc::clone(&self.extractor);
 
@@ -207,7 +207,7 @@ impl CameraManager {
             .iter()
             .enumerate()
             .map(|(i, frame)| {
-                // 1. Détecter les visages dans la frame
+                // 1. Detect faces in the frame
                 debug!(
                     "Frame {}: {}×{} {} bytes",
                     i,
@@ -218,28 +218,28 @@ impl CameraManager {
                 let faces = match detector.detect(&frame.data, frame.width, frame.height, 3) {
                     Ok(f) => f,
                     Err(e) => {
-                        warn!("Erreur détection SCRFD frame {}: {}", i, e);
+                        warn!("SCRFD detection error frame {}: {}", i, e);
                         vec![]
                     }
                 };
 
-                // 2. Prendre le visage avec la meilleure confiance
+                // 2. Take the face with the highest confidence
                 let best_face = faces
                     .into_iter()
                     .max_by(|a, b| a.confidence.partial_cmp(&b.confidence).unwrap());
 
-                // 3. Extraire l'embedding
+                // 3. Extract the embedding
                 if let Some(face) = best_face {
                     match extractor.extract(&face, &frame.data, frame.width, frame.height, 3) {
                         Ok(emb) => return emb,
-                        Err(e) => warn!("Extraction embedding frame {}: {}", i, e),
+                        Err(e) => warn!("Embedding extraction frame {}: {}", i, e),
                     }
                 } else {
-                    warn!("Aucun visage détecté dans la frame {}", i);
+                    warn!("No face detected in frame {}", i);
                 }
 
-                // Aucun visage détecté ou extraction échouée : marqueur vide (qualité 0)
-                // Ne jamais utiliser un embedding fictif qui fausserait la comparaison
+                // No face detected or extraction failed: empty marker (quality 0)
+                // Never use a fake embedding that would skew the comparison
                 Embedding {
                     vector: vec![],
                     metadata: hello_face_core::EmbeddingMetadata {
@@ -252,11 +252,11 @@ impl CameraManager {
             })
             .collect();
 
-        // Calculer le score de vivacité IR depuis la première frame IR disponible
+        // Compute the IR liveness score from the first available IR frame
         let ir_liveness = ir_frames.as_ref().and_then(|frames| {
             let frame = frames.first()?;
-            // Utiliser la boîte du visage de la première frame RGB pour aligner
-            // En pratique les caméras RGB/IR ont le même champ de vision sur le Brio
+            // Use the face box from the first RGB frame to align
+            // In practice the RGB/IR cameras share the same field of view on the Brio
             let dummy_face = hello_face_core::FaceRegion {
                 bounding_box: (
                     frame.width / 4,
@@ -282,7 +282,7 @@ impl CameraManager {
             / embeddings.len().max(1) as f32;
 
         debug!(
-            "Capture terminée: {} frames RGB, {} frames IR, qualité={:.2}, liveness_ir={:?}",
+            "Capture complete: {} RGB frames, {} IR frames, quality={:.2}, liveness_ir={:?}",
             rgb_frames.len(),
             ir_frames.as_ref().map(|v| v.len()).unwrap_or(0),
             quality_score,
@@ -298,7 +298,7 @@ impl CameraManager {
         })
     }
 
-    /// Démarrer une session de capture avec streaming en direct
+    /// Start a capture session with live streaming
     pub async fn start_capture_stream<F>(
         &self,
         num_frames: u32,
@@ -309,7 +309,7 @@ impl CameraManager {
         F: FnMut(CaptureFrameEvent),
     {
         info!(
-            "Démarrage capture streaming: {} frames, timeout={}ms",
+            "Starting streaming capture: {} frames, timeout={}ms",
             num_frames, timeout_ms
         );
 
@@ -341,15 +341,15 @@ impl CameraManager {
 
         match v4l2_result {
             Ok(()) => {
-                info!("Capture V4L2 streaming terminée: {} frames", frame_num);
+                info!("V4L2 streaming capture complete: {} frames", frame_num);
                 return Ok(());
             }
             Err(e) => {
-                warn!("V4L2 non disponible ({}), utilisation simulation", e);
+                warn!("V4L2 not available ({}), using simulation", e);
             }
         }
 
-        // Simulation de repli: gradient RGB animé ~30fps
+        // Fallback simulation: animated RGB gradient ~30fps
         let start_time = SystemTime::now();
         let timeout_dur = Duration::from_millis(timeout_ms);
 
@@ -386,7 +386,7 @@ impl CameraManager {
         }
 
         info!(
-            "Capture streaming terminée: {} frames (simulation)",
+            "Streaming capture complete: {} frames (simulation)",
             num_frames
         );
         Ok(())
@@ -400,13 +400,13 @@ mod tests {
     #[tokio::test]
     async fn test_camera_manager_creation() {
         let camera = CameraManager::new(5000);
-        // Le scan ne doit pas paniquer même sans /dev/video*
+        // The scan must not panic even without /dev/video*
         assert!(!camera.rgb_device.is_empty());
     }
 
     #[test]
     fn test_capture_frames_fallback() {
-        // Vérifier que le padding de frames fonctionne sans matériel
+        // Verify that frame padding works without hardware
         let num_frames: u32 = 3;
         let mut frames: Vec<Frame> = Vec::new();
 

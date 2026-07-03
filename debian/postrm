@@ -10,12 +10,12 @@ echo "===================="
 systemctl --user stop hello-daemon.service 2>/dev/null || true
 systemctl --user disable hello-daemon.service 2>/dev/null || true
 
-# Restaurer le MainBlock.qml original de plasma-workspace
+# Restore the original plasma-workspace MainBlock.qml
 PLASMA_QML="/usr/share/plasma/shells/org.kde.plasma.desktop/contents/lockscreen/MainBlock.qml"
 if dpkg-divert --list "$PLASMA_QML" 2>/dev/null | grep -q linux-hello; then
     rm -f "$PLASMA_QML"
     dpkg-divert --package linux-hello --rename --remove "$PLASMA_QML" 2>/dev/null || true
-    echo "✓ Lock screen QML original restauré"
+    echo "✓ Original lock screen QML restored"
 fi
 
 # Restore PAM configuration from most recent backup (automatic, non-interactive)

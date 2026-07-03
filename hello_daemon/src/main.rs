@@ -1,6 +1,6 @@
-//! Daemon d'authentification faciale - point d'entrée
+//! Facial authentication daemon - entry point
 //!
-//! Lance le service D-Bus pour gestion des visages
+//! Launches the D-Bus service for face management
 
 use clap::Parser;
 use hello_daemon::{dbus::FaceAuthInterface, DaemonConfig, FaceAuthDaemon};
@@ -11,17 +11,17 @@ extern crate libc;
 
 #[derive(Parser, Debug)]
 #[command(name = "hello-daemon")]
-#[command(about = "Linux Hello - Daemon d'authentification faciale", long_about = None)]
+#[command(about = "Linux Hello - Facial authentication daemon", long_about = None)]
 struct Args {
-    /// Chemin de stockage des embeddings
+    /// Path for storing embeddings
     #[arg(short, long)]
     storage_path: Option<PathBuf>,
 
-    /// Mode debug
+    /// Debug mode
     #[arg(short, long)]
     debug: bool,
 
-    /// Seuil de similarité (0.0-1.0)
+    /// Similarity threshold (0.0-1.0)
     #[arg(long, default_value = "0.6")]
     similarity_threshold: f32,
 }
@@ -30,7 +30,7 @@ struct Args {
 async fn main() -> anyhow::Result<()> {
     let args = Args::parse();
 
-    // Initialiser tracing
+    // Initialize tracing
     let level = if args.debug { "debug" } else { "info" };
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -39,10 +39,10 @@ async fn main() -> anyhow::Result<()> {
         )
         .init();
 
-    info!("Démarrage du daemon Linux Hello");
+    info!("Starting Linux Hello daemon");
     info!("Version: {}", env!("CARGO_PKG_VERSION"));
 
-    // Créer config du daemon
+    // Create the daemon config
     let mut config = DaemonConfig::default();
     if let Some(path) = args.storage_path {
         config.storage_path = path;
@@ -50,53 +50,53 @@ async fn main() -> anyhow::Result<()> {
     config.debug = args.debug;
     config.default_similarity_threshold = args.similarity_threshold;
 
-    info!("Stockage: {}", config.storage_path.display());
-    info!("Seuil similarité: {}", config.default_similarity_threshold);
+    info!("Storage: {}", config.storage_path.display());
+    info!("Similarity threshold: {}", config.default_similarity_threshold);
 
-    // Créer le daemon
+    // Create the daemon
     let daemon = FaceAuthDaemon::new(config)?;
     let storage_path = daemon.config().storage_path.to_string_lossy().into_owned();
 
     if daemon.config().root_mode {
-        info!("Mode root activé - accessible pour tous les utilisateurs");
+        info!("Root mode enabled - accessible to all users");
     } else {
-        warn!("Mode user - accessible uniquement pour l'utilisateur courant");
+        warn!("User mode - accessible only to the current user");
     }
 
-    // Envelopper dans Arc<RwLock> pour partage avec le PAM helper
+    // Wrap in Arc<RwLock> for sharing with the PAM helper
     let daemon_arc = std::sync::Arc::new(tokio::sync::RwLock::new(daemon));
 
-    // Démarrer le PAM helper socket (/run/hello-pam/<uid>.socket)
+    // Start the PAM helper socket (/run/hello-pam/<uid>.socket)
     let uid = unsafe { libc::getuid() };
     if let Err(e) = hello_daemon::pam_helper::start_pam_helper(uid, daemon_arc.clone()).await {
         warn!(
-            "PAM helper socket non démarré: {} (auth PAM biométrique indisponible)",
+            "PAM helper socket not started: {} (biometric PAM auth unavailable)",
             e
         );
     } else {
         info!("✓ PAM helper socket: /run/hello-pam/{}.socket", uid);
     }
 
-    // Démarrer la surveillance du verrouillage d'écran (déverrouillage automatique par visage)
+    // Start monitoring the screen lock (automatic unlock via face)
     if let Err(e) =
         hello_daemon::screenlock::start_screenlock_watcher(daemon_arc.clone(), uid).await
     {
         warn!(
-            "Surveillance écran non démarrée: {} (déverrouillage automatique indisponible)",
+            "Screen lock monitoring not started: {} (automatic unlock unavailable)",
             e
         );
     } else {
-        info!("✓ Surveillance verrouillage d'écran active");
+        info!("✓ Screen lock monitoring active");
     }
 
-    // Démarrer le serveur MJPEG pour la preview GUI (flux vidéo temps réel)
+    // Start the MJPEG server for the GUI preview (real-time video stream)
     hello_daemon::preview::start_mjpeg_server().await?;
 
-    // Enregistrer sur D-Bus
-    info!("Enregistrement sur D-Bus...");
+    // Register on D-Bus
+    info!("Registering on D-Bus...");
 
     let connection = zbus::Connection::session().await.map_err(|e| {
-        error!("Erreur connexion D-Bus: {}", e);
+        error!("D-Bus connection error: {}", e);
         e
     })?;
 
@@ -106,7 +106,7 @@ async fn main() -> anyhow::Result<()> {
         .request_name("com.linuxhello.FaceAuth")
         .await
         .map_err(|e| {
-            error!("Erreur enregistrement D-Bus name: {}", e);
+            error!("D-Bus name registration error: {}", e);
             e
         })?;
 
@@ -115,19 +115,19 @@ async fn main() -> anyhow::Result<()> {
         .at("/com/linuxhello/FaceAuth", iface)
         .await
         .map_err(|e| {
-            error!("Erreur enregistrement objet D-Bus: {}", e);
+            error!("D-Bus object registration error: {}", e);
             e
         })?;
 
-    info!("✓ Service D-Bus enregistré: com.linuxhello.FaceAuth");
+    info!("✓ D-Bus service registered: com.linuxhello.FaceAuth");
     info!("  Interface: /com/linuxhello/FaceAuth");
-    info!("  Méthodes: register_face, verify, delete_face, list_faces, ping");
-    info!("  Signaux: CaptureProgress, CaptureCompleted, CaptureError");
+    info!("  Methods: register_face, verify, delete_face, list_faces, ping");
+    info!("  Signals: CaptureProgress, CaptureCompleted, CaptureError");
 
-    // Garder le daemon actif indéfiniment
-    info!("Daemon prêt. Appuyez sur Ctrl+C pour arrêter.");
+    // Keep the daemon running indefinitely
+    info!("Daemon ready. Press Ctrl+C to stop.");
     tokio::signal::ctrl_c().await?;
-    info!("Arrêt du daemon");
+    info!("Stopping daemon");
 
     Ok(())
 }

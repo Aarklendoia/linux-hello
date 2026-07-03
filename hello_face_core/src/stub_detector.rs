@@ -1,12 +1,12 @@
-//! Stub detector rapide pour preview en direct
+//! Fast stub detector for live preview
 //!
-//! Détecte juste le bounding box sans extraction complète
-//! Utilisé pour le streaming live (basse latence)
+//! Just detects the bounding box without full extraction
+//! Used for live streaming (low latency)
 
 use super::{FaceDetector, FaceError, FaceRegion};
 
-/// Détecteur stub - simule une détection rapide
-/// À remplacer par YOLO ou RetinaFace réel
+/// Stub detector - simulates a fast detection
+/// To be replaced by real YOLO or RetinaFace
 pub struct StubDetector {
     name: String,
     version: String,
@@ -35,10 +35,10 @@ impl FaceDetector for StubDetector {
         height: u32,
         channels: u32,
     ) -> Result<Vec<FaceRegion>, FaceError> {
-        // Stub: simuler une détection simple
-        // En production: utiliser YOLO, RetinaFace, etc.
+        // Stub: simulate a simple detection
+        // In production: use YOLO, RetinaFace, etc.
 
-        // Validation basique
+        // Basic validation
         if frame_data.is_empty() || width == 0 || height == 0 || channels == 0 {
             return Ok(Vec::new());
         }
@@ -46,20 +46,20 @@ impl FaceDetector for StubDetector {
         let expected_size = (width * height * channels) as usize;
         if frame_data.len() < expected_size {
             return Err(FaceError::InvalidFrame(format!(
-                "Taille frame invalide: {} < {}",
+                "Invalid frame size: {} < {}",
                 frame_data.len(),
                 expected_size
             )));
         }
 
-        // Stub: détecter un visage au centre (pour test)
-        // Simule: détection d'un visage carré au centre 200x200px
+        // Stub: detect a face in the center (for testing)
+        // Simulates: detection of a square face in the center 200x200px
         let face_width = (width as f32 * 0.3) as u32;
         let face_height = (height as f32 * 0.4) as u32;
         let face_x = (width - face_width) / 2;
         let face_y = (height - face_height) / 2;
 
-        // Détection basée sur contraste simple (stub)
+        // Detection based on simple contrast (stub)
         let face_detected = self.detect_simple_contrast(
             frame_data,
             width,
@@ -92,7 +92,7 @@ impl FaceDetector for StubDetector {
 }
 
 impl StubDetector {
-    /// Détection basée sur contraste simple
+    /// Detection based on simple contrast
     #[allow(clippy::too_many_arguments)]
     fn detect_simple_contrast(
         &self,
@@ -105,7 +105,7 @@ impl StubDetector {
         face_width: u32,
         face_height: u32,
     ) -> bool {
-        // Calculer une moyenne de contraste dans la région supposée du visage
+        // Compute an average contrast in the assumed face region
         let mut total = 0u32;
         let mut count = 0u32;
 
@@ -113,7 +113,7 @@ impl StubDetector {
             for x in face_x..face_x + face_width {
                 let idx = ((y * _width + x) * channels) as usize;
 
-                // Utiliser le canal rouge (ou moyenne)
+                // Use the red channel (or average)
                 if idx < frame_data.len() {
                     total += frame_data[idx] as u32;
                     count += 1;
@@ -126,8 +126,8 @@ impl StubDetector {
         }
 
         let avg = total / count;
-        // Stub: déterminer si "assez de contraste"
-        // Intervalle [50, 200] est considéré comme un visage
+        // Stub: determine if there is "enough contrast"
+        // Range [50, 200] is considered a face
         avg > 50 && avg < 200
     }
 }
@@ -155,7 +155,7 @@ mod tests {
         let detector = StubDetector::new();
         let frame = vec![0u8; 640 * 480 * 3];
         let result = detector.detect(&frame, 640, 480, 3).unwrap();
-        // Avec tous les pixels noirs, pas de détection
+        // With all black pixels, no detection
         assert!(result.is_empty());
     }
 }

@@ -1,10 +1,10 @@
-//! Implémentation du daemon de reconnaissance faciale
+//! Implementation of the facial recognition daemon
 //!
-//! Gère:
-//! - Stockage des embeddings faciales
-//! - Interface D-Bus pour enregistrement/vérification
-//! - Accès caméra
-//! - Matching et scoring
+//! Handles:
+//! - Storage of face embeddings
+//! - D-Bus interface for enrollment/verification
+//! - Camera access
+//! - Matching and scoring
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -27,60 +27,60 @@ use dbus_interface::{DeleteFaceRequest, RegisterFaceRequest, VerifyRequest, Veri
 use matcher::FaceMatcher;
 use storage::FaceStorage;
 
-/// Erreurs du daemon
+/// Daemon errors
 #[derive(Debug, Error)]
 pub enum DaemonError {
-    #[error("Utilisateur non trouvé: {0}")]
+    #[error("User not found: {0}")]
     UserNotFound(u32),
 
-    #[error("Visage non trouvé: {0}")]
+    #[error("Face not found: {0}")]
     FaceNotFound(String),
 
-    #[error("Accès refusé: {0}")]
+    #[error("Access denied: {0}")]
     AccessDenied(String),
 
-    #[error("Stockage échoué: {0}")]
+    #[error("Storage failed: {0}")]
     StorageError(String),
 
     #[error("D-Bus error: {0}")]
     DbusError(String),
 
-    #[error("Caméra: {0}")]
+    #[error("Camera: {0}")]
     CameraError(String),
 
     #[error("I/O error: {0}")]
     IoError(#[from] std::io::Error),
 
-    #[error("Erreur JSON: {0}")]
+    #[error("JSON error: {0}")]
     JsonError(#[from] serde_json::Error),
 }
 
-/// Configuration du daemon
+/// Daemon configuration
 #[derive(Debug, Clone)]
 pub struct DaemonConfig {
-    /// Répertoire de stockage des embeddings
+    /// Directory for storing embeddings
     pub storage_path: PathBuf,
 
-    /// Mode root (true) ou user (false)
+    /// Root mode (true) or user mode (false)
     pub root_mode: bool,
 
-    /// UID courant si mode user
+    /// Current UID if in user mode
     pub current_uid: Option<u32>,
 
-    /// Seuil de similarité par défaut
+    /// Default similarity threshold
     pub default_similarity_threshold: f32,
 
-    /// Activer les logs détaillés
+    /// Enable verbose logging
     pub debug: bool,
 }
 
 impl Default for DaemonConfig {
     fn default() -> Self {
         let storage_path = if unsafe { libc::getuid() } == 0 {
-            // Mode root: /var/lib/linux-hello/
+            // Root mode: /var/lib/linux-hello/
             PathBuf::from("/var/lib/linux-hello")
         } else {
-            // Mode user: ~/.local/share/linux-hello/
+            // User mode: ~/.local/share/linux-hello/
             let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
             PathBuf::from(home).join(".local/share/linux-hello")
         };
@@ -95,29 +95,29 @@ impl Default for DaemonConfig {
     }
 }
 
-/// Métadonnées d'un visage enregistré
+/// Metadata for a registered face
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct FaceRecord {
-    /// ID unique
+    /// Unique ID
     pub face_id: String,
 
-    /// UID propriétaire
+    /// Owning UID
     pub user_id: u32,
 
-    /// Embedding sérialisé (JSON)
+    /// Serialized embedding (JSON)
     pub embedding_json: String,
 
-    /// Score de qualité
+    /// Quality score
     pub quality_score: f32,
 
-    /// Timestamp d'enregistrement
+    /// Enrollment timestamp
     pub registered_at: u64,
 
-    /// Contexte d'enregistrement
+    /// Enrollment context
     pub context: String,
 }
 
-/// Impl du service D-Bus avec tous les composants
+/// Implementation of the D-Bus service with all components
 pub struct FaceAuthDaemon {
     config: DaemonConfig,
     storage: Arc<FaceStorage>,
@@ -127,17 +127,17 @@ pub struct FaceAuthDaemon {
 
 impl FaceAuthDaemon {
     pub fn new(config: DaemonConfig) -> Result<Self, DaemonError> {
-        // Créer le storage
+        // Create the storage
         let storage = FaceStorage::new(&config.storage_path)
             .map_err(|e| DaemonError::StorageError(e.to_string()))?;
 
-        // Créer le camera manager
-        let camera = CameraManager::new(5000); // 5s timeout par défaut
+        // Create the camera manager
+        let camera = CameraManager::new(5000); // 5s default timeout
 
-        // Créer le matcher avec seuil de config
+        // Create the matcher with the configured threshold
         let matcher = FaceMatcher::new(config.default_similarity_threshold);
 
-        info!("Daemon créé avec config: {:?}", config);
+        info!("Daemon created with config: {:?}", config);
 
         Ok(Self {
             config,
@@ -148,31 +148,31 @@ impl FaceAuthDaemon {
     }
 
     pub async fn register_face(&self, request: RegisterFaceRequest) -> Result<String, DaemonError> {
-        // Vérifier permissions
+        // Check permissions
         self.check_user_permission(request.user_id)?;
 
         info!(
-            "Enregistrement de visage pour user_id={}, context={}",
+            "Registering face for user_id={}, context={}",
             request.user_id, request.context
         );
 
-        // Capturer des frames
+        // Capture frames
         let capture = self
             .camera
             .capture_frames(request.num_samples, request.timeout_ms)
             .await
             .map_err(|e| DaemonError::CameraError(e.to_string()))?;
 
-        // Moyenner tous les embeddings valides, puis normaliser.
-        // Un embedding moyen représente le "centre" du visage de l'utilisateur
-        // et donne des scores de similarité plus stables lors de l'authentification.
+        // Average all valid embeddings, then normalize.
+        // An average embedding represents the "center" of the user's face
+        // and gives more stable similarity scores during authentication.
         let valid: Vec<_> = capture
             .embeddings
             .iter()
             .filter(|e| !e.vector.is_empty() && e.metadata.quality_score > 0.0)
             .collect();
         if valid.is_empty() {
-            return Err(DaemonError::CameraError("Aucun visage détecté".to_string()));
+            return Err(DaemonError::CameraError("No face detected".to_string()));
         }
         let dim = valid[0].vector.len();
         let mut avg = vec![0.0f32; dim];
@@ -185,7 +185,7 @@ impl FaceAuthDaemon {
         for a in avg.iter_mut() {
             *a /= n;
         }
-        // Normaliser (requis pour similarité cosinus)
+        // Normalize (required for cosine similarity)
         let norm: f32 = avg.iter().map(|x| x * x).sum::<f32>().sqrt();
         if norm > 0.0 {
             for a in avg.iter_mut() {
@@ -193,7 +193,7 @@ impl FaceAuthDaemon {
             }
         }
         info!(
-            "Enrollment: {} frames moyennées en 1 embedding",
+            "Enrollment: {} frames averaged into 1 embedding",
             valid.len()
         );
         let best = valid
@@ -210,7 +210,7 @@ impl FaceAuthDaemon {
             metadata: best.metadata.clone(),
         };
 
-        // Générer un ID unique pour ce visage
+        // Generate a unique ID for this face
         use std::time::{SystemTime, UNIX_EPOCH};
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -218,7 +218,7 @@ impl FaceAuthDaemon {
             .as_secs();
         let face_id = format!("face_{}_{}", request.user_id, now);
 
-        // Créer le record
+        // Create the record
         let record = FaceRecord {
             face_id: face_id.clone(),
             user_id: request.user_id,
@@ -228,14 +228,14 @@ impl FaceAuthDaemon {
             context: request.context.clone(),
         };
 
-        // Sauvegarder
+        // Save
         self.storage
             .save_face(&record, embedding)
             .map_err(|e| DaemonError::StorageError(e.to_string()))?;
 
-        info!("Visage enregistré: face_id={}", face_id);
+        info!("Face registered: face_id={}", face_id);
 
-        // Retourner le JSON de réponse
+        // Return the response JSON
         let response = dbus_interface::RegisterFaceResponse {
             face_id,
             registered_at: now,
@@ -249,7 +249,7 @@ impl FaceAuthDaemon {
         self.check_user_permission(request.user_id)?;
 
         info!(
-            "Suppression visage pour user_id={}, face_id={:?}",
+            "Deleting face for user_id={}, face_id={:?}",
             request.user_id, request.face_id
         );
 
@@ -270,26 +270,26 @@ impl FaceAuthDaemon {
     }
 
     pub async fn verify(&self, request: VerifyRequest) -> Result<VerifyResult, DaemonError> {
-        // Vérifier permissions
+        // Check permissions
         self.check_user_permission(request.user_id)?;
 
         info!(
-            "Vérification pour user_id={}, context={}",
+            "Verifying for user_id={}, context={}",
             request.user_id, request.context
         );
 
-        // Charger les visages enregistrés
+        // Load the registered faces
         let faces = self
             .storage
             .list_user_faces(request.user_id)
             .map_err(|e| DaemonError::StorageError(e.to_string()))?;
 
         if faces.is_empty() {
-            info!("Aucun visage enregistré pour user_id={}", request.user_id);
+            info!("No face registered for user_id={}", request.user_id);
             return Ok(VerifyResult::NoEnrollment);
         }
 
-        // Capturer 5 frames et prendre le meilleur score
+        // Capture 5 frames and take the best score
         const NUM_VERIFY_FRAMES: u32 = 5;
         let capture = self
             .camera
@@ -297,7 +297,7 @@ impl FaceAuthDaemon {
             .await
             .map_err(|e| DaemonError::CameraError(e.to_string()))?;
 
-        // Filtrer les frames valides (avec visage détecté)
+        // Filter the valid frames (with a detected face)
         let valid_probes: Vec<_> = capture
             .embeddings
             .iter()
@@ -306,19 +306,19 @@ impl FaceAuthDaemon {
 
         if valid_probes.is_empty() {
             info!(
-                "Aucun visage détecté dans les {} frames de vérification",
+                "No face detected in the {} verification frames",
                 NUM_VERIFY_FRAMES
             );
             return Ok(VerifyResult::NoFaceDetected);
         }
 
         info!(
-            "{}/{} frames valides pour la vérification",
+            "{}/{} valid frames for verification",
             valid_probes.len(),
             NUM_VERIFY_FRAMES
         );
 
-        // Charger les embeddings stockés
+        // Load the stored embeddings
         let mut stored_embeddings = std::collections::HashMap::new();
         for face in &faces {
             let embedding = self
@@ -328,7 +328,7 @@ impl FaceAuthDaemon {
             stored_embeddings.insert(face.face_id.clone(), embedding);
         }
 
-        // Matcher chaque frame valide, conserver le meilleur résultat
+        // Match each valid frame, keep the best result
         let best_result = valid_probes
             .iter()
             .map(|probe| {
@@ -344,7 +344,7 @@ impl FaceAuthDaemon {
                     .partial_cmp(&b.best_score)
                     .unwrap_or(std::cmp::Ordering::Equal)
             })
-            .unwrap(); // safe: valid_probes non vide
+            .unwrap(); // safe: valid_probes is non-empty
 
         if best_result.matched {
             Ok(VerifyResult::Success {
@@ -372,22 +372,22 @@ impl FaceAuthDaemon {
         Ok(serde_json::to_string(&faces)?)
     }
 
-    /// Vérifier que l'utilisateur courant a le droit d'accéder à cet UID
+    /// Check that the current user has permission to access this UID
     fn check_user_permission(&self, target_uid: u32) -> Result<(), DaemonError> {
         let current_uid = unsafe { libc::getuid() };
 
-        // Root peut tout faire
+        // Root can do anything
         if current_uid == 0 {
             return Ok(());
         }
 
-        // Un utilisateur peut accéder à son propre visage
+        // A user can access their own face
         if current_uid == target_uid {
             return Ok(());
         }
 
         Err(DaemonError::AccessDenied(format!(
-            "UID {} ne peut pas accéder à UID {}",
+            "UID {} cannot access UID {}",
             current_uid, target_uid
         )))
     }
