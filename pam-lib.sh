@@ -76,8 +76,12 @@ lh_all_configured() {
 # it was — the unattended timer has no human watching its output, so a
 # malformed pam.d file must be caught and reverted automatically rather than
 # left broken.
+#
+# <extra_opts>, if given, is appended verbatim after context=<context> on the
+# generated auth line (e.g. "confirm", to require an explicit [y/N] before
+# granting access — used for sudo/su, not for screenlock/sddm/polkit).
 lh_configure_service() {
-    local svc="$1" context="$2" anchor_re="$3"
+    local svc="$1" context="$2" anchor_re="$3" extra_opts="${4:-}"
     local file="$PAM_DIR/$svc"
 
     if [[ ! -f "$file" ]]; then
@@ -96,6 +100,9 @@ lh_configure_service() {
     orig_lines=$(wc -l < "$file")
 
     local lh_auth="${LH_LINE_TEMPLATE//%CONTEXT%/$context}"
+    if [[ -n "$extra_opts" ]]; then
+        lh_auth="$lh_auth $extra_opts"
+    fi
     python3 - "$file" "$anchor_re" "$lh_auth" "$LH_MARKER_START" "$LH_MARKER_END" << 'PYEOF'
 import sys, re
 

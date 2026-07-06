@@ -144,12 +144,12 @@ ok "PAM module installed: $PAM_MODULE"
 
 # ── 2. sudo and sudo-i ───────────────────────────────────────────────────────
 # sudo uses @include common-auth → insert BEFORE it so biometrics run first
-lh_configure_service "sudo"   "sudo"   "@include common-auth"
-lh_configure_service "sudo-i" "sudo"   "@include common-auth"
+lh_configure_service "sudo"   "sudo"   "@include common-auth" "confirm"
+lh_configure_service "sudo-i" "sudo"   "@include common-auth" "confirm"
 
 # ── 3. su and su-l ───────────────────────────────────────────────────────────
-lh_configure_service "su"     "sudo"   "@include common-auth"
-lh_configure_service "su-l"   "sudo"   "@include common-auth"
+lh_configure_service "su"     "sudo"   "@include common-auth" "confirm"
+lh_configure_service "su-l"   "sudo"   "@include common-auth" "confirm"
 
 # ── 4. SDDM (login screen) ───────────────────────────────────────────────────
 # Insert before @include common-auth (after the nologin/pam_succeed_if checks).

@@ -44,6 +44,7 @@ const PAM_IGNORE: c_int = 25;
 // PAM conversation message styles
 const PAM_TEXT_INFO: c_int = 4;
 const PAM_ERROR_MSG: c_int = 3;
+const PAM_PROMPT_ECHO_ON: c_int = 1;
 
 // Item type to retrieve the conversation function
 const PAM_CONV_ITEM: c_int = 5;
@@ -146,6 +147,11 @@ fn parse_options(argc: c_int, argv: *const *const c_char) -> PamOptions {
                             }
                         }
                         "debug" => opts.debug = true,
+                        // Matches "debug"'s own key=value handling: the value
+                        // is irrelevant, presence is what counts (accepts the
+                        // documented `confirm=true` syntax as well as bare
+                        // `confirm`).
+                        "confirm" => opts.confirm = true,
                         _ => {}
                     }
                 } else if arg_cstr == "debug" {
@@ -175,7 +181,14 @@ fn detect_lang() -> String {
 }
 
 /// Translate a PAM message according to the detected language.
-/// Recognized keys: "looking", "recognized", "not_recognized"
+/// Recognized keys: "looking", "recognized", "not_recognized", "confirm_prompt",
+/// "not_confirmed"
+///
+/// `confirm_prompt`'s "[y/N]" keystroke hint is intentionally left in Latin
+/// script in every language (common CLI i18n convention): the confirmation
+/// logic in `pam_sm_authenticate` only ever accepts a literal "y", regardless
+/// of locale, so translating it to e.g. "o"/"j" per language would silently
+/// break confirmation for non-English users.
 fn pam_t(key: &str) -> &'static str {
     let lang = detect_lang();
     match (lang.as_str(), key) {
@@ -183,46 +196,68 @@ fn pam_t(key: &str) -> &'static str {
         (_, "looking") if lang == "en" => "🔍 Look at the camera...",
         (_, "recognized") if lang == "en" => "✓ Face recognized",
         (_, "not_recognized") if lang == "en" => "✗ Face not recognized",
+        (_, "confirm_prompt") if lang == "en" => "✓ Face recognized. Confirm? [y/N]: ",
+        (_, "not_confirmed") if lang == "en" => "✗ Not confirmed",
         // French
         ("fr", "looking") => "🔍 Regardez vers la caméra...",
         ("fr", "recognized") => "✓ Visage reconnu",
         ("fr", "not_recognized") => "✗ Visage non reconnu",
+        ("fr", "confirm_prompt") => "✓ Visage reconnu. Confirmer ? [y/N] : ",
+        ("fr", "not_confirmed") => "✗ Non confirmé",
         // German
         ("de", "looking") => "🔍 Schauen Sie in die Kamera...",
         ("de", "recognized") => "✓ Gesicht erkannt",
         ("de", "not_recognized") => "✗ Gesicht nicht erkannt",
+        ("de", "confirm_prompt") => "✓ Gesicht erkannt. Bestätigen? [y/N]: ",
+        ("de", "not_confirmed") => "✗ Nicht bestätigt",
         // Spanish
         ("es", "looking") => "🔍 Mire hacia la cámara...",
         ("es", "recognized") => "✓ Rostro reconocido",
         ("es", "not_recognized") => "✗ Rostro no reconocido",
+        ("es", "confirm_prompt") => "✓ Rostro reconocido. ¿Confirmar? [y/N]: ",
+        ("es", "not_confirmed") => "✗ No confirmado",
         // Portuguese
         ("pt", "looking") => "🔍 Olhe para a câmera...",
         ("pt", "recognized") => "✓ Rosto reconhecido",
         ("pt", "not_recognized") => "✗ Rosto não reconhecido",
+        ("pt", "confirm_prompt") => "✓ Rosto reconhecido. Confirmar? [y/N]: ",
+        ("pt", "not_confirmed") => "✗ Não confirmado",
         // Russian
         ("ru", "looking") => "🔍 Посмотрите на камеру...",
         ("ru", "recognized") => "✓ Лицо распознано",
         ("ru", "not_recognized") => "✗ Лицо не распознано",
+        ("ru", "confirm_prompt") => "✓ Лицо распознано. Подтвердить? [y/N]: ",
+        ("ru", "not_confirmed") => "✗ Не подтверждено",
         // Japanese
         ("ja", "looking") => "🔍 カメラを見てください...",
         ("ja", "recognized") => "✓ 顔が認識されました",
         ("ja", "not_recognized") => "✗ 顔が認識されませんでした",
+        ("ja", "confirm_prompt") => "✓ 顔が認識されました。確認しますか？ [y/N]: ",
+        ("ja", "not_confirmed") => "✗ 確認されませんでした",
         // Chinese
         ("zh", "looking") => "🔍 请看向摄像头...",
         ("zh", "recognized") => "✓ 人脸已识别",
         ("zh", "not_recognized") => "✗ 人脸未识别",
+        ("zh", "confirm_prompt") => "✓ 人脸已识别。确认吗？[y/N]: ",
+        ("zh", "not_confirmed") => "✗ 未确认",
         // Arabic
         ("ar", "looking") => "🔍 انظر إلى الكاميرا...",
         ("ar", "recognized") => "✓ تم التعرف على الوجه",
         ("ar", "not_recognized") => "✗ لم يتم التعرف على الوجه",
+        ("ar", "confirm_prompt") => "✓ تم التعرف على الوجه. تأكيد؟ [y/N]: ",
+        ("ar", "not_confirmed") => "✗ لم يتم التأكيد",
         // Hindi
         ("hi", "looking") => "🔍 कैमरे की ओर देखें...",
         ("hi", "recognized") => "✓ चेहरा पहचाना गया",
         ("hi", "not_recognized") => "✗ चेहरा नहीं पहचाना गया",
+        ("hi", "confirm_prompt") => "✓ चेहरा पहचाना गया। पुष्टि करें? [y/N]: ",
+        ("hi", "not_confirmed") => "✗ पुष्टि नहीं हुई",
         // English default
         (_, "looking") => "🔍 Look at the camera...",
         (_, "recognized") => "✓ Face recognized",
         (_, "not_recognized") => "✗ Face not recognized",
+        (_, "confirm_prompt") => "✓ Face recognized. Confirm? [y/N]: ",
+        (_, "not_confirmed") => "✗ Not confirmed",
         _ => "",
     }
 }
@@ -284,6 +319,73 @@ fn pam_conv_send(pamh: *mut PamHandle, _flags: c_int, msg_style: c_int, msg: &st
             }
             libc::free(resp_ptr as *mut _);
         }
+    }
+}
+
+/// Send a prompt via the PAM conversation and return the user's typed
+/// response, unlike `pam_conv_send` which only ever pushes informational
+/// text and discards whatever the conv callback allocates.
+///
+/// Returns `None` if the conversation function is unavailable, the call
+/// fails, or the response is null (e.g. a non-interactive caller) — callers
+/// must treat that as "could not confirm" and fail safe rather than block
+/// forever, since the PAM conversation API has no timeout of its own.
+fn pam_conv_prompt(pamh: *mut PamHandle, _flags: c_int, msg: &str) -> Option<String> {
+    log_pam(&format!("pam_conv_prompt: msg={}", msg));
+
+    use std::ffi::CString;
+    let msg_cstr = match CString::new(msg) {
+        Ok(s) => s,
+        Err(e) => {
+            log_pam(&format!("pam_conv_prompt: CString::new failed: {}", e));
+            return None;
+        }
+    };
+
+    unsafe {
+        let mut item_ptr: *const std::os::raw::c_void = std::ptr::null();
+        let ret = pam_get_item(pamh, PAM_CONV_ITEM, &mut item_ptr);
+        if ret != PAM_SUCCESS || item_ptr.is_null() {
+            log_pam("pam_conv_prompt: no PAM_CONV_ITEM available");
+            return None;
+        }
+
+        let conv = &*(item_ptr as *const PamConv);
+        let conv_fn = match conv.conv {
+            Some(f) => f,
+            None => {
+                log_pam("pam_conv_prompt: conv.conv is None");
+                return None;
+            }
+        };
+
+        let pam_msg = PamMessage {
+            msg_style: PAM_PROMPT_ECHO_ON,
+            msg: msg_cstr.as_ptr(),
+        };
+        let msg_ptr: *const PamMessage = &pam_msg;
+        let mut resp_ptr: *mut PamResponse = std::ptr::null_mut();
+
+        let ret = (conv_fn)(1, &msg_ptr, &mut resp_ptr, conv.appdata_ptr);
+        log_pam(&format!("pam_conv_prompt: conv_fn ret={}", ret));
+
+        if ret != PAM_SUCCESS || resp_ptr.is_null() {
+            return None;
+        }
+
+        let resp = &*resp_ptr;
+        let answer = if resp.resp.is_null() {
+            None
+        } else {
+            Some(CStr::from_ptr(resp.resp).to_string_lossy().into_owned())
+        };
+
+        if !resp.resp.is_null() {
+            libc::free(resp.resp as *mut _);
+        }
+        libc::free(resp_ptr as *mut _);
+
+        answer
     }
 }
 
@@ -391,8 +493,38 @@ pub unsafe extern "C" fn pam_sm_authenticate(
                     "helper success user={} face_id={} score={}",
                     username, face_id, similarity_score
                 ));
-                pam_conv_send(pamh, flags, PAM_TEXT_INFO, pam_t("recognized"));
-                PAM_SUCCESS
+
+                if opts.confirm {
+                    // Documented behavior (docs/DESIGN.md): "Confirm sudo?
+                    // [y/N]" — only an explicit "y"/"Y" grants access, same
+                    // as a standard confirmation prompt defaulting to No.
+                    match pam_conv_prompt(pamh, flags, pam_t("confirm_prompt")) {
+                        Some(answer) if answer.trim().eq_ignore_ascii_case("y") => {
+                            log_pam(&format!("Confirmation accepted for {}", username));
+                            PAM_SUCCESS
+                        }
+                        Some(_) => {
+                            log_pam(&format!("Confirmation declined for {}", username));
+                            pam_conv_send(pamh, flags, PAM_ERROR_MSG, pam_t("not_confirmed"));
+                            PAM_AUTH_ERR
+                        }
+                        None => {
+                            // No interactive conversation available (e.g. a
+                            // non-interactive caller) — can't ask, so don't
+                            // grant on face match alone: let the next module
+                            // (password) decide instead, same convention as
+                            // "helper unavailable" below.
+                            log_pam(&format!(
+                                "No conversation available to confirm for {} — falling back to password",
+                                username
+                            ));
+                            PAM_IGNORE
+                        }
+                    }
+                } else {
+                    pam_conv_send(pamh, flags, PAM_TEXT_INFO, pam_t("recognized"));
+                    PAM_SUCCESS
+                }
             }
             PamHelperResponse::Failure { reason } => {
                 log_pam(&format!(
@@ -648,6 +780,7 @@ enum VerifyResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::CString;
 
     #[test]
     fn test_parse_options() {
@@ -655,5 +788,33 @@ mod tests {
         let opts = PamOptions::default();
         assert_eq!(opts.context, "default");
         assert_eq!(opts.timeout_ms, 30000);
+    }
+
+    fn parse_argv(args: &[&str]) -> PamOptions {
+        let cstrings: Vec<CString> = args.iter().map(|s| CString::new(*s).unwrap()).collect();
+        let ptrs: Vec<*const c_char> = cstrings.iter().map(|s| s.as_ptr()).collect();
+        parse_options(ptrs.len() as c_int, ptrs.as_ptr())
+    }
+
+    #[test]
+    fn test_parse_options_confirm_defaults_to_false() {
+        assert!(!PamOptions::default().confirm);
+        assert!(!parse_argv(&["context=sudo"]).confirm);
+    }
+
+    #[test]
+    fn test_parse_options_confirm_bare_flag() {
+        let opts = parse_argv(&["context=sudo", "confirm"]);
+        assert_eq!(opts.context, "sudo");
+        assert!(opts.confirm);
+    }
+
+    #[test]
+    fn test_parse_options_confirm_key_value_syntax() {
+        // docs/DESIGN.md documents `confirm=true`; the value itself is
+        // ignored (same convention as `debug`/`debug=...`) — presence is
+        // what matters.
+        assert!(parse_argv(&["confirm=true"]).confirm);
+        assert!(parse_argv(&["confirm=false"]).confirm);
     }
 }
