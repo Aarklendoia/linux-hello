@@ -112,10 +112,10 @@ fi
 # ── Configure ─────────────────────────────────────────────────────────────────
 log "enrolled face(s) found, activating PAM for sudo/screenlock"
 
-lh_configure_service "sudo"   "sudo" "@include common-auth" || true
-lh_configure_service "sudo-i" "sudo" "@include common-auth" || true
-lh_configure_service "su"     "sudo" "@include common-auth" || true
-lh_configure_service "su-l"   "sudo" "@include common-auth" || true
+lh_configure_service "sudo"   "sudo" "@include common-auth" "confirm" || true
+lh_configure_service "sudo-i" "sudo" "@include common-auth" "confirm" || true
+lh_configure_service "su"     "sudo" "@include common-auth" "confirm" || true
+lh_configure_service "su-l"   "sudo" "@include common-auth" "confirm" || true
 
 POLKIT_FILE="$PAM_DIR/polkit-1"
 if [[ ! -f "$POLKIT_FILE" ]]; then

@@ -29,8 +29,10 @@ a systemd system timer (runs shortly after boot, then every ~5 minutes) that
 configures PAM for **sudo** automatically, as soon as any local user has
 enrolled at least one face — no manual step needed. It edits `sudo`,
 `sudo-i`, `su`, `su-l`, and `polkit-1`, using the same idempotent, backed-up
-insertion logic as `install-pam.sh` (see `pam-lib.sh`). It's safe on
-multi-user machines: the module already falls back to the password for any
+insertion logic as `install-pam.sh` (see `pam-lib.sh`). The `sudo`/`sudo-i`/
+`su`/`su-l` lines are configured with the [`confirm`](#available-options)
+option — `polkit-1` isn't, since it already has its own confirmation dialog.
+It's safe on multi-user machines: the module already falls back to the password for any
 user with no enrolled face, so a single system-wide activation is correct
 regardless of who has actually enrolled.
 
@@ -137,6 +139,17 @@ auth [sufficient|required] /path/to/libpam_linux_hello.so [options]
 - `context=<context>`: Authentication context (login, sudo, screenlock, sddm, test, etc.) [default: default]
 - `timeout_ms=<ms>`: Timeout in milliseconds for capture [default: 5000]
 - `similarity_threshold=<0.0-1.0>`: Similarity threshold [default: 0.6]
+- `confirm`: After a face match, prompt "Confirm? [y/N]" and require an
+  explicit `y` before granting access, instead of granting immediately.
+  Guards against an accidental grant from someone merely being visible to
+  the camera while a prompt is open. Enabled by default on the
+  automatically-configured `sudo`/`sudo-i`/`su`/`su-l` lines (see
+  [Automatic Activation](#automatic-activation)); not applied to
+  `screenlock` (meant to stay hands-free) or `polkit`/`sddm` (which already
+  have their own confirmation UI). No timeout of its own — PAM's
+  conversation API doesn't support one — so a confirmation prompt can wait
+  as long as the surrounding context already waits for password entry
+  today; this is not a new class of risk.
 - `debug`: Enable debug logs
 
 ### Usage Examples
