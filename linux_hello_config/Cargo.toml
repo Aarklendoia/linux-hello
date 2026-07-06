@@ -5,24 +5,10 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 
+# main.rs is a standalone launcher (spawns the qml6 process and a local
+# control server via std::net) — it doesn't use any of hello_daemon,
+# hello_camera, hello_face_core, zbus, tokio, serde, clap, etc. Those were
+# only used by src/*.rs files that were never wired into lib.rs/main.rs via
+# `mod` (dead code, removed) and pulled in build time/binary size for
+# nothing, including hello_face_core's heavy ONNX/tract dependencies.
 [dependencies]
-hello_daemon = { path = "../hello_daemon" }
-hello_camera = { path = "../hello_camera" }
-hello_face_core = { path = "../hello_face_core" }
-anyhow.workspace = true
-thiserror.workspace = true
-tracing.workspace = true
-tracing-subscriber.workspace = true
-tokio = { workspace = true, features = ["sync"] }
-zbus = { workspace = true, features = ["tokio"] }
-zvariant.workspace = true
-serde = { workspace = true }
-serde_json.workspace = true
-clap = { workspace = true, features = ["derive"] }
-parking_lot.workspace = true
-
-# Async D-Bus client to communicate with the daemon
-async-trait = "0.1"
-
-# Configuration
-dirs = "6.0"

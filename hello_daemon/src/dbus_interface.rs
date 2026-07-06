@@ -5,7 +5,6 @@
 
 use serde::{Deserialize, Serialize};
 use std::fmt;
-use zbus::interface;
 
 // ============================================================================
 // Serializable request/response types
@@ -108,81 +107,6 @@ impl fmt::Display for VerifyResult {
             VerifyResult::Cancelled => write!(f, "Cancelled"),
             VerifyResult::Error { message } => write!(f, "Error: {}", message),
         }
-    }
-}
-
-// ============================================================================
-// D-Bus interface
-// ============================================================================
-
-/// D-Bus interface for facial authentication
-pub struct FaceAuthService {
-    // To be filled in with the impl in lib.rs
-}
-
-#[interface(name = "com.linuxhello.FaceAuth")]
-impl FaceAuthService {
-    /// Register a new face for a user
-    ///
-    /// # Arguments
-    /// * `request` - JSON of RegisterFaceRequest
-    ///
-    /// # Returns
-    /// JSON of RegisterFaceResponse or error
-    pub async fn register_face(&self, _request: &str) -> zbus::fdo::Result<String> {
-        // Impl in lib.rs
-        Err(zbus::fdo::Error::Failed("Not implemented".to_string()))
-    }
-
-    /// Delete one or all faces
-    ///
-    /// # Arguments
-    /// * `request` - JSON of DeleteFaceRequest
-    pub async fn delete_face(&self, _request: &str) -> zbus::fdo::Result<()> {
-        // Impl in lib.rs
-        Err(zbus::fdo::Error::Failed("Not implemented".to_string()))
-    }
-
-    /// Verify a user's identity
-    ///
-    /// # Arguments
-    /// * `request` - JSON of VerifyRequest
-    ///
-    /// # Returns
-    /// JSON of VerifyResult
-    pub async fn verify(&self, _request: &str) -> zbus::fdo::Result<String> {
-        // Impl in lib.rs
-        Err(zbus::fdo::Error::Failed("Not implemented".to_string()))
-    }
-
-    /// List the faces registered for a user
-    ///
-    /// # Arguments
-    /// * `user_id` - UID
-    ///
-    /// # Returns
-    /// JSON array of face_ids and metadata
-    pub async fn list_faces(&self, _user_id: u32) -> zbus::fdo::Result<String> {
-        // Impl in lib.rs
-        Err(zbus::fdo::Error::Failed("Not implemented".to_string()))
-    }
-
-    /// Check that the daemon is operational
-    pub async fn ping(&self) -> zbus::fdo::Result<String> {
-        Ok("pong".to_string())
-    }
-
-    /// Daemon version
-    #[zbus(property)]
-    pub async fn version(&self) -> zbus::fdo::Result<String> {
-        Ok(env!("CARGO_PKG_VERSION").to_string())
-    }
-
-    /// Check whether a camera is available
-    #[zbus(property)]
-    pub async fn camera_available(&self) -> zbus::fdo::Result<bool> {
-        // To be implemented with real detection
-        Ok(true)
     }
 }
 
