@@ -381,6 +381,46 @@ pub fn default_models_dir() -> std::path::PathBuf {
     system_path
 }
 
+/// Ensures `ORT_DYLIB_PATH` is set before the first `ort` call.
+///
+/// `hello-daemon.service` sets it explicitly, but a developer running the
+/// daemon/CLI/tests directly from a shell typically won't have it set. When
+/// that happens, `ort`'s own dynamic-library lookup can hang indefinitely
+/// instead of failing fast (observed: a full deadlock, not just slowness —
+/// every runtime thread parked in `futex_wait`, never recovering). Since the
+/// library is reliably at a fixed multiarch path when installed via apt
+/// (`libonnxruntime1.23`) or the linux-hello .deb's own runtime dependency,
+/// default to that instead of leaving it to `ort` to figure out.
+#[cfg(feature = "tract")]
+fn ensure_ort_dylib_path() {
+    if std::env::var_os("ORT_DYLIB_PATH").is_some() {
+        return;
+    }
+    const CANDIDATES: &[&str] = &[
+        "/usr/lib/x86_64-linux-gnu/libonnxruntime.so.1.23",
+        "/usr/lib/aarch64-linux-gnu/libonnxruntime.so.1.23",
+        "/usr/lib/libonnxruntime.so.1.23",
+    ];
+    for candidate in CANDIDATES {
+        if std::path::Path::new(candidate).exists() {
+            tracing::debug!(
+                "ORT_DYLIB_PATH not set, defaulting to {} (found on disk)",
+                candidate
+            );
+            // SAFETY: called once, at the very start of detector/extractor
+            // creation, before any other thread reads this process's env vars.
+            unsafe {
+                std::env::set_var("ORT_DYLIB_PATH", candidate);
+            }
+            return;
+        }
+    }
+    tracing::warn!(
+        "ORT_DYLIB_PATH not set and libonnxruntime.so.1.23 not found in standard locations; \
+         ONNX model loading may hang or fail. Set ORT_DYLIB_PATH explicitly to fix this."
+    );
+}
+
 /// Creates the most capable face detector available.
 ///
 /// If the ONNX model is present and the "tract" feature is enabled,
@@ -388,6 +428,7 @@ pub fn default_models_dir() -> std::path::PathBuf {
 pub fn create_detector(models_dir: &std::path::Path) -> Box<dyn FaceDetector> {
     #[cfg(feature = "tract")]
     {
+        ensure_ort_dylib_path();
         let model_path = models_dir.join("det_500m.onnx");
         if model_path.exists() {
             match scrfd_detector::ScrfdDetector::load(&model_path) {
@@ -417,6 +458,7 @@ pub fn create_detector(models_dir: &std::path::Path) -> Box<dyn FaceDetector> {
 pub fn create_extractor(models_dir: &std::path::Path) -> Box<dyn EmbeddingExtractor> {
     #[cfg(feature = "tract")]
     {
+        ensure_ort_dylib_path();
         let model_path = models_dir.join("w600k_mbf.onnx");
         if model_path.exists() {
             match arcface_extractor::ArcFaceExtractor::load(&model_path) {

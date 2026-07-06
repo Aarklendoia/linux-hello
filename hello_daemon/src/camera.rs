@@ -402,6 +402,17 @@ mod tests {
 
     #[tokio::test]
     async fn test_camera_manager_creation() {
+        // Force the stub detector/extractor by pointing at an empty models
+        // dir. This test only exercises the camera scan, and loading the
+        // real ONNX models requires a correctly configured ONNX Runtime
+        // (ORT_DYLIB_PATH) that isn't guaranteed in a `cargo test` env —
+        // without it, `ort` can hang indefinitely rather than failing fast.
+        let empty_models_dir = tempfile::tempdir().unwrap();
+        // SAFETY: no other test in this binary reads LINUX_HELLO_MODELS_DIR.
+        unsafe {
+            std::env::set_var("LINUX_HELLO_MODELS_DIR", empty_models_dir.path());
+        }
+
         let camera = CameraManager::new(5000);
         // The scan must not panic even without /dev/video*
         assert!(!camera.rgb_device.is_empty());
