@@ -7,7 +7,16 @@
 //! - linux-hello list $UID   : list enrolled faces
 
 use clap::{Parser, Subcommand};
+use hello_daemon::dbus_interface::{
+    DeleteFaceRequest, RegisterFaceRequest, RegisterFaceResponse, VerifyRequest, VerifyResult,
+};
+use hello_daemon::FaceRecord;
 use tracing::{info, Level};
+use zbus::Connection;
+
+const DBUS_DEST: &str = "com.linuxhello.FaceAuth";
+const DBUS_PATH: &str = "/com/linuxhello/FaceAuth";
+const DBUS_INTERFACE: &str = "com.linuxhello.FaceAuth";
 
 #[derive(Parser)]
 #[command(name = "linux-hello")]
@@ -136,6 +145,31 @@ async fn command_daemon(debug: bool, storage: Option<std::path::PathBuf>) -> any
     Ok(())
 }
 
+/// Connect to the daemon's D-Bus service. `zbus::Proxy::new` binds lazily and
+/// succeeds even if the daemon isn't running — the actual failure only
+/// surfaces on the first method call, which `daemon_call_error` below turns
+/// into a friendlier hint.
+async fn daemon_proxy(conn: &Connection) -> anyhow::Result<zbus::Proxy<'_>> {
+    Ok(zbus::Proxy::new(conn, DBUS_DEST, DBUS_PATH, DBUS_INTERFACE).await?)
+}
+
+/// Wrap a failed D-Bus call with a hint when the cause is "daemon not
+/// running" — the most common failure mode for this CLI, since
+/// `hello-daemon` is a per-user systemd service that isn't started
+/// automatically.
+fn daemon_call_error(action: &str, e: zbus::Error) -> anyhow::Error {
+    if let zbus::Error::MethodError(name, _, _) = &e {
+        if name.as_str() == "org.freedesktop.DBus.Error.ServiceUnknown" {
+            return anyhow::anyhow!(
+                "{action} failed: the linux-hello daemon isn't running. \
+                 Try: systemctl --user status hello-daemon \
+                 (or start it: systemctl --user start hello-daemon)"
+            );
+        }
+    }
+    anyhow::anyhow!("{action} failed: {e}")
+}
+
 async fn command_enroll(user_id: u32, context: &str, samples: u32) -> anyhow::Result<()> {
     info!(
         "Enrolling a face for UID {} (context: {})",
@@ -143,8 +177,27 @@ async fn command_enroll(user_id: u32, context: &str, samples: u32) -> anyhow::Re
     );
     info!("Number of samples: {}", samples);
 
-    // TODO: Call the D-Bus daemon
-    info!("Not implemented - To be connected to the D-Bus daemon");
+    let conn = Connection::session().await?;
+    let proxy = daemon_proxy(&conn).await?;
+
+    let request = RegisterFaceRequest {
+        user_id,
+        context: context.to_string(),
+        timeout_ms: 10_000,
+        num_samples: samples,
+    };
+    let request_json = serde_json::to_string(&request)?;
+
+    let response_json: String = proxy
+        .call("RegisterFace", &(request_json,))
+        .await
+        .map_err(|e| daemon_call_error("Enrollment", e))?;
+    let response: RegisterFaceResponse = serde_json::from_str(&response_json)?;
+
+    println!(
+        "✓ Face enrolled: face_id={} quality={:.2}",
+        response.face_id, response.quality_score
+    );
 
     Ok(())
 }
@@ -153,8 +206,26 @@ async fn command_verify(user_id: u32, context: &str, timeout: u64) -> anyhow::Re
     info!("Verifying user {} (context: {})", user_id, context);
     info!("Timeout: {}ms", timeout);
 
-    // TODO: Call the D-Bus daemon
-    info!("Not implemented - To be connected to the D-Bus daemon");
+    let conn = Connection::session().await?;
+    let proxy = daemon_proxy(&conn).await?;
+
+    let request = VerifyRequest {
+        user_id,
+        context: context.to_string(),
+        timeout_ms: timeout,
+    };
+    let request_json = serde_json::to_string(&request)?;
+
+    let result_json: String = proxy
+        .call("Verify", &(request_json,))
+        .await
+        .map_err(|e| daemon_call_error("Verification", e))?;
+    let result: VerifyResult = serde_json::from_str(&result_json)?;
+
+    match &result {
+        VerifyResult::Success { .. } => println!("✓ {}", result),
+        _ => println!("✗ {}", result),
+    }
 
     Ok(())
 }
@@ -162,21 +233,49 @@ async fn command_verify(user_id: u32, context: &str, timeout: u64) -> anyhow::Re
 async fn command_list(user_id: u32) -> anyhow::Result<()> {
     info!("Listing enrolled faces for UID {}", user_id);
 
-    // TODO: Call the D-Bus daemon
-    info!("Not implemented - To be connected to the D-Bus daemon");
+    let conn = Connection::session().await?;
+    let proxy = daemon_proxy(&conn).await?;
+
+    let faces_json: String = proxy
+        .call("ListFaces", &(user_id,))
+        .await
+        .map_err(|e| daemon_call_error("ListFaces", e))?;
+    let faces: Vec<FaceRecord> = serde_json::from_str(&faces_json)?;
+
+    if faces.is_empty() {
+        println!("No faces enrolled for UID {}", user_id);
+    } else {
+        println!("{} face(s) enrolled for UID {}:", faces.len(), user_id);
+        for f in &faces {
+            println!(
+                "  {}  context={}  quality={:.2}  registered_at={}",
+                f.face_id, f.context, f.quality_score, f.registered_at
+            );
+        }
+    }
 
     Ok(())
 }
 
 async fn command_delete(user_id: u32, face_id: Option<String>) -> anyhow::Result<()> {
-    if let Some(id) = face_id {
+    if let Some(id) = &face_id {
         info!("Deleting face {} for UID {}", id, user_id);
     } else {
         info!("Deleting ALL faces for UID {}", user_id);
     }
 
-    // TODO: Call the D-Bus daemon
-    info!("Not implemented - To be connected to the D-Bus daemon");
+    let conn = Connection::session().await?;
+    let proxy = daemon_proxy(&conn).await?;
+
+    let request = DeleteFaceRequest { user_id, face_id };
+    let request_json = serde_json::to_string(&request)?;
+
+    proxy
+        .call::<_, _, ()>("DeleteFace", &(request_json,))
+        .await
+        .map_err(|e| daemon_call_error("DeleteFace", e))?;
+
+    println!("✓ Deleted");
 
     Ok(())
 }
