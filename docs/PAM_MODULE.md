@@ -35,13 +35,13 @@ module already falls back to the password for any user with no enrolled
 face, so a single system-wide activation is correct regardless of who has
 actually enrolled.
 
-**Not covered — the SDDM login screen.** `hello-daemon` runs per-user
-(`systemctl --user`), and the PAM module talks to that user's own running
-daemon over a per-user socket. At the login screen, the target user's
-session (and daemon) doesn't exist yet, so biometric auth can't work there
-today — automatic activation deliberately never touches `/etc/pam.d/sddm`.
-Login-screen support needs a system-wide daemon and is a separate,
-future piece of work.
+**Not covered by the automatic timer — the SDDM login screen.**
+`linux-hello-pam-autoconfigure` deliberately never touches `/etc/pam.d/sddm`.
+Login-screen support does exist (see [SDDM (Login Screen)](#sddm-login-screen)
+below) but stays manual/opt-in only, via `install-pam.sh` — it starts a new,
+always-on, root-owned, pre-authentication-reachable listener, which is
+enough of a change to a machine's attack surface that it shouldn't happen
+silently just because a face was enrolled.
 
 **Known limitation.** User enrollment is detected by scanning `/etc/passwd`
 directly (no `getent`/NSS lookup) — accounts served only via `systemd-homed`
@@ -56,6 +56,61 @@ exists. Running `install-pam.sh` again (without `--remove`) clears the
 marker and re-enables automatic activation. `install-pam.sh --status` shows
 both the current PAM configuration state and whether automatic activation is
 enabled or opted out.
+
+## SDDM (Login Screen)
+
+Unlike sudo/screenlock, the login screen has no active session yet for the
+user being authenticated, so the usual per-user `hello-daemon` (and its
+per-user `/run/hello-pam/<uid>.socket`) can't help. Instead, installing
+`libpam-linux-hello` also installs `hello-daemon-system.service` — a
+**separate, minimal, root-owned, always-on listener**, started at boot,
+that binds a fixed socket (`/run/hello-pam/system.socket`) with no D-Bus
+surface and no ability to enroll or delete faces, only to verify. When
+`pam_linux_hello` runs with `context=sddm`, it connects to this socket
+instead of the per-user one; the listener resolves the target username's
+home directory directly (root can read any home) and checks
+`~/.local/share/linux-hello/users/<uid>/` for enrolled faces, without ever
+creating anything there.
+
+**This capability is opt-in only**, via `sudo ./install-pam.sh` (which both
+inserts the `pam_linux_hello.so context=sddm` line into `/etc/pam.d/sddm`
+and enables `hello-daemon-system.service`) or reverted together via
+`install-pam.sh --remove`. It is deliberately **not** part of automatic
+activation (`linux-hello-pam-autoconfigure` never touches `sddm` or this
+service) — starting a new pre-authentication-reachable root listener is a
+large enough change to a machine's attack surface that it should never
+happen silently just because someone enrolled a face for sudo/screenlock.
+
+Security notes:
+
+- The socket is mode `0600` and only accepts connections whose peer UID is
+  `0` — verified on a live Kubuntu 26.04/SDDM system that the process
+  actually performing `/etc/pam.d/sddm` authentication (`sddm-helper`) runs
+  as root. Non-root connections are dropped immediately, before any read.
+- A non-blocking, cross-process file lock (`/run/lock/linux-hello-camera.lock`)
+  serializes camera access between this listener and any per-user daemon
+  that might be capturing at the same moment (e.g. fast user switching); on
+  contention, verification fails fast with a distinct "camera busy" reason
+  rather than silently degrading to blank frames.
+
+Known limitations (accepted, not solved):
+
+- If a target user's home directory lives on storage not mounted/decrypted
+  until *after* a successful PAM session phase (network home, per-user
+  encryption), the pre-auth read sees an empty or inaccessible home and
+  falls back to password — safe, but unhelpful.
+- Response time differs measurably between "no such user," "user exists but
+  never enrolled," and "enrolled → camera capture happens" (roughly 1-5s).
+  This is a mild timing side-channel: someone at the greeter (or scripting
+  repeated attempts) could infer which local accounts have enrolled a face.
+  A constant-time-floor response is a possible future hardening, not
+  implemented today.
+- Raw `/etc/passwd` parsing (no `getent`/NSS) won't resolve
+  `systemd-homed`-only accounts, same as the automatic timer's limitation
+  above.
+- No visual integration with the SDDM greeter itself (e.g. a live camera
+  preview) — feedback is text-only via the PAM conversation, matching the
+  existing sudo/screenlock experience.
 
 ## PAM Configuration
 

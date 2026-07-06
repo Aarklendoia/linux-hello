@@ -3,3 +3,5 @@ usr/bin/linux-hello-pam-autoconfigure
 usr/lib/linux-hello/pam-lib.sh
 usr/lib/systemd/system/linux-hello-pam-autoconfigure.service
 usr/lib/systemd/system/linux-hello-pam-autoconfigure.timer
+usr/bin/hello-daemon-system
+usr/lib/systemd/system/hello-daemon-system.service

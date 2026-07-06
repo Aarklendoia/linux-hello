@@ -531,16 +531,28 @@ enum PamHelperResponse {
     },
 }
 
-/// Call the PAM helper via a Unix socket created by the user daemon.
-/// Path: /tmp/hello-pam-<uid>.socket (/tmp is 1777, accessible to all processes).
-/// Security relies on peer_cred on the daemon side (not on path permissions).
+/// Call the PAM helper via a Unix socket.
+///
+/// For most contexts this is the per-user socket created by that user's own
+/// running `hello-daemon` session (`/run/hello-pam/<uid>.socket`, /run/hello-pam/
+/// is created by systemd-tmpfiles, mode 1777, sticky — /run is not affected
+/// by polkitd's PrivateTmp=yes unlike /tmp). Security relies on peer_cred on
+/// the daemon side (not on path permissions).
+///
+/// For `context=sddm`, no per-user session/daemon exists yet at the login
+/// screen — instead this connects to the fixed system-wide socket served by
+/// `hello-daemon-system` (started at boot, root, verify-only; see
+/// `hello_daemon::pam_helper::start_system_pam_helper` and
+/// docs/PAM_MODULE.md). Same request/response wire format either way.
 fn call_pam_helper_sync(req: &PamHelperRequest) -> Result<PamHelperResponse, String> {
     use std::io::{Read, Write};
     use std::os::unix::net::UnixStream;
 
-    // /run/hello-pam/ is created by systemd-tmpfiles (mode 1777, sticky).
-    // /run is not affected by polkitd's PrivateTmp=yes (unlike /tmp).
-    let socket_path = format!("/run/hello-pam/{}.socket", req.user_id);
+    let socket_path = if req.context == "sddm" {
+        "/run/hello-pam/system.socket".to_string()
+    } else {
+        format!("/run/hello-pam/{}.socket", req.user_id)
+    };
     log_pam(&format!("Connecting to socket: {}", socket_path));
 
     // Short connection timeout: if the daemon is down, fail fast
