@@ -9,9 +9,12 @@
 //! becomes non-blocking when used in a tokio context, which causes
 //! EAGAIN on read() on the PAM side.
 
-use crate::dbus_interface::VerifyRequest;
+use crate::dbus_interface::{VerifyRequest, VerifyResult};
+use crate::storage::FaceStorage;
+use crate::verify_with_storage;
 use serde::{Deserialize, Serialize};
 use std::fs;
+use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixListener;
 use tracing::{debug, error, info};
@@ -191,4 +194,254 @@ async fn handle_pam_request(
     stream.shutdown().await?;
 
     Ok(())
+}
+
+// ============================================================================
+// System-wide listener (SDDM login screen)
+// ============================================================================
+//
+// Unlike the per-user socket above (created by that user's own running
+// daemon, reachable only once they're already logged in), this listener is
+// started once at boot by the `hello-daemon-system` binary and never tied to
+// any particular user. It backs `context=sddm`: the PAM module connects here
+// instead of `/run/hello-pam/<uid>.socket` when authenticating at the login
+// screen, before that user has any session (see docs/PAM_MODULE.md).
+//
+// Security model, deliberately tighter than the per-user socket:
+// - Fixed path, mode 0600 (root-owned) rather than 0666 — only root ever
+//   legitimately connects (confirmed on a live system: SDDM's `sddm-helper`,
+//   which runs the actual PAM stack for /etc/pam.d/sddm, runs as root).
+// - Peer credential is checked immediately after accept(), before any read —
+//   this socket is reachable before authentication, so an unauthorized local
+//   process must not be able to tie up a connection/fd at all.
+// - Verify-only. There is no RegisterFace/DeleteFace/ListFaces here:
+//   enrollment must always happen through a user's own per-user session
+//   daemon, writing to their own home directory — never through this
+//   listener, which only ever reads.
+
+/// Fixed socket path for the SDDM/login-screen listener (as opposed to the
+/// per-uid paths used by [`start_pam_helper`]). Overridable via
+/// `LINUX_HELLO_SYSTEM_SOCKET_PATH` for testing against a scratch location
+/// instead of the real, root-only `/run/hello-pam/` — unset in production.
+pub fn system_socket_path() -> String {
+    std::env::var("LINUX_HELLO_SYSTEM_SOCKET_PATH")
+        .unwrap_or_else(|_| "/run/hello-pam/system.socket".to_string())
+}
+
+/// Resolve a UID's home directory by parsing `/etc/passwd` directly — same
+/// approach already used above for `polkitd`, and in
+/// `linux-hello-pam-autoconfigure` for user enumeration. No `getent`/NSS, so
+/// systemd-homed-only accounts (not real `/etc/passwd` lines) won't resolve;
+/// a documented limitation, not a bug.
+fn resolve_home_dir(uid: u32) -> Option<std::path::PathBuf> {
+    let content = std::fs::read_to_string("/etc/passwd").ok()?;
+    for line in content.lines() {
+        let mut fields = line.split(':');
+        fields.next()?; // name
+        fields.next()?; // password placeholder
+        let uid_field = fields.next()?;
+        if uid_field.parse::<u32>().ok()? != uid {
+            continue;
+        }
+        fields.next()?; // gid
+        fields.next()?; // gecos
+        let home = fields.next()?;
+        return Some(std::path::PathBuf::from(home));
+    }
+    None
+}
+
+/// Start the system-wide PAM socket listener for the SDDM context.
+///
+/// `camera`/`matcher` are long-lived and shared across requests (built once
+/// by `hello-daemon-system`'s `main()`); `storage` is resolved fresh per
+/// request from the target user's own home directory, via
+/// [`FaceStorage::open_read_only`] — never the side-effecting `FaceStorage::new`.
+pub async fn start_system_pam_helper(
+    camera: Arc<crate::camera::CameraManager>,
+    matcher: Arc<crate::matcher::FaceMatcher>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let socket_path = system_socket_path();
+    let _ = fs::remove_file(&socket_path);
+
+    let listener = UnixListener::bind(&socket_path)?;
+    info!("PAM system helper listening on {}", socket_path);
+
+    // 0600: unlike the per-user socket, only root ever legitimately connects
+    // here, so the filesystem permission itself closes off the unauthorized-
+    // connection surface — the peer_cred check below is defense in depth,
+    // not the only gate.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&socket_path, fs::Permissions::from_mode(0o600))?;
+    }
+
+    tokio::spawn(async move {
+        loop {
+            match listener.accept().await {
+                Ok((stream, _)) => {
+                    #[cfg(unix)]
+                    let peer_uid: Option<u32> = stream.peer_cred().ok().map(|c| c.uid());
+                    #[cfg(not(unix))]
+                    let peer_uid: Option<u32> = None;
+
+                    if peer_uid != Some(0) {
+                        debug!(
+                            "PAM system helper: rejecting connection from non-root peer {:?}",
+                            peer_uid
+                        );
+                        // Dropped without reading or responding — an
+                        // unauthorized peer gets nothing, not even an error.
+                        continue;
+                    }
+
+                    let camera = camera.clone();
+                    let matcher = matcher.clone();
+                    tokio::spawn(async move {
+                        if let Err(e) = handle_system_pam_request(stream, camera, matcher).await {
+                            error!("PAM system helper error: {}", e);
+                        }
+                    });
+                }
+                Err(e) => {
+                    error!("PAM system helper accept error: {}", e);
+                    break;
+                }
+            }
+        }
+    });
+
+    Ok(())
+}
+
+/// Process an incoming connection on the system listener.
+async fn handle_system_pam_request(
+    mut stream: tokio::net::UnixStream,
+    camera: Arc<crate::camera::CameraManager>,
+    matcher: Arc<crate::matcher::FaceMatcher>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    // Bounded read: defense in depth. This socket is reachable before any
+    // authentication happens, so a stalled/malicious peer must not be able
+    // to tie up a connection indefinitely.
+    const MAX_REQUEST_BYTES: usize = 4096;
+    const READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+    let mut buf = Vec::new();
+    let mut chunk = [0u8; 512];
+    let read_result = tokio::time::timeout(READ_TIMEOUT, async {
+        loop {
+            let n = stream.read(&mut chunk).await?;
+            if n == 0 || buf.len() > MAX_REQUEST_BYTES {
+                break;
+            }
+            buf.extend_from_slice(&chunk[..n]);
+        }
+        Ok::<(), std::io::Error>(())
+    })
+    .await;
+
+    if read_result.is_err() || buf.is_empty() || buf.len() > MAX_REQUEST_BYTES {
+        return Ok(());
+    }
+
+    let request_json = String::from_utf8(buf)?;
+    debug!("PAM system helper received: {}", request_json);
+    let req: PamHelperRequest = serde_json::from_str(&request_json)?;
+
+    let response = match resolve_home_dir(req.user_id) {
+        None => {
+            debug!(
+                "PAM system helper: no home directory for uid={}",
+                req.user_id
+            );
+            PamHelperResponse::Failure {
+                reason: "Unknown user".to_string(),
+            }
+        }
+        Some(home) => {
+            let base_path = home.join(".local/share/linux-hello");
+            match FaceStorage::open_read_only(&base_path) {
+                Ok(None) => PamHelperResponse::Failure {
+                    reason: "No enrollment".to_string(),
+                },
+                Ok(Some(storage)) => {
+                    let verify_req = VerifyRequest {
+                        user_id: req.user_id,
+                        context: req.context,
+                        timeout_ms: req.timeout_ms,
+                    };
+                    let timeout = std::time::Duration::from_millis(verify_req.timeout_ms + 1000);
+                    let result = tokio::time::timeout(
+                        timeout,
+                        verify_with_storage(&storage, &camera, &matcher, &verify_req),
+                    )
+                    .await;
+
+                    match result {
+                        Ok(Ok(VerifyResult::Success {
+                            face_id,
+                            similarity_score,
+                        })) => PamHelperResponse::Success {
+                            face_id,
+                            similarity_score,
+                        },
+                        Ok(Ok(_)) => PamHelperResponse::Failure {
+                            reason: "Face not recognized".to_string(),
+                        },
+                        Ok(Err(e)) => PamHelperResponse::Failure {
+                            reason: e.to_string(),
+                        },
+                        Err(_) => PamHelperResponse::Failure {
+                            reason: "Timeout".to_string(),
+                        },
+                    }
+                }
+                Err(e) => PamHelperResponse::Failure {
+                    reason: e.to_string(),
+                },
+            }
+        }
+    };
+
+    let response_json = serde_json::to_string(&response)?;
+    stream.write_all(response_json.as_bytes()).await?;
+    stream.shutdown().await?;
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_resolve_home_dir_current_user() {
+        // Read-only against the real /etc/passwd; resolves the uid this
+        // test process is actually running as (safe — no writes).
+        let uid = unsafe { libc::getuid() };
+        let home = resolve_home_dir(uid).expect("current uid should resolve from /etc/passwd");
+        assert!(!home.as_os_str().is_empty());
+    }
+
+    #[test]
+    fn test_resolve_home_dir_nonexistent_uid() {
+        // A UID astronomically unlikely to exist on any real system.
+        assert!(resolve_home_dir(4_294_967_000).is_none());
+    }
+
+    #[test]
+    fn test_system_socket_path_override() {
+        // SAFETY: no other test in this binary reads this env var.
+        unsafe {
+            std::env::set_var(
+                "LINUX_HELLO_SYSTEM_SOCKET_PATH",
+                "/tmp/test-override.socket",
+            );
+        }
+        assert_eq!(system_socket_path(), "/tmp/test-override.socket");
+        unsafe {
+            std::env::remove_var("LINUX_HELLO_SYSTEM_SOCKET_PATH");
+        }
+    }
 }

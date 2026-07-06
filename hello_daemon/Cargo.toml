@@ -52,3 +52,7 @@ path = "src/lib.rs"
 [[bin]]
 name = "hello-daemon"
 path = "src/main.rs"
+
+[[bin]]
+name = "hello-daemon-system"
+path = "src/bin/hello_daemon_system.rs"

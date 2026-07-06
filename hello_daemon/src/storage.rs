@@ -37,6 +37,23 @@ impl FaceStorage {
         Ok(storage)
     }
 
+    /// Open an existing storage directory without creating anything.
+    ///
+    /// Returns `Ok(None)` if `base_path` doesn't exist yet (e.g. the user has
+    /// never enrolled). Unlike `new()`, this never calls `create_dir_all` —
+    /// used by the SDDM system listener, which reads an arbitrary,
+    /// not-yet-authenticated user's home directory and must never create
+    /// directories there as a side effect of a failed or in-progress login
+    /// attempt.
+    pub fn open_read_only(base_path: impl AsRef<Path>) -> Result<Option<Self>, DaemonError> {
+        let base_path = base_path.as_ref().to_path_buf();
+        if !base_path.is_dir() {
+            return Ok(None);
+        }
+        let db_path = base_path.join("faces.db");
+        Ok(Some(Self { base_path, db_path }))
+    }
+
     /// Initialize the SQLite structure
     fn init_db(&self) -> Result<(), DaemonError> {
         // Create the embeddings directory
@@ -289,5 +306,57 @@ mod tests {
 
         let faces = storage.list_user_faces(1000).unwrap();
         assert_eq!(faces.len(), 2);
+    }
+
+    #[test]
+    fn test_open_read_only_missing_dir_returns_none_and_creates_nothing() {
+        // This is the property the SDDM system listener depends on: checking
+        // an arbitrary, not-yet-authenticated user's storage must never
+        // create directories in their home as a side effect.
+        let temp = TempDir::new().unwrap();
+        let missing = temp.path().join("never-enrolled-user");
+
+        let result = FaceStorage::open_read_only(&missing).unwrap();
+
+        assert!(result.is_none());
+        assert!(
+            !missing.exists(),
+            "open_read_only must not create the directory"
+        );
+    }
+
+    #[test]
+    fn test_open_read_only_existing_dir_can_list_faces() {
+        let temp = TempDir::new().unwrap();
+        // Set up with the side-effecting constructor once, as enrollment
+        // would have already done.
+        let storage = FaceStorage::new(temp.path()).unwrap();
+        let record = FaceRecord {
+            face_id: "face_1".to_string(),
+            user_id: 1000,
+            embedding_json: "[]".to_string(),
+            quality_score: 0.9,
+            registered_at: 0,
+            context: "sddm".to_string(),
+        };
+        let embedding = Embedding {
+            vector: vec![0.1, 0.2],
+            metadata: hello_face_core::EmbeddingMetadata {
+                model: "test".to_string(),
+                model_version: "0.1.0".to_string(),
+                extracted_at: 0,
+                quality_score: 0.9,
+            },
+        };
+        storage.save_face(&record, &embedding).unwrap();
+        drop(storage);
+
+        // Now re-open read-only, as the system listener would per-request.
+        let reopened = FaceStorage::open_read_only(temp.path())
+            .unwrap()
+            .expect("directory exists, should return Some");
+        let faces = reopened.list_user_faces(1000).unwrap();
+        assert_eq!(faces.len(), 1);
+        assert_eq!(faces[0].face_id, "face_1");
     }
 }

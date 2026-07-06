@@ -1,3 +1,31 @@
+linux-hello (1.0.5-1) unstable; urgency=medium
+
+  * Add SDDM (login screen) biometric authentication support.
+    libpam-linux-hello now ships hello-daemon-system.service, a minimal,
+    root-owned listener started at boot with no D-Bus surface and no
+    ability to enroll or delete faces (verify only) — pam_linux_hello
+    connects to it (a fixed /run/hello-pam/system.socket) instead of the
+    usual per-user socket when context=sddm, since no per-user session/
+    daemon exists yet at the login screen. Enabled opt-in only, via
+    install-pam.sh (which now also enables/disables the new service
+    alongside the sddm PAM line) — never unconditionally at package
+    install time, since it is a new pre-authentication-reachable root
+    listener. See docs/PAM_MODULE.md for the security model and known
+    limitations (accepted, not solved): a timing side-channel on
+    enrollment status, home directories not yet mounted at login time,
+    and systemd-homed accounts.
+  * hello_daemon: extract verify_with_storage() (no behavior change for
+    sudo/screenlock) so both the per-user daemon and the new SDDM
+    listener share the same capture/match logic against different
+    per-request storage; add FaceStorage::open_read_only() (no
+    create_dir_all side effect, safe against an arbitrary, not-yet-
+    authenticated user's home directory); add a cross-process camera
+    flock (CameraError::Busy on contention) so the per-user daemon and
+    the new listener can't silently corrupt each other's captures on a
+    multi-session machine.
+
+ -- Linux Hello Team <dev@linuxhello.local>  Mon, 06 Jul 2026 12:41:10 +0200
+
 linux-hello (1.0.4-1) unstable; urgency=medium
 
   * Fix libpam-linux-hello installing pam_linux_hello.so to /lib/security/,

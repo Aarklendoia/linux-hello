@@ -121,6 +121,11 @@ if [[ "${1:-}" == "--remove" ]]; then
         rm -f "$PAM_DIR/polkit-1"
         ok "Removed: polkit-1 (created by this script)"
     fi
+    # SDDM system listener: stop it too — no point leaving a root, pre-auth
+    # listener running once its only caller (the sddm PAM line) is gone.
+    if systemctl disable --now hello-daemon-system.service 2>/dev/null; then
+        ok "Service hello-daemon-system: disabled"
+    fi
     echo ""
     ok "Linux Hello disabled. The password takes back control."
     exit 0
@@ -158,13 +163,17 @@ lh_configure_service "su-l"   "sudo"   "@include common-auth"
 
 # ── 4. SDDM (login screen) ───────────────────────────────────────────────────
 # Insert before @include common-auth (after the nologin/pam_succeed_if checks).
-# NOTE: functional today only insofar as it degrades safely (no daemon socket
-# yet at the greeter → PAM_IGNORE → password) — the daemon's per-user
-# architecture doesn't support biometric auth at the login screen yet. Not
-# part of automatic activation (linux-hello-pam-autoconfigure never touches
-# this file); configuring it here is opt-in only, via a manual run of this
-# script.
+# Backed by hello-daemon-system.service, a root-owned, always-on listener
+# started at boot — a new pre-authentication-reachable attack surface, so it
+# is enabled here (opt-in, alongside the PAM line itself) rather than
+# unconditionally at package install time. Not part of automatic activation
+# (linux-hello-pam-autoconfigure never touches this file or this service).
 lh_configure_service "sddm"   "sddm"   "@include common-auth"
+if systemctl enable --now hello-daemon-system.service 2>/dev/null; then
+    ok "Service hello-daemon-system: enabled"
+else
+    warn "Could not enable hello-daemon-system.service (systemd unavailable?)"
+fi
 
 # ── 5. polkit-1 ("Authentication required" graphical dialogs) ─────────────────
 POLKIT_FILE="$PAM_DIR/polkit-1"

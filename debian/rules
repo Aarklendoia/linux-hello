@@ -28,6 +28,7 @@ override_dh_auto_install:
 	# Install binaries
 	mkdir -p $(CURDIR)/debian/tmp/usr/bin
 	cp $(CURDIR)/target/release/hello-daemon $(CURDIR)/debian/tmp/usr/bin/
+	cp $(CURDIR)/target/release/hello-daemon-system $(CURDIR)/debian/tmp/usr/bin/
 	cp $(CURDIR)/target/release/linux-hello $(CURDIR)/debian/tmp/usr/bin/
 	
 	# Install PAM module
@@ -42,14 +43,19 @@ override_dh_auto_install:
 	mkdir -p $(CURDIR)/debian/tmp/usr/lib/systemd/user
 	cp $(CURDIR)/hello-daemon.service $(CURDIR)/debian/tmp/usr/lib/systemd/user/
 
-	# Install systemd tmpfiles.d (creates /run/hello-pam/ at boot, sticky+world-writable)
+	# Install systemd tmpfiles.d (creates /run/hello-pam/ at boot, sticky+world-writable,
+	# and the cross-process camera lock used by hello_daemon::camera::CameraLock)
 	mkdir -p $(CURDIR)/debian/tmp/usr/lib/tmpfiles.d
-	printf 'd /run/hello-pam 1777 root root -\n' > $(CURDIR)/debian/tmp/usr/lib/tmpfiles.d/linux-hello.conf
+	printf 'd /run/hello-pam 1777 root root -\nf /run/lock/linux-hello-camera.lock 0666 root root -\n' > $(CURDIR)/debian/tmp/usr/lib/tmpfiles.d/linux-hello.conf
 
 	# Install PAM auto-activation: system unit + timer + detection script + shared lib
 	mkdir -p $(CURDIR)/debian/tmp/usr/lib/systemd/system
 	cp $(CURDIR)/linux-hello-pam-autoconfigure.service $(CURDIR)/debian/tmp/usr/lib/systemd/system/
 	cp $(CURDIR)/linux-hello-pam-autoconfigure.timer $(CURDIR)/debian/tmp/usr/lib/systemd/system/
+	# SDDM (login screen) system listener — enabled only via install-pam.sh's
+	# opt-in SDDM step, never unconditionally at package install time (see
+	# debian/libpam-linux-hello.postinst and install-pam.sh).
+	cp $(CURDIR)/hello-daemon-system.service $(CURDIR)/debian/tmp/usr/lib/systemd/system/
 	mkdir -p $(CURDIR)/debian/tmp/usr/bin
 	cp $(CURDIR)/linux-hello-pam-autoconfigure $(CURDIR)/debian/tmp/usr/bin/
 	chmod 0755 $(CURDIR)/debian/tmp/usr/bin/linux-hello-pam-autoconfigure

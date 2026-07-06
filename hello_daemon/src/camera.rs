@@ -6,6 +6,7 @@
 use crate::capture_stream::CaptureFrameEvent;
 use hello_camera::{Frame, FrameFormat};
 use hello_face_core::{Embedding, EmbeddingExtractor, FaceDetector};
+use std::os::unix::io::AsRawFd;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use thiserror::Error;
@@ -25,6 +26,63 @@ pub enum CameraError {
 
     #[error("Extraction error: {0}")]
     ExtractionError(String),
+
+    /// Another process (the per-user daemon or the SDDM system listener)
+    /// already holds the camera lock. Distinct from a genuine capture
+    /// failure so callers/logs can tell "in use elsewhere" apart from
+    /// "nobody in front of the camera" — the two used to be indistinguishable
+    /// (both silently degraded to all-zero stub frames).
+    #[error("Camera busy (in use by another process)")]
+    Busy,
+}
+
+/// Path of the cross-process camera lock. Created (mode 0666) by
+/// systemd-tmpfiles alongside `/run/hello-pam`, so both an unprivileged
+/// per-user daemon and the root SDDM system listener can acquire it.
+/// Overridable via `LINUX_HELLO_CAMERA_LOCK_PATH` for testing against a
+/// scratch file instead of the real `/run/lock/` — unset in production.
+fn camera_lock_path() -> String {
+    std::env::var("LINUX_HELLO_CAMERA_LOCK_PATH")
+        .unwrap_or_else(|_| "/run/lock/linux-hello-camera.lock".to_string())
+}
+
+/// Non-blocking, cross-process mutual exclusion around camera device access.
+///
+/// The V4L2 device itself has no locking of its own; without this, two
+/// daemon instances (e.g. a user's own session daemon and the SDDM system
+/// listener, on a multi-session machine) capturing at the same time would
+/// only be arbitrated by the kernel/driver, previously degrading silently to
+/// blank stub frames rather than a clear "busy" error. Released automatically
+/// on drop — closing the fd releases the flock, so a panic or early return
+/// during capture can't leave it held.
+struct CameraLock {
+    _file: std::fs::File,
+}
+
+impl CameraLock {
+    fn try_acquire() -> Result<Self, CameraError> {
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(camera_lock_path())
+            .map_err(|e| CameraError::CaptureError(format!("Camera lock file: {}", e)))?;
+
+        // SAFETY: flock() on a valid, owned fd; no preconditions beyond that.
+        let ret = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
+        if ret != 0 {
+            let err = std::io::Error::last_os_error();
+            if err.kind() == std::io::ErrorKind::WouldBlock {
+                return Err(CameraError::Busy);
+            }
+            return Err(CameraError::CaptureError(format!(
+                "Camera lock acquisition: {}",
+                err
+            )));
+        }
+        Ok(Self { _file: file })
+    }
 }
 
 /// Result of a camera capture
@@ -117,54 +175,17 @@ impl CameraManager {
         let ir_device = self.ir_device.clone();
 
         // RGB capture in a blocking thread (V4L2 is not async)
-        let (rgb_frames, ir_frames) = tokio::task::spawn_blocking(move || {
-            let mut rgb_frames: Vec<Frame> = Vec::new();
-            let mut ir_frames: Vec<Frame> = Vec::new();
+        let (rgb_frames, ir_frames) =
+            tokio::task::spawn_blocking(move || -> Result<_, CameraError> {
+                // Held for the whole capture; released when this closure returns.
+                let _camera_lock = CameraLock::try_acquire()?;
 
-            // RGB capture
-            let rgb_result = hello_camera::capture_rgb_stream_v4l2(
-                &rgb_device,
-                num_frames,
-                timeout,
-                |data, w, h| {
-                    let ts = SystemTime::now()
-                        .duration_since(UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_millis() as u64;
-                    rgb_frames.push(Frame {
-                        data,
-                        width: w,
-                        height: h,
-                        format: FrameFormat::Rgb8,
-                        timestamp_ms: ts,
-                    });
-                },
-            );
+                let mut rgb_frames: Vec<Frame> = Vec::new();
+                let mut ir_frames: Vec<Frame> = Vec::new();
 
-            if let Err(e) = rgb_result {
-                warn!(
-                    "RGB V4L2 capture failed ({}), falling back to simulation",
-                    e
-                );
-                rgb_frames.clear();
-            }
-
-            // Pad with stub frames if the capture didn't provide enough frames
-            let existing = rgb_frames.len() as u32;
-            for i in existing..num_frames {
-                rgb_frames.push(Frame {
-                    data: vec![0u8; 640 * 480 * 3],
-                    width: 640,
-                    height: 480,
-                    format: FrameFormat::Rgb8,
-                    timestamp_ms: i as u64 * 33,
-                });
-            }
-
-            // IR capture (parallel, optional)
-            if let Some(ref ir_path) = ir_device {
-                let ir_result = hello_camera::capture_gray_stream_v4l2(
-                    ir_path,
+                // RGB capture
+                let rgb_result = hello_camera::capture_rgb_stream_v4l2(
+                    &rgb_device,
                     num_frames,
                     timeout,
                     |data, w, h| {
@@ -172,30 +193,71 @@ impl CameraManager {
                             .duration_since(UNIX_EPOCH)
                             .unwrap_or_default()
                             .as_millis() as u64;
-                        ir_frames.push(Frame {
+                        rgb_frames.push(Frame {
                             data,
                             width: w,
                             height: h,
-                            format: FrameFormat::Gray8,
+                            format: FrameFormat::Rgb8,
                             timestamp_ms: ts,
                         });
                     },
                 );
-                if let Err(e) = ir_result {
-                    warn!("IR capture failed ({}), disabled for this session", e);
+
+                if let Err(e) = rgb_result {
+                    warn!(
+                        "RGB V4L2 capture failed ({}), falling back to simulation",
+                        e
+                    );
+                    rgb_frames.clear();
                 }
-            }
 
-            let ir_opt = if ir_frames.is_empty() {
-                None
-            } else {
-                Some(ir_frames)
-            };
+                // Pad with stub frames if the capture didn't provide enough frames
+                let existing = rgb_frames.len() as u32;
+                for i in existing..num_frames {
+                    rgb_frames.push(Frame {
+                        data: vec![0u8; 640 * 480 * 3],
+                        width: 640,
+                        height: 480,
+                        format: FrameFormat::Rgb8,
+                        timestamp_ms: i as u64 * 33,
+                    });
+                }
 
-            (rgb_frames, ir_opt)
-        })
-        .await
-        .map_err(|e| CameraError::CaptureError(e.to_string()))?;
+                // IR capture (parallel, optional)
+                if let Some(ref ir_path) = ir_device {
+                    let ir_result = hello_camera::capture_gray_stream_v4l2(
+                        ir_path,
+                        num_frames,
+                        timeout,
+                        |data, w, h| {
+                            let ts = SystemTime::now()
+                                .duration_since(UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_millis() as u64;
+                            ir_frames.push(Frame {
+                                data,
+                                width: w,
+                                height: h,
+                                format: FrameFormat::Gray8,
+                                timestamp_ms: ts,
+                            });
+                        },
+                    );
+                    if let Err(e) = ir_result {
+                        warn!("IR capture failed ({}), disabled for this session", e);
+                    }
+                }
+
+                let ir_opt = if ir_frames.is_empty() {
+                    None
+                } else {
+                    Some(ir_frames)
+                };
+
+                Ok((rgb_frames, ir_opt))
+            })
+            .await
+            .map_err(|e| CameraError::CaptureError(e.to_string()))??;
 
         // Extract embeddings from the RGB frames via detector + extractor
         let detector = Arc::clone(&self.detector);
@@ -437,5 +499,32 @@ mod tests {
         assert_eq!(frames.len(), 3);
         assert_eq!(frames[0].width, 640);
         assert_eq!(frames[0].height, 480);
+    }
+
+    #[test]
+    fn test_camera_lock_busy_on_contention() {
+        // Point at a scratch file, not the real /run/lock/ path.
+        let dir = tempfile::tempdir().unwrap();
+        let lock_path = dir.path().join("camera.lock");
+        // SAFETY: this test doesn't run concurrently with anything else that
+        // reads LINUX_HELLO_CAMERA_LOCK_PATH.
+        unsafe {
+            std::env::set_var("LINUX_HELLO_CAMERA_LOCK_PATH", &lock_path);
+        }
+
+        let first = CameraLock::try_acquire().expect("first acquire should succeed");
+        let second = CameraLock::try_acquire();
+        assert!(
+            matches!(second, Err(CameraError::Busy)),
+            "expected Busy while the first guard is still held, got {:?}",
+            second.err()
+        );
+
+        drop(first);
+        let third = CameraLock::try_acquire();
+        assert!(
+            third.is_ok(),
+            "expected the lock to be acquirable again after the first guard was dropped"
+        );
     }
 }

@@ -272,93 +272,7 @@ impl FaceAuthDaemon {
     pub async fn verify(&self, request: VerifyRequest) -> Result<VerifyResult, DaemonError> {
         // Check permissions
         self.check_user_permission(request.user_id)?;
-
-        info!(
-            "Verifying for user_id={}, context={}",
-            request.user_id, request.context
-        );
-
-        // Load the registered faces
-        let faces = self
-            .storage
-            .list_user_faces(request.user_id)
-            .map_err(|e| DaemonError::StorageError(e.to_string()))?;
-
-        if faces.is_empty() {
-            info!("No face registered for user_id={}", request.user_id);
-            return Ok(VerifyResult::NoEnrollment);
-        }
-
-        // Capture 5 frames and take the best score
-        const NUM_VERIFY_FRAMES: u32 = 5;
-        let capture = self
-            .camera
-            .capture_frames(NUM_VERIFY_FRAMES, request.timeout_ms)
-            .await
-            .map_err(|e| DaemonError::CameraError(e.to_string()))?;
-
-        // Filter the valid frames (with a detected face)
-        let valid_probes: Vec<_> = capture
-            .embeddings
-            .iter()
-            .filter(|e| !e.vector.is_empty() && e.metadata.quality_score > 0.0)
-            .collect();
-
-        if valid_probes.is_empty() {
-            info!(
-                "No face detected in the {} verification frames",
-                NUM_VERIFY_FRAMES
-            );
-            return Ok(VerifyResult::NoFaceDetected);
-        }
-
-        info!(
-            "{}/{} valid frames for verification",
-            valid_probes.len(),
-            NUM_VERIFY_FRAMES
-        );
-
-        // Load the stored embeddings
-        let mut stored_embeddings = std::collections::HashMap::new();
-        for face in &faces {
-            let embedding = self
-                .storage
-                .load_face_embedding(request.user_id, &face.face_id)
-                .map_err(|e| DaemonError::StorageError(e.to_string()))?;
-            stored_embeddings.insert(face.face_id.clone(), embedding);
-        }
-
-        // Match each valid frame, keep the best result
-        let best_result = valid_probes
-            .iter()
-            .map(|probe| {
-                self.matcher.match_with_liveness(
-                    probe,
-                    &stored_embeddings,
-                    &request.context,
-                    capture.ir_liveness,
-                )
-            })
-            .max_by(|a, b| {
-                a.best_score
-                    .partial_cmp(&b.best_score)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            })
-            .unwrap(); // safe: valid_probes is non-empty
-
-        if best_result.matched {
-            Ok(VerifyResult::Success {
-                face_id: best_result.face_id.unwrap(),
-                similarity_score: best_result.best_score,
-            })
-        } else if best_result.best_score > 0.0 {
-            Ok(VerifyResult::NoMatch {
-                best_score: best_result.best_score,
-                threshold: best_result.threshold,
-            })
-        } else {
-            Ok(VerifyResult::NoFaceDetected)
-        }
+        verify_with_storage(&self.storage, &self.camera, &self.matcher, &request).await
     }
 
     pub async fn list_faces(&self, user_id: u32) -> Result<String, DaemonError> {
@@ -402,6 +316,110 @@ impl FaceAuthDaemon {
 
     pub fn camera_manager(&self) -> &CameraManager {
         &self.camera
+    }
+}
+
+/// Verify a face against a given storage/camera/matcher, independent of any
+/// particular `FaceAuthDaemon` instance.
+///
+/// Extracted from `FaceAuthDaemon::verify()` so the SDDM system listener
+/// (`hello-daemon-system`, see `pam_helper.rs`) can reuse the exact same
+/// capture/match logic against a *different* user's storage, resolved
+/// per-request from their home directory — `FaceAuthDaemon` itself is fixed
+/// to one `base_path` for its whole lifetime and has no per-call storage
+/// swap. Permission checks (`check_user_permission`) are the caller's
+/// responsibility, not this function's: `FaceAuthDaemon::verify()` checks
+/// against the daemon process's own UID, while the system listener checks
+/// the *socket peer's* credentials instead (see `pam_helper.rs`) — the two
+/// have different trust models, so the check can't live here.
+pub async fn verify_with_storage(
+    storage: &FaceStorage,
+    camera: &CameraManager,
+    matcher: &FaceMatcher,
+    request: &VerifyRequest,
+) -> Result<VerifyResult, DaemonError> {
+    info!(
+        "Verifying for user_id={}, context={}",
+        request.user_id, request.context
+    );
+
+    // Load the registered faces
+    let faces = storage
+        .list_user_faces(request.user_id)
+        .map_err(|e| DaemonError::StorageError(e.to_string()))?;
+
+    if faces.is_empty() {
+        info!("No face registered for user_id={}", request.user_id);
+        return Ok(VerifyResult::NoEnrollment);
+    }
+
+    // Capture 5 frames and take the best score
+    const NUM_VERIFY_FRAMES: u32 = 5;
+    let capture = camera
+        .capture_frames(NUM_VERIFY_FRAMES, request.timeout_ms)
+        .await
+        .map_err(|e| DaemonError::CameraError(e.to_string()))?;
+
+    // Filter the valid frames (with a detected face)
+    let valid_probes: Vec<_> = capture
+        .embeddings
+        .iter()
+        .filter(|e| !e.vector.is_empty() && e.metadata.quality_score > 0.0)
+        .collect();
+
+    if valid_probes.is_empty() {
+        info!(
+            "No face detected in the {} verification frames",
+            NUM_VERIFY_FRAMES
+        );
+        return Ok(VerifyResult::NoFaceDetected);
+    }
+
+    info!(
+        "{}/{} valid frames for verification",
+        valid_probes.len(),
+        NUM_VERIFY_FRAMES
+    );
+
+    // Load the stored embeddings
+    let mut stored_embeddings = std::collections::HashMap::new();
+    for face in &faces {
+        let embedding = storage
+            .load_face_embedding(request.user_id, &face.face_id)
+            .map_err(|e| DaemonError::StorageError(e.to_string()))?;
+        stored_embeddings.insert(face.face_id.clone(), embedding);
+    }
+
+    // Match each valid frame, keep the best result
+    let best_result = valid_probes
+        .iter()
+        .map(|probe| {
+            matcher.match_with_liveness(
+                probe,
+                &stored_embeddings,
+                &request.context,
+                capture.ir_liveness,
+            )
+        })
+        .max_by(|a, b| {
+            a.best_score
+                .partial_cmp(&b.best_score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .unwrap(); // safe: valid_probes is non-empty
+
+    if best_result.matched {
+        Ok(VerifyResult::Success {
+            face_id: best_result.face_id.unwrap(),
+            similarity_score: best_result.best_score,
+        })
+    } else if best_result.best_score > 0.0 {
+        Ok(VerifyResult::NoMatch {
+            best_score: best_result.best_score,
+            threshold: best_result.threshold,
+        })
+    } else {
+        Ok(VerifyResult::NoFaceDetected)
     }
 }
 

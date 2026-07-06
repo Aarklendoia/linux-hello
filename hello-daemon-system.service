@@ -1,0 +1,36 @@
+[Unit]
+Description=Linux Hello - system listener for SDDM (login screen) biometric auth
+Documentation=file:///usr/share/doc/linux-hello/PAM_MODULE.md
+After=dbus.service
+# Must be ready before the greeter can accept the very first login attempt
+# of a boot — without this ordering, a fast boot could race SDDM's start
+# against ONNX model loading + camera scan here, causing a confusing
+# first-login-only failure (silent password fallback, ECONNREFUSED).
+Before=display-manager.service
+StartLimitIntervalSec=60s
+StartLimitBurst=5
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/hello-daemon-system
+Environment=ORT_DYLIB_PATH=/usr/lib/x86_64-linux-gnu/libonnxruntime.so.1.23
+Restart=on-failure
+RestartSec=2s
+
+# Reads arbitrary local users' home directories (read-only, to check for
+# enrolled faces at login time) — cannot use ProtectHome=yes like the
+# per-user hello-daemon.service unit.
+ProtectSystem=strict
+ProtectHome=read-only
+NoNewPrivileges=true
+ReadWritePaths=/run/hello-pam /run/lock
+
+TimeoutStartSec=15
+TimeoutStopSec=5
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=hello-daemon-system
+
+[Install]
+WantedBy=multi-user.target
