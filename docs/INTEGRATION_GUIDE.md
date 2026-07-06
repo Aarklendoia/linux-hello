@@ -311,41 +311,25 @@ dbus-send --session --print-reply \
 
 ## Automatic Daemon Startup
 
-To have the daemon start automatically at boot:
+**If you installed via the `.deb` packages**, this is already done:
+`linux-hello`'s postinst enables and starts the packaged
+`/usr/lib/systemd/user/hello-daemon.service` for you
+(`systemctl --user enable --now hello-daemon.service`). Nothing further
+is needed.
 
-### Option 1: systemd user service
+**If you're running from a source build** (no package installed), install
+and enable the unit shipped at the repo root yourself:
 
 ```bash
 mkdir -p ~/.config/systemd/user
+cp hello-daemon.service ~/.config/systemd/user/
+# Point ExecStart at your build instead of /usr/bin/hello-daemon:
+sed -i "s#/usr/bin/hello-daemon#$(pwd)/target/release/hello-daemon#" \
+  ~/.config/systemd/user/hello-daemon.service
 
-cat > ~/.config/systemd/user/hello-daemon.service << 'EOF'
-[Unit]
-Description=Linux Hello Face Authentication Daemon
-After=dbus.service
-
-[Service]
-Type=notify
-ExecStart=/home/YOUR_USERNAME/Documents/linux-hello-rust/target/release/hello-daemon
-Restart=on-failure
-
-[Install]
-WantedBy=default.target
-EOF
-
-# Enable
-systemctl --user enable hello-daemon.service
-systemctl --user start hello-daemon.service
-
-# Verify
+systemctl --user daemon-reload
+systemctl --user enable --now hello-daemon.service
 systemctl --user status hello-daemon.service
-```
-
-### Option 2: xinitrc/startuprc (desktop environment specific)
-
-Add to `~/.xinitrc` or `~/.kde4/Autostart`:
-
-```bash
-~/Documents/linux-hello-rust/target/release/hello-daemon &
 ```
 
 ## Next Steps

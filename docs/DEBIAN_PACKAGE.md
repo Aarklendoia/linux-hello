@@ -2,120 +2,99 @@
 
 ## Package Information
 
-The Linux Hello project builds 4 Debian packages:
+The Linux Hello project builds 5 Debian packages:
 
-| Package | Size | Contents |
-| --------- | ------ | ---------- |
-| `linux-hello` | 6.2K | Meta-package with documentation and scripts |
-| `linux-hello-daemon` | 2.8K | Face authentication daemon + systemd service |
-| `libpam-linux-hello` | 2.8K | PAM module for system integration |
-| `linux-hello-tools` | 2.7K | CLI tools for face management |
+| Package | Contents |
+| --- | --- |
+| `linux-hello` | Meta-package; depends on the packages below |
+| `linux-hello-models` | The ONNX models (SCRFD-500M detector + ArcFace MobileNetV3 embedder) |
+| `libpam-linux-hello` | PAM module, plus the automatic sudo/screenlock activation timer and the opt-in SDDM system listener |
+| `linux-hello-tools` | The `linux-hello` CLI |
+| `linux-hello-gui` | The Kirigami configuration app |
 
 ## Building the Debian Package
 
 ### Prerequisites
 
 ```bash
-# Install build dependencies
 sudo apt-get update
 sudo apt-get install -y \
-  build-essential \
-  debhelper \
-  rustc \
-  cargo \
-  libdbus-1-dev \
-  libpam0g-dev
+  build-essential debhelper dpkg-dev \
+  libssl-dev libpam0g-dev libdbus-1-dev pkg-config unzip \
+  qt6-base-dev qml6-module-qtcore qml6-module-qtquick \
+  qml6-module-qtquick-layouts qml6-module-qtquick-controls
 ```
+
+A Rust toolchain new enough for the pinned dependencies is also required
+(check with `rustc --version`; if your distro's `rustc` is too old, install
+a current one via [rustup](https://rustup.rs/) instead of apt's).
 
 ### Build Command
 
 ```bash
-cd /path/to/linux-hello-rust
-dpkg-buildpackage -b -d
+cd /path/to/linux-hello
+dpkg-buildpackage -b -d --no-check-builddeps -us -uc
 ```
 
-This will create 4 `.deb` files in the parent directory:
+(Drop `-us -uc` if you have a GPG key configured and want a signed build.)
 
-```
-../linux-hello_1.0.0-1_amd64.deb
-../linux-hello-daemon_1.0.0-1_amd64.deb
-../libpam-linux-hello_1.0.0-1_amd64.deb
-../linux-hello-tools_1.0.0-1_amd64.deb
+This creates the `.deb` files in the parent directory, e.g.:
+
+```text
+../linux-hello_<version>_amd64.deb
+../linux-hello-models_<version>_all.deb
+../libpam-linux-hello_<version>_amd64.deb
+../linux-hello-tools_<version>_amd64.deb
+../linux-hello-gui_<version>_amd64.deb
 ```
 
 ## Installation
 
-### Install All Components
-
 ```bash
-sudo apt install /path/to/linux-hello_1.0.0-1_amd64.deb
+sudo apt install ./linux-hello_<version>_amd64.deb
 ```
 
-This will:
+`apt` resolves the meta-package's dependencies and installs everything.
+`linux-hello`'s postinst:
 
-- Install the daemon binary
-- Install the PAM module
-- Install CLI tools
-- Launch interactive configuration wizard
-- Create systemd user service
-- Offer to configure sudo/screenlock PAM
+- Creates `~/.local/share/linux-hello` for the installing user
+- Enables and starts the per-user `hello-daemon.service`
+  (`systemctl --user`)
+- Installs the KDE lock-screen QML overlay via `dpkg-divert`
 
-### Install Specific Packages
+It does **not** run an interactive wizard and does **not** touch PAM
+configuration — see below.
 
-**Daemon only:**
+## PAM Activation
 
-```bash
-sudo dpkg -i linux-hello-daemon_1.0.0-1_amd64.deb
-```
+- **sudo and screenlock activate automatically**: `libpam-linux-hello`
+  ships `linux-hello-pam-autoconfigure.timer`, which configures
+  `/etc/pam.d/sudo`, `su`, `polkit-1`, and the screenlock service as soon
+  as any local user enrolls a face — no manual step. See
+  [PAM_MODULE.md](PAM_MODULE.md#automatic-activation).
+- **SDDM (login screen) stays opt-in**: run `sudo ./install-pam.sh` from a
+  source checkout (or see [PAM_MODULE.md](PAM_MODULE.md#sddm-login-screen)
+  for what it does) — this also starts a new root-owned system listener,
+  which is enough of a change to a machine's attack surface that it's
+  never enabled automatically.
+- To disable everything and restore the original PAM files:
+  `sudo ./install-pam.sh --remove`.
 
-**PAM module only:**
+## Post-Installation
 
-```bash
-sudo dpkg -i libpam-linux-hello_1.0.0-1_amd64.deb
-```
-
-**Tools only:**
-
-```bash
-sudo dpkg -i linux-hello-tools_1.0.0-1_amd64.deb
-```
-
-## Post-Installation Steps
-
-### 1. Start the Daemon
+### Register a face
 
 ```bash
-systemctl --user enable hello-daemon.service
-systemctl --user start hello-daemon.service
+linux-hello enroll $(id -u) --context sudo --samples 3
 ```
 
-Check status:
+### Test
 
 ```bash
-systemctl --user status hello-daemon
-journalctl --user -u hello-daemon -f
+sudo -k && sudo -v   # should authenticate with your face once enrolled
 ```
 
-### 2. Register Your Face
-
-```bash
-linux-hello register --uid $(id -u) --device /dev/video0
-```
-
-### 3. Test Authentication
-
-Test sudo:
-
-```bash
-sudo -l   # Should authenticate with your face
-```
-
-Test screenlock (KDE):
-
-```bash
-# Lock screen: Ctrl+Alt+L
-# Present your face to camera for unlock
-```
+Screenlock: lock the screen and present your face to unlock.
 
 ## Uninstallation
 
@@ -123,185 +102,116 @@ Test screenlock (KDE):
 sudo apt remove linux-hello
 ```
 
-The uninstaller will:
-
-- Stop the daemon
-- Remove PAM module
-- Offer to restore PAM file backups
+This stops/disables the daemon and the autoconfigure timer. It does
+**not** revert `/etc/pam.d/*` changes — run `sudo ./install-pam.sh
+--remove` first if you want the original PAM files restored.
 
 ## File Locations
 
-After installation, files are located at:
-
-```
+```text
 /usr/bin/
-  ├── hello-daemon          # Main daemon binary
-  └── linux-hello           # CLI tool
+  hello-daemon                  # Per-user daemon
+  hello-daemon-system           # SDDM system listener (opt-in)
+  linux-hello                   # CLI
+  linux_hello_config            # GUI
+  linux-hello-pam-autoconfigure # Automatic PAM activation script
 
-/lib/x86_64-linux-gnu/security/
-  └── pam_linux_hello.so    # PAM module
+/lib/<multiarch>/security/
+  pam_linux_hello.so             # PAM module (e.g. /lib/x86_64-linux-gnu/security/)
 
 /usr/lib/systemd/user/
-  └── hello-daemon.service  # Systemd service
+  hello-daemon.service
+
+/usr/lib/systemd/system/
+  linux-hello-pam-autoconfigure.timer
+  linux-hello-pam-autoconfigure.service
+  hello-daemon-system.service     # enabled only via install-pam.sh
+
+/usr/share/linux-hello/models/
+  det_500m.onnx
+  w600k_mbf.onnx
 
 /etc/linux-hello/
-  └── config.toml.example   # Example configuration
+  config.toml.example
 
 /usr/share/doc/linux-hello/
-  ├── README.md
-  ├── QUICKSTART.md
-  ├── INTEGRATION_GUIDE.md
-  ├── PAM_MODULE.md
-  ├── sudo-linux-hello.pam
-  └── kde-screenlock-linux-hello.pam
+  README.md, QUICKSTART.md, INTEGRATION_GUIDE.md, PAM_MODULE.md, ...
 ```
 
 ## Configuration Files Modified
 
-The package automatically backs up and modifies:
-
-- `/etc/pam.d/sudo` (if selected)
-- `/etc/pam.d/kde` (if selected)
-
-Backups are created with timestamps:
-
-```text
-/etc/pam.d/sudo.pre-linuxhello-TIMESTAMP
-/etc/pam.d/kde.pre-linuxhello-TIMESTAMP
-```
+`linux-hello-pam-autoconfigure` and `install-pam.sh` back up any PAM file
+before editing it: `/etc/pam.d/<service>.pre-linuxhello-<timestamp>`.
+`install-pam.sh --remove` restores from the latest backup (or strips the
+inserted lines if none exists) and writes `/etc/linux-hello/pam-disabled`
+so automatic activation won't silently re-enable what was just removed.
 
 ## Troubleshooting
 
-### Build Issues
+### Build issues
 
-**"debhelper not found"**
+Missing build dependencies: see [Prerequisites](#prerequisites) above —
+`sudo apt-get install -y <missing package>`.
 
-```bash
-sudo apt install debhelper
-```
-
-**"rustc not found"**
-
-```bash
-sudo apt install rustc cargo
-```
-
-**"libdbus-1-dev not found"**
-
-```bash
-sudo apt install libdbus-1-dev
-```
-
-### Installation Issues
-
-**"Cannot start daemon"**
+### "Cannot start daemon"
 
 ```bash
 systemctl --user restart hello-daemon
 journalctl --user -u hello-daemon -n 50
 ```
 
-**"PAM module not found"**
+### "PAM module not found"
 
 ```bash
-ldconfig -p | grep pam_linux_hello
-ls -la /lib/x86_64-linux-gnu/security/pam_linux_hello.so
+sudo ./install-pam.sh --status
+find /lib -name pam_linux_hello.so
 ```
 
-**"Camera not detected"**
+### "Camera not detected"
 
 ```bash
 ls -la /dev/video*
 sudo usermod -a -G video $USER
 ```
 
-### Restore from Backup
-
-If PAM configuration is broken:
+### Restore PAM from backup manually
 
 ```bash
-# List backups
 ls -la /etc/pam.d/*.pre-linuxhello-*
-
-# Restore the most recent
-sudo cp /etc/pam.d/sudo.pre-linuxhello-LATEST /etc/pam.d/sudo
-
-# Or run uninstaller
-sudo apt remove linux-hello  # Choose "y" to restore
+sudo cp /etc/pam.d/sudo.pre-linuxhello-<timestamp> /etc/pam.d/sudo
 ```
 
-## Version Information
-
-- **Package Version:** 1.0.0-1
-- **Upstream Version:** 1.0.0
-- **Release Type:** stable
-- **Architecture:** amd64
-
-## Debian Compatibility
-
-Tested on:
-
-- Debian 12 (Bookworm)
-- Ubuntu 24.04 LTS
-
-Should work on:
-
-- Any Debian 11+ or Ubuntu 22.04+ system
-- Both GNOME and KDE desktop environments
-- systemd-based systems
-
-## Development
-
-### Rebuild After Code Changes
-
-```bash
-cd /path/to/linux-hello-rust
-cargo build --release
-dpkg-buildpackage -b -d --no-check-builddeps
-```
-
-### Update Version Number
-
-Edit `debian/control` and `debian/changelog`:
-
-```bash
-# debian/control (find the Version field in Source section)
-Version: 1.0.1-1
-
-# debian/changelog (add new entry at top)
-linux-hello (1.0.1-1) unstable; urgency=medium
-  * Bug fixes and improvements
- -- Your Name <email>  DATE
-```
+Or just run `sudo ./install-pam.sh --remove`.
 
 ## Package Dependencies
 
-The .deb package declares the following dependencies:
+- `linux-hello`: `dbus`, `systemd`, `libonnxruntime1.23`, `linux-hello-models`
+- `libpam-linux-hello`: `linux-hello`, `libpam-runtime`
+- `linux-hello-gui`: `linux-hello`, `qml-qt6`, `qml6-module-org-kde-kirigami`,
+  `qml6-module-qtcore`, `qml6-module-qtquick`,
+  `qml6-module-qtquick-layouts`, `qml6-module-qtquick-controls`
 
-- `dbus` (for D-Bus communication)
-- `systemd` (for service management)
-- `libc6` (standard C library)
-
-Build dependencies (only needed when building):
-
-- `rustc` (Rust compiler)
-- `cargo` (Rust package manager)
-- `libdbus-1-dev` (D-Bus development headers)
-- `libpam0g-dev` (PAM development headers)
+Build-time only: `debhelper-compat`, `libssl-dev`, `libpam0g-dev`,
+`libdbus-1-dev`, `pkg-config`, `unzip`, `qt6-base-dev`, and the QML modules
+listed under [Prerequisites](#prerequisites).
 
 ## Notes
 
-1. **User Service:** The daemon runs as a systemd user service, not system-wide
-2. **Backups:** Pre-installation backups are created automatically
-3. **Password Fallback:** All authentication can fall back to password entry
-4. **No Root Required:** Face registration and verification don't require sudo
-5. **Security:** PAM files are properly backed up and restored
+1. **Per-user daemon**: `hello-daemon` runs as a systemd *user* service, not
+   system-wide. The only system-level, always-on component is the opt-in
+   SDDM listener (`hello-daemon-system.service`).
+2. **Password fallback always available**: every PAM line uses `auth
+   sufficient` — biometric failure or an unavailable daemon always falls
+   through to the normal password prompt.
+3. **No root required for enrollment/verification** against the per-user
+   daemon.
 
 ---
 
 For more information, see:
 
-- `/usr/share/doc/linux-hello/README.md` - Project overview
-- `/usr/share/doc/linux-hello/QUICKSTART.md` - Getting started
-- `/usr/share/doc/linux-hello/INTEGRATION_GUIDE.md` - Detailed integration steps
-- `/usr/share/doc/linux-hello/PAM_MODULE.md` - PAM configuration reference
+- [README.md](../README.md) — project overview
+- [QUICKSTART.md](QUICKSTART.md) — getting started
+- [INTEGRATION_GUIDE.md](INTEGRATION_GUIDE.md) — detailed integration steps
+- [PAM_MODULE.md](PAM_MODULE.md) — PAM configuration reference, including
+  automatic activation and SDDM support

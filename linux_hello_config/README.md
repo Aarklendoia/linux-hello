@@ -1,106 +1,42 @@
-# linux_hello_config - KDE/Wayland Configuration GUI
+# linux_hello_config - KDE Configuration GUI
 
-## 📌 Description
+## Description
 
-Native KDE/Wayland graphical interface for configuring and enrolling faces in the Linux Hello system.
+Qt6/QML/Kirigami graphical interface for configuring and enrolling faces in
+the Linux Hello system, with support for 10 languages (English, Chinese,
+Spanish, Hindi, Arabic, Portuguese, Russian, Japanese, German, French).
 
-## ✨ Features
+## Architecture
 
-### Currently Implemented (MVP)
+The Rust binary (`src/main.rs`) is a thin launcher, not a GUI toolkit host:
 
-- ✅ Basic GUI application with Iced
-- ✅ Navigation between 4 main screens
-- ✅ Configuration structure
-- ✅ Types for D-Bus streaming
+1. It resolves the QML entry point (`qml/main.qml`, packaged or from a
+   development checkout) and the Qt6 plugin/import paths.
+2. It starts a small local TCP control server (bound to `127.0.0.1`, port
+   written to `/tmp/linux-hello-ctrl.port` since `Qt.environmentVariable`
+   isn't available on this build) that the QML side polls/calls into for
+   actions like face registration.
+3. It spawns the actual UI via the `qml6` runtime executable, pointed at
+   `qml/main.qml`.
+4. The control server bridges requests (e.g. `/register-face`) to
+   `hello-daemon` by shelling out to `busctl --user call
+   com.linuxhello.FaceAuth ...` — there is no native Rust D-Bus client in
+   this crate; QML talks to the control server over HTTP-ish requests, and
+   the control server talks to the daemon over D-Bus via `busctl`.
+5. A per-uid lock file (`/tmp/linux-hello-config-<uid>.lock`) prevents
+   opening more than one instance at a time.
 
-### Under Development
+## QML files (`qml/`)
 
-- 🚧 Enrollment screen with live preview
-- 🚧 Face detection (stub → YOLO)
-- 🚧 Bounding box and progress bar display
-- 🚧 D-Bus communication with daemon
+- `main.qml` — root window and navigation
+- `AppController.qml` — talks to the Rust control server (enrollment,
+  status polling)
+- `Home.qml`, `Enrollment.qml`, `Settings.qml`, `ManageFaces.qml`,
+  `TestAuth.qml` — the app's screens
+- `I18n.qml` + `i18n/*.json` — the translation layer and per-language
+  string tables (10 languages, see `docs/I18N_IMPLEMENTATION.md`)
 
-### Future
-
-- 📋 Advanced settings screen
-- 📋 Management of enrolled faces
-- 📋 KDE theme integration
-- 📋 System notifications
-
-## 🎨 Screens
-
-### 1. Home
-
-Main menu with access to:
-
-- Enroll new face
-- Settings
-- Face management
-
-### 2. Enrollment
-
-```
-┌─────────────────────────────┐
-│  Camera Preview (640×480)   │
-│  ┌───────────────────────┐  │
-│  │   █████████████████   │  │ ← RGB frame + detection
-│  │   █ O   O        █    │  │   Green square if face
-│  │   █       █      █    │  │   detected
-│  │   █     └─┘      █    │  │
-│  │   █████████████████   │  │
-│  └───────────────────────┘  │
-│                             │
-│  Progress: ████░░░ 5/30     │ ← Progress bar
-│  Quality: 0.85              │
-│                             │
-│  [Start]  [Stop]           │
-└─────────────────────────────┘
-```
-
-### 3. Settings
-
-- Number of frames
-- Timeout
-- Confidence/quality thresholds
-- Camera device
-
-### 4. Manage Faces
-
-- List of faces
-- Actions: delete, rename
-- Details: date, quality
-
-## 🔧 Technical Architecture
-
-### UI Framework
-
-- **Iced 0.12** - Modern Rust UI framework
-  - Cross-platform (Linux, macOS, Windows)
-  - Native Wayland
-  - GPU-accelerated (wgpu)
-  
-### Rendering
-
-- **pixels 0.13** - Pixel buffer for RGB frame display
-- **image 0.24** - Image processing and manipulation
-
-### Communication
-
-- **zbus** - D-Bus client
-- **tokio** - Async runtime
-
-## 📦 Main Dependencies
-
-```toml
-iced = "0.12"           # UI Framework
-pixels = "0.13"         # Pixel rendering
-zbus = "4.4"            # D-Bus
-tokio = "1.36"          # Async
-serde/serde_json        # Serialization
-tracing                 # Logging
-```
-
-## 🚀 Building & Running
+## Building & Running
 
 ### Build
 
@@ -114,84 +50,11 @@ cargo build --release -p linux_hello_config
 ./target/release/linux_hello_config
 ```
 
-### Tests
+Requires `qml6` and the Qt6/Kirigami QML modules listed in
+`debian/control` (`qml-qt6`, `qml6-module-org-kde-kirigami`,
+`qml6-module-qtquick*`) to be installed.
 
-```bash
-cargo test -p linux_hello_config
-```
-
-## 📋 Implementation Plan (Phases)
-
-### Phase 1: Foundation ✅
-
-- [x] Cargo project structure
-- [x] Streaming and config types
-- [x] GUI skeleton with navigation
-- [x] ui, preview, config modules
-
-### Phase 2: D-Bus Streaming 🚧
-
-- [ ] Modify CameraManager for async streaming
-- [ ] Emit D-Bus signals from daemon
-- [ ] Listen for signals in GUI (Iced subscription)
-- [ ] Display frames in real time
-
-### Phase 3: Face Detection 🚧
-
-- [ ] Integrate real detector (YOLO or RetinaFace)
-- [ ] Draw bounding box on frames
-- [ ] Display progress bar
-- [ ] Quality/confidence indicators
-
-### Phase 4: Complete Screens
-
-- [ ] Full Settings implementation
-- [ ] Full Manage Faces implementation
-- [ ] Display list of enrolled faces
-- [ ] Delete/edit actions
-
-### Phase 5: Polish & Integration
-
-- [ ] KDE theme integration
-- [ ] System notifications
-- [ ] Complete error handling
-- [ ] Localization (i18n)
-- [ ] E2E integration tests
-
-## 🎯 Current State
-
-- **Compilation**: ✅ Success (with minor warnings)
-- **Unit tests**: ✅ 23/23 passing
-- **Code organization**: ✅ Modular and extensible
-- **Operational GUI**: 🟡 Skeleton only
-- **D-Bus integration**: 🔴 Coming soon
-
-## 📊 Benchmarks
-
-### Target Performance
-
-- Frame rate: 30fps captured, 30fps displayed
-- Capture→display latency: <100ms
-- Detection: <5ms per frame (stub)
-- Memory: <50MB for capture session
-
-## 🤝 Contribution
-
-To extend this GUI:
-
-1. **Add a screen**: Create a module in `src/screens/`
-2. **Add a widget**: Implement in `src/ui/`
-3. **Modify behavior**: Edit the `Message` enum
-4. **Test**: Add unit tests
-
-## 📚 References
-
-- [Iced Documentation](https://docs.rs/iced/)
-- [D-Bus D-feet Tool](https://wiki.gnome.org/Apps/DFeet) - Inspect D-Bus
-- [RetinaFace](https://github.com/deepinsight/retinaface) - Face detection
-- [YOLOv8-Face](https://github.com/akanametov/yolov8-face) - Alternative YOLO
-
-## 📞 Support
+## Support
 
 For questions or bugs:
 
