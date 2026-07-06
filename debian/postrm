@@ -3,14 +3,27 @@
 
 set -e
 
+# dpkg invokes postrm with "upgrade"/"failed-upgrade"/etc. during package
+# upgrades. Empirically (verified via /var/log/apt/term.log), it also calls
+# `postrm remove` — not just on a real `apt remove` — when reinstalling the
+# identical version via `apt install --reinstall`, since there's no
+# meaningful in-place "upgrade" when old and new versions match. Do nothing
+# at all outside remove/purge.
+case "$1" in
+    remove | purge) ;;
+    *) exit 0 ;;
+esac
+
 echo "Linux Hello - Cleanup"
 echo "===================="
 
-# Stop and disable daemon (silent)
+# Stop/disable the daemon and undo the lockscreen QML divert on every
+# removal (including a same-version --reinstall's "remove" step, see above):
+# their target files are gone either way, and postinst puts both back
+# immediately on the following install, so there's no user-visible gap.
 systemctl --user stop hello-daemon.service 2>/dev/null || true
 systemctl --user disable hello-daemon.service 2>/dev/null || true
 
-# Restore the original plasma-workspace MainBlock.qml
 PLASMA_QML="/usr/share/plasma/shells/org.kde.plasma.desktop/contents/lockscreen/MainBlock.qml"
 if dpkg-divert --list "$PLASMA_QML" 2>/dev/null | grep -q linux-hello; then
     rm -f "$PLASMA_QML"
@@ -18,26 +31,37 @@ if dpkg-divert --list "$PLASMA_QML" 2>/dev/null | grep -q linux-hello; then
     echo "✓ Original lock screen QML restored"
 fi
 
-# Restore PAM configuration from the most recent backup (automatic,
-# non-interactive). Covers every service linux-hello-pam-autoconfigure /
-# install-pam.sh may have configured — previously this only handled sudo,
-# leaving kde-screenlocker/su/su-l/polkit-1 configured with a reference to
-# a now-removed pam_linux_hello.so if they'd been set up too.
-for svc in sudo sudo-i su su-l kde-screenlocker kde; do
-    if compgen -G "/etc/pam.d/${svc}.pre-linuxhello-*" > /dev/null; then
-        latest=$(find /etc/pam.d -maxdepth 1 -name "${svc}.pre-linuxhello-*" -type f -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)
-        if [ -n "$latest" ] && [ -f "$latest" ]; then
-            cp "$latest" "/etc/pam.d/$svc"
-            echo "✓ Restored /etc/pam.d/$svc"
+# Restoring /etc/pam.d/* is different: unlike the daemon/divert above, these
+# aren't linux-hello's own files, and a same-version --reinstall must not
+# revert them (that used to silently regress a working biometric sudo/
+# screenlock setup to password-only for up to ~5 minutes, until the next
+# autoconfigure timer run put it back). Only do this on a real purge
+# (`apt purge`/`apt remove --purge`), which dpkg calls as a second,
+# separate step after "remove" — never for --reinstall of the same version.
+if [ "$1" = "purge" ]; then
+    # Restore PAM configuration from the most recent backup (automatic,
+    # non-interactive). Covers every service linux-hello-pam-autoconfigure /
+    # install-pam.sh may have configured — previously this only handled
+    # sudo, leaving su/su-l/polkit-1 configured with a reference to a
+    # now-removed pam_linux_hello.so if set up too. Screenlock unlocking
+    # doesn't use PAM (see hello_daemon/src/screenlock.rs), so there's no
+    # kde-screenlocker/kde file to restore here.
+    for svc in sudo sudo-i su su-l; do
+        if compgen -G "/etc/pam.d/${svc}.pre-linuxhello-*" > /dev/null; then
+            latest=$(find /etc/pam.d -maxdepth 1 -name "${svc}.pre-linuxhello-*" -type f -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)
+            if [ -n "$latest" ] && [ -f "$latest" ]; then
+                cp "$latest" "/etc/pam.d/$svc"
+                echo "✓ Restored /etc/pam.d/$svc"
+            fi
         fi
-    fi
-done
+    done
 
-# polkit-1 is created from scratch (not backed up) if it didn't already
-# exist — remove it only if it's ours.
-if [ -f /etc/pam.d/polkit-1 ] && grep -q "linux-hello" /etc/pam.d/polkit-1 2>/dev/null; then
-    rm -f /etc/pam.d/polkit-1
-    echo "✓ Removed /etc/pam.d/polkit-1 (created by linux-hello)"
+    # polkit-1 is created from scratch (not backed up) if it didn't already
+    # exist — remove it only if it's ours.
+    if [ -f /etc/pam.d/polkit-1 ] && grep -q "linux-hello" /etc/pam.d/polkit-1 2>/dev/null; then
+        rm -f /etc/pam.d/polkit-1
+        echo "✓ Removed /etc/pam.d/polkit-1 (created by linux-hello)"
+    fi
 fi
 
 echo ""

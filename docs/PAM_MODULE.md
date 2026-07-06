@@ -26,14 +26,26 @@ Use the full path in the PAM configuration to test without root privileges.
 
 Installing `libpam-linux-hello` also installs `linux-hello-pam-autoconfigure.timer`,
 a systemd system timer (runs shortly after boot, then every ~5 minutes) that
-configures PAM for **sudo and screenlock** automatically, as soon as any local
-user has enrolled at least one face — no manual step needed. It edits `sudo`,
-`sudo-i`, `su`, `su-l`, `polkit-1`, and whichever of `kde-screenlocker`/`kde`
-is present, using the same idempotent, backed-up insertion logic as
-`install-pam.sh` (see `pam-lib.sh`). It's safe on multi-user machines: the
-module already falls back to the password for any user with no enrolled
-face, so a single system-wide activation is correct regardless of who has
-actually enrolled.
+configures PAM for **sudo** automatically, as soon as any local user has
+enrolled at least one face — no manual step needed. It edits `sudo`,
+`sudo-i`, `su`, `su-l`, and `polkit-1`, using the same idempotent, backed-up
+insertion logic as `install-pam.sh` (see `pam-lib.sh`). It's safe on
+multi-user machines: the module already falls back to the password for any
+user with no enrolled face, so a single system-wide activation is correct
+regardless of who has actually enrolled.
+
+**Screenlock doesn't use PAM at all.** Unlocking the screen with your face is
+handled entirely by `hello-daemon`'s own watcher: it polls
+`org.freedesktop.ScreenSaver` over D-Bus, and on a face match while the
+screen is locked, unlocks it directly via `loginctl unlock-session` (see
+`hello_daemon/src/screenlock.rs`). This needed no PAM configuration to begin
+with — earlier revisions of this project tried inserting a
+`pam_linux_hello.so context=screenlock` line into a KDE-specific PAM service
+file (`kde-screenlocker`, or `kde` on older setups), but current KDE Plasma
+(6.x) doesn't ship or use either of those by default (its actual PAM service
+is named `kscreenlocker`, with no file present unless the distro ships one),
+so that approach never did anything in practice — removed rather than fixed,
+since the watcher already solves this without it.
 
 **Not covered by the automatic timer — the SDDM login screen.**
 `linux-hello-pam-autoconfigure` deliberately never touches `/etc/pam.d/sddm`.
@@ -145,10 +157,15 @@ auth sufficient /lib/x86_64-linux-gnu/security/pam_linux_hello.so context=sudo t
 @include common-auth
 ```
 
-#### Screenlock (KDE/GNOME)
+#### Screenlock (generic PAM-based greeter)
+
+Not needed on current KDE Plasma — see [Automatic Activation](#automatic-activation)
+above for how screen unlocking actually works there (no PAM involved). This
+is a reference example for a greeter that authenticates through a real
+PAM service file (e.g. GNOME's, or an older KDE `kde-screenlocker`/`kde`):
 
 ```bash
-# /etc/pam.d/kde or /etc/pam.d/gnome
+# /etc/pam.d/<your-screenlock-service>
 auth sufficient /lib/x86_64-linux-gnu/security/pam_linux_hello.so context=screenlock timeout_ms=3000
 auth required pam_permit.so
 ```

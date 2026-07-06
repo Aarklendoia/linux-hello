@@ -43,7 +43,10 @@ echo "      ./test-pam-full.sh    - Full daemon+D-Bus test"
 echo ""
 echo "   PAM integration tests:"
 echo "      ./test-sudo.sh        - Test with sudo"
-echo "      ./test-screenlock.sh  - Test with screenlock"
+echo ""
+echo "   Screenlock unlocking needs no PAM test: it's hello-daemon's own"
+echo "   watcher (loginctl unlock-session on a face match) - just lock your"
+echo "   screen while the daemon is running."
 echo ""
 echo "   Preparation:"
 echo "      ./prepare-pam-test.sh - Register a face"
@@ -75,13 +78,13 @@ echo "📚 Documentation:"
 echo ""
 echo "   README.md                   - Overview"
 echo "   docs/PAM_MODULE.md          - PAM module documentation"
-echo "   docs/INTEGRATION_GUIDE.md   - sudo/screenlock integration guide"
+echo "   docs/INTEGRATION_GUIDE.md   - sudo integration guide"
 echo ""
 
 # Show configuration files
 echo "⚙️  PAM Configurations:"
 echo ""
-for f in sudo-linux-hello.pam kde-screenlock-linux-hello.pam test-pam-config; do
+for f in sudo-linux-hello.pam test-pam-config; do
     if [ -f "$f" ]; then
         echo "   ✓ $f"
     else

@@ -16,9 +16,14 @@ StartLimitBurst=5
 
 # Security settings
 ProtectSystem=strict
-ProtectHome=yes
+# ProtectHome=yes (fully inaccessible) breaks the ReadWritePaths exception
+# below under unprivileged user namespaces (--user units can't rely on the
+# same bind-mount punch-through as root system services); read-only still
+# hides other users' homes from write access while letting our own
+# ReadWritePaths grant work.
+ProtectHome=read-only
 NoNewPrivileges=true
-ReadWritePaths=/home/%u/.local/share/linux-hello %t
+ReadWritePaths=/home/%u/.local/share/linux-hello %t /run/lock /run/hello-pam
 
 # Timeout settings
 TimeoutStartSec=15

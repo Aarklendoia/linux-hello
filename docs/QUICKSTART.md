@@ -23,8 +23,11 @@ cargo build --release
 
 ### 4. Test Screenlock (1 min)
 
+No script needed — screenlock unlocking doesn't use PAM. With the daemon
+running and a face enrolled, just lock your screen and look at the camera:
+
 ```bash
-./test-screenlock.sh
+loginctl lock-session
 ```
 
 ### 5. Check the Status (1 min)
