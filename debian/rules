@@ -69,7 +69,6 @@ override_dh_auto_install:
 	cp $(CURDIR)/docs/INTEGRATION_GUIDE.md $(CURDIR)/debian/tmp/usr/share/doc/linux-hello/
 	cp $(CURDIR)/docs/PAM_MODULE.md $(CURDIR)/debian/tmp/usr/share/doc/linux-hello/
 	cp $(CURDIR)/sudo-linux-hello.pam $(CURDIR)/debian/tmp/usr/share/doc/linux-hello/
-	cp $(CURDIR)/kde-screenlock-linux-hello.pam $(CURDIR)/debian/tmp/usr/share/doc/linux-hello/
 	
 	# KDE lock screen QML overlay: stored in /usr/share/linux-hello/lockscreen/.
 	# postinst installs it in place via dpkg-divert.

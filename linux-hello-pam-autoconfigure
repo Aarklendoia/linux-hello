@@ -1,11 +1,12 @@
 #!/bin/bash
-# Linux Hello — automatic PAM activation for sudo and screenlock.
+# Linux Hello — automatic PAM activation for sudo.
 #
 # Run unattended, as root, by linux-hello-pam-autoconfigure.timer (systemd).
 # As soon as any local user has enrolled at least one face, this configures
-# pam_linux_hello.so for sudo/su/polkit/screenlock — never for sddm (the
-# login screen can't work with this daemon's per-user architecture yet, see
-# docs/PAM_MODULE.md).
+# pam_linux_hello.so for sudo/su/polkit — never for sddm (a separate, opt-in
+# path via install-pam.sh, since it starts an always-on root listener — see
+# docs/PAM_MODULE.md). Screenlock unlocking doesn't use PAM at all; see the
+# note near the bottom of this script.
 #
 # This is safe to run repeatedly and safe on multi-user machines: the PAM
 # module already falls back to the password for any UID with no enrolled
@@ -132,12 +133,10 @@ else
     lh_configure_service "polkit-1" "polkit" "^auth" || true
 fi
 
-screenlock_file="$(lh_screenlock_file)"
-if [[ -z "$screenlock_file" ]]; then
-    log "no screenlock PAM service found (checked kde-screenlocker, kde)"
-else
-    lh_configure_service "$screenlock_file" "screenlock" "^auth" || true
-fi
+# Screenlock unlocking doesn't go through PAM at all: hello-daemon's own
+# watcher polls org.freedesktop.ScreenSaver and unlocks via `loginctl
+# unlock-session` on a face match (see hello_daemon/src/screenlock.rs),
+# so there's no PAM service to configure here.
 
 # sddm is intentionally never touched here — see header comment.
 

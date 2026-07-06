@@ -31,18 +31,6 @@ lh_module_path() {
     echo "/lib/${multiarch}/security/pam_linux_hello.so"
 }
 
-# ── Screenlock service name ───────────────────────────────────────────────────
-# KDE's screenlock PAM service is named "kde-screenlocker" on current Kubuntu,
-# but older/other setups (and this project's own preinst/postrm/docs) use "kde".
-# Try the more specific name first.
-lh_screenlock_file() {
-    if [[ -f "$PAM_DIR/kde-screenlocker" ]]; then
-        echo "kde-screenlocker"
-    elif [[ -f "$PAM_DIR/kde" ]]; then
-        echo "kde"
-    fi
-}
-
 # ── Opt-out marker ────────────────────────────────────────────────────────────
 # Set by install-pam.sh --remove, read (never written) by the unattended
 # autoconfigure script, so it never fights an explicit opt-out.
@@ -60,18 +48,18 @@ lh_pam_autoconfig_clear_disabled() {
 }
 
 # ── "Already fully configured?" short-circuit ────────────────────────────────
-# Services covered by automatic activation: sudo family + polkit-1 + screenlock.
-# sddm is deliberately excluded — see linux-hello-pam-autoconfigure.
+# Services covered by automatic activation: sudo family + polkit-1. Screenlock
+# unlocking is handled entirely by hello-daemon's own watcher (polls
+# org.freedesktop.ScreenSaver, unlocks via `loginctl unlock-session` on a face
+# match — see hello_daemon/src/screenlock.rs) and never goes through PAM, so
+# there's no screenlock PAM service to configure here. sddm is deliberately
+# excluded too — see linux-hello-pam-autoconfigure.
 lh_all_configured() {
-    local svc screenlock_file
+    local svc
     for svc in sudo sudo-i su su-l polkit-1; do
         [[ -f "$PAM_DIR/$svc" ]] || continue
         grep -q "pam_linux_hello" "$PAM_DIR/$svc" || return 1
     done
-    screenlock_file="$(lh_screenlock_file)"
-    if [[ -n "$screenlock_file" ]]; then
-        grep -q "pam_linux_hello" "$PAM_DIR/$screenlock_file" || return 1
-    fi
     return 0
 }
 

@@ -12,8 +12,9 @@
 # In case of problems: sudo ./install-pam.sh --remove
 #
 # NOTE: since libpam-linux-hello ships linux-hello-pam-autoconfigure (a
-# systemd timer that automatically configures sudo/screenlock once any user
-# has enrolled a face), running this script manually is normally only
+# systemd timer that automatically configures sudo once any user has
+# enrolled a face — screenlock unlocking doesn't use PAM, see
+# hello_daemon/src/screenlock.rs), running this script manually is normally only
 # needed for development (it copies the freshly built .so from this repo
 # checkout) or to explicitly opt back in after running --remove.
 
@@ -62,9 +63,9 @@ if [[ "${1:-}" == "--status" ]]; then
     if lh_pam_autoconfig_disabled; then
         warn "Automatic activation: disabled (opt-out marker present at $LH_OPTOUT_MARKER)"
     else
-        ok "Automatic activation: enabled (linux-hello-pam-autoconfigure.timer will configure sudo/screenlock once a face is enrolled)"
+        ok "Automatic activation: enabled (linux-hello-pam-autoconfigure.timer will configure sudo once a face is enrolled)"
     fi
-    for svc in sudo sudo-i su su-l sddm kde-screenlocker kde polkit-1; do
+    for svc in sudo sudo-i su su-l sddm polkit-1; do
         f="$PAM_DIR/$svc"
         if [[ -f "$f" ]]; then
             if grep -q "pam_linux_hello" "$f" 2>/dev/null; then
@@ -73,9 +74,10 @@ if [[ "${1:-}" == "--status" ]]; then
                 warn "$svc: linux-hello NOT configured"
             fi
         else
-            echo "   $svc: file missing (normal for polkit-1, and for whichever of kde/kde-screenlocker doesn't apply to this desktop)"
+            echo "   $svc: file missing (normal for polkit-1)"
         fi
     done
+    echo "   screenlock: handled by hello-daemon's own watcher (loginctl unlock-session), not PAM"
     exit 0
 fi
 
@@ -104,18 +106,6 @@ if [[ "${1:-}" == "--remove" ]]; then
             ok "Cleaned: $svc (linux-hello lines removed)"
         fi
     done
-    # screenlock: whichever of kde-screenlocker/kde applies
-    screenlock_file="$(lh_screenlock_file)"
-    if [[ -n "$screenlock_file" ]]; then
-        f="$PAM_DIR/$screenlock_file"
-        latest_bak=$(find "$PAM_DIR" -maxdepth 1 -name "$screenlock_file.pre-linuxhello-*" -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2- || true)
-        if [[ -n "$latest_bak" ]]; then
-            cp "$latest_bak" "$f"
-            ok "Restored: $screenlock_file ← $latest_bak"
-        else
-            warn "$screenlock_file left untouched (no backup found — configured separately or by an older run)"
-        fi
-    fi
     # polkit-1: if it was created by this script, remove it
     if grep -q "linux-hello" "$PAM_DIR/polkit-1" 2>/dev/null; then
         rm -f "$PAM_DIR/polkit-1"
@@ -192,15 +182,9 @@ else
     lh_configure_service "polkit-1" "polkit" "^auth"
 fi
 
-# ── 6. Screenlock (kde-screenlocker, falling back to kde) ─────────────────────
-screenlock_file="$(lh_screenlock_file)"
-if [[ -z "$screenlock_file" ]]; then
-    warn "No screenlock PAM service found (checked kde-screenlocker, kde)"
-elif grep -q "pam_linux_hello" "$PAM_DIR/$screenlock_file" 2>/dev/null; then
-    ok "Service $screenlock_file: already configured ✓"
-else
-    lh_configure_service "$screenlock_file" "screenlock" "^auth"
-fi
+# Screenlock unlocking doesn't use PAM: hello-daemon's own watcher polls
+# org.freedesktop.ScreenSaver and unlocks via `loginctl unlock-session` on a
+# face match (see hello_daemon/src/screenlock.rs) — nothing to configure here.
 
 # ── Explicit re-enable: clear the opt-out marker on a successful run ─────────
 lh_pam_autoconfig_clear_disabled
@@ -208,7 +192,7 @@ lh_pam_autoconfig_clear_disabled
 # ── Summary ──────────────────────────────────────────────────────────────────
 echo ""
 echo "=== Configuration summary ==="
-for svc in sudo sudo-i su su-l sddm polkit-1 "${screenlock_file:-kde-screenlocker}"; do
+for svc in sudo sudo-i su su-l sddm polkit-1; do
     f="$PAM_DIR/$svc"
     if [[ -f "$f" ]]; then
         if grep -q "pam_linux_hello" "$f"; then
@@ -219,6 +203,7 @@ for svc in sudo sudo-i su su-l sddm polkit-1 "${screenlock_file:-kde-screenlocke
         fi
     fi
 done
+echo "   screenlock: handled by hello-daemon's own watcher (loginctl unlock-session), not PAM"
 
 echo ""
 echo "=== Quick test ==="

@@ -179,34 +179,41 @@ SessionManagementScreen {
 
     property bool _faceAuthActive: false
 
-    // Apparaît après le délai de démarrage du daemon (~1,2 s)
-    Timer {
-        id: faceAuthDelayTimer
-        interval: 1100
-        running: sessionManager.lockScreenUiVisible
-        repeat: false
-        onTriggered: {
-            sessionManager._faceAuthActive = true
-            faceAuthHideTimer.restart()
+    // sessionManager's default property list only accepts QQuickItem children;
+    // Timer/Connections aren't QQuickItem, so nesting them directly here fails
+    // the whole component load ("Cannot assign object of type QQmlTimer to
+    // list property _children"). A plain Item's default property accepts any
+    // QtObject, so it's a safe container for these non-visual helpers.
+    Item {
+        // Apparaît après le délai de démarrage du daemon (~1,2 s)
+        Timer {
+            id: faceAuthDelayTimer
+            interval: 1100
+            running: sessionManager.lockScreenUiVisible
+            repeat: false
+            onTriggered: {
+                sessionManager._faceAuthActive = true
+                faceAuthHideTimer.restart()
+            }
         }
-    }
 
-    // Disparaît après le timeout d'auth (12 s + marge)
-    Timer {
-        id: faceAuthHideTimer
-        interval: 13000
-        running: false
-        repeat: false
-        onTriggered: sessionManager._faceAuthActive = false
-    }
+        // Disparaît après le timeout d'auth (12 s + marge)
+        Timer {
+            id: faceAuthHideTimer
+            interval: 13000
+            running: false
+            repeat: false
+            onTriggered: sessionManager._faceAuthActive = false
+        }
 
-    Connections {
-        target: sessionManager
-        function onLockScreenUiVisibleChanged() {
-            if (!sessionManager.lockScreenUiVisible) {
-                sessionManager._faceAuthActive = false
-                faceAuthDelayTimer.stop()
-                faceAuthHideTimer.stop()
+        Connections {
+            target: sessionManager
+            function onLockScreenUiVisibleChanged() {
+                if (!sessionManager.lockScreenUiVisible) {
+                    sessionManager._faceAuthActive = false
+                    faceAuthDelayTimer.stop()
+                    faceAuthHideTimer.stop()
+                }
             }
         }
     }

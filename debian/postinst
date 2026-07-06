@@ -39,10 +39,25 @@ if [ -z "$TARGET_USER" ]; then
 fi
 
 if [ -n "$TARGET_USER" ] && [ "$TARGET_USER" != "root" ]; then
-    echo "Enabling daemon for user: $TARGET_USER"
-    sudo -u "$TARGET_USER" systemctl --user enable hello-daemon.service 2>/dev/null || true
-    sudo -u "$TARGET_USER" systemctl --user start hello-daemon.service 2>/dev/null || true
-    echo "✓ Daemon enabled and started"
+    TARGET_UID=$(id -u "$TARGET_USER" 2>/dev/null || true)
+    RUNTIME_DIR="/run/user/${TARGET_UID}"
+    # `sudo -u` alone doesn't propagate the target user's XDG_RUNTIME_DIR/
+    # DBUS_SESSION_BUS_ADDRESS, so `systemctl --user` can't find their session
+    # bus and fails silently; set XDG_RUNTIME_DIR explicitly so it can locate
+    # /run/user/<uid>/bus. If there's no active session for the user yet (e.g.
+    # install ran outside any login session), skip and let them enable it
+    # manually instead of failing the whole postinst.
+    if [ -n "$TARGET_UID" ] && [ -d "$RUNTIME_DIR" ]; then
+        echo "Enabling daemon for user: $TARGET_USER"
+        if sudo -u "$TARGET_USER" XDG_RUNTIME_DIR="$RUNTIME_DIR" \
+            systemctl --user enable --now hello-daemon.service 2>/dev/null; then
+            echo "✓ Daemon enabled and started"
+        else
+            echo "! Could not enable hello-daemon.service automatically — run 'systemctl --user enable --now hello-daemon.service' as $TARGET_USER"
+        fi
+    else
+        echo "! No active session found for $TARGET_USER — enable the daemon manually with: systemctl --user enable --now hello-daemon.service"
+    fi
 fi
 
 # PAM configuration is not done here. If libpam-linux-hello is installed,
@@ -51,16 +66,11 @@ fi
 # /usr/share/doc/linux-hello/PAM_MODULE.md, including how to opt out and
 # why the SDDM login screen isn't covered by automatic activation.
 
-# Daemon setup is skipped during package installation (no user session available)
-# Users can enable autostart manually with: systemctl --user enable hello-daemon.service
-echo "✓ Daemon setup (manual configuration can be done via: systemctl --user enable hello-daemon.service)"
-
 echo ""
 echo "Installation Complete!"
 echo ""
 echo "Next steps:"
-echo "1. Register a face: hello-daemon (in one terminal) then use:"
-echo "   dbus-send --session --print-reply ..."
+echo "1. Register a face: linux-hello enroll \$(id -u) --context sudo --samples 3"
 echo "2. Test with sudo: sudo -v"
 echo "3. Or test with screenlock: lock your screen"
 echo ""

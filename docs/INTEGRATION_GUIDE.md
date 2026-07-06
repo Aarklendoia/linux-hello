@@ -1,18 +1,20 @@
-# Linux Hello Integration Guide - PAM Sudo & Screenlock
+# Linux Hello Integration Guide - PAM Sudo
 
 ## Overview
 
-This guide explains how to integrate Linux Hello into your system for:
+This guide explains how to integrate Linux Hello into your system for
+**sudo** - facial authentication for privilege escalation.
 
-1. **sudo** - Facial authentication for privilege escalation
-2. **Screenlock** - Screen unlocking via facial recognition
+Screen unlocking via facial recognition is a separate feature that needs no
+PAM configuration — see [Step 6](#step-6-screenlock-no-pam-configuration-needed) below.
 
-> **If you installed via the `.deb` packages**, sudo and screenlock activate
-> automatically once you enroll a face — no manual PAM editing needed. See
-> [PAM_MODULE.md](PAM_MODULE.md#automatic-activation) for how that works and
-> how to opt out. The manual steps below remain useful for development
-> (building from source) or for configuring services the automatic path
-> doesn't touch (e.g. `sddm`).
+> **If you installed via the `.deb` packages**, sudo activates automatically
+> once you enroll a face — no manual PAM editing needed. Screenlock unlocking
+> needs no PAM configuration at all (see
+> [PAM_MODULE.md](PAM_MODULE.md#automatic-activation) for how both work).
+> The manual sudo steps below remain useful for development (building from
+> source) or for configuring services the automatic path doesn't touch
+> (e.g. `sddm`).
 
 ## Prerequisites
 
@@ -155,53 +157,28 @@ sudo ls /root
 ./test-sudo.sh
 ```
 
-## Step 6: KDE Screenlock Configuration
+## Step 6: Screenlock (no PAM configuration needed)
 
-### Locate the screenlock ID
+Unlike sudo, screen unlocking doesn't go through PAM at all: `hello-daemon`
+polls `org.freedesktop.ScreenSaver` over D-Bus while it's running, and on a
+face match while the screen is locked, unlocks the session directly via
+`loginctl unlock-session` (see `hello_daemon/src/screenlock.rs`). As long as
+the daemon is running and you've enrolled a face, locking your screen and
+looking at the camera is enough — nothing to edit under `/etc/pam.d/`.
 
-```bash
-# KDE Plasma 5.20+
-ls -la /etc/pam.d/ | grep kde
-
-# Look for kde, kde-screenlocker, kdesu, etc.
-```
-
-### Configure the screenlock
-
-**Option A: Modify the existing config**
-
-```bash
-# Backup the original
-sudo cp /etc/pam.d/kde /etc/pam.d/kde.backup
-
-# Edit
-sudo nano /etc/pam.d/kde
-```
-
-Add AT THE BEGINNING:
-
-```
-# Linux Hello - Facial authentication for screenlock
-auth sufficient /lib/x86_64-linux-gnu/security/pam_linux_hello.so context=screenlock timeout_ms=3000 debug
-```
-
-**Option B: Use the provided config**
-
-```bash
-sudo cp kde-screenlock-linux-hello.pam /etc/pam.d/kde
-```
+An earlier revision of this project tried wiring this up as a PAM line
+(`context=screenlock`) inserted into a KDE-specific service file
+(`kde-screenlocker`/`kde`), but current KDE Plasma (6.x) doesn't ship or use
+either by default, so that approach never actually ran in practice — the
+watcher above replaced it entirely.
 
 ### Screenlock Test
 
 ```bash
-# Start the daemon
-./target/debug/hello-daemon &
-
-# Run the test
-./test-screenlock.sh
-
-# Or test manually with the screensaver
-# Press Ctrl+Alt+L or use the KDE menu
+# Make sure the daemon is running and a face is enrolled, then lock your
+# screen (e.g. Meta+L) and look at the camera.
+systemctl --user status hello-daemon.service
+journalctl --user -u hello-daemon.service -f
 ```
 
 ## Security: Important Points

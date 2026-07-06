@@ -8,7 +8,7 @@ The Linux Hello project builds 5 Debian packages:
 | --- | --- |
 | `linux-hello` | Meta-package; depends on the packages below |
 | `linux-hello-models` | The ONNX models (SCRFD-500M detector + ArcFace MobileNetV3 embedder) |
-| `libpam-linux-hello` | PAM module, plus the automatic sudo/screenlock activation timer and the opt-in SDDM system listener |
+| `libpam-linux-hello` | PAM module, plus the automatic sudo activation timer and the opt-in SDDM system listener |
 | `linux-hello-tools` | The `linux-hello` CLI |
 | `linux-hello-gui` | The Kirigami configuration app |
 
@@ -67,11 +67,13 @@ configuration — see below.
 
 ## PAM Activation
 
-- **sudo and screenlock activate automatically**: `libpam-linux-hello`
-  ships `linux-hello-pam-autoconfigure.timer`, which configures
-  `/etc/pam.d/sudo`, `su`, `polkit-1`, and the screenlock service as soon
-  as any local user enrolls a face — no manual step. See
-  [PAM_MODULE.md](PAM_MODULE.md#automatic-activation).
+- **sudo activates automatically**: `libpam-linux-hello` ships
+  `linux-hello-pam-autoconfigure.timer`, which configures `/etc/pam.d/sudo`,
+  `su`, and `polkit-1` as soon as any local user enrolls a face — no manual
+  step. See [PAM_MODULE.md](PAM_MODULE.md#automatic-activation).
+- **Screenlock unlocking needs no PAM configuration at all**: it's handled
+  by `hello-daemon`'s own watcher, which unlocks the session directly via
+  `loginctl` on a face match once you're locked out.
 - **SDDM (login screen) stays opt-in**: run `sudo ./install-pam.sh` from a
   source checkout (or see [PAM_MODULE.md](PAM_MODULE.md#sddm-login-screen)
   for what it does) — this also starts a new root-owned system listener,

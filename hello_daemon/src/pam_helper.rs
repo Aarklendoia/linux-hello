@@ -17,7 +17,7 @@ use std::fs;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixListener;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 /// PAM request via socket
 #[derive(Debug, Serialize, Deserialize)]
@@ -51,8 +51,15 @@ pub async fn start_pam_helper(
     // Security relies on peer_cred in handle_pam_request, not on the path.
     let socket_path = format!("/run/hello-pam/{}.socket", uid);
 
-    // Clean up the old socket (previous crash or update)
-    let _ = fs::remove_file(&socket_path);
+    // Clean up the old socket (previous crash or update). A failure here
+    // (e.g. the socket directory isn't in this unit's ReadWritePaths under
+    // ProtectSystem=strict) would otherwise surface only as a confusing
+    // "Address already in use" from bind() below, with no indication why.
+    if let Err(e) = fs::remove_file(&socket_path) {
+        if e.kind() != std::io::ErrorKind::NotFound {
+            warn!("Could not remove stale socket {}: {}", socket_path, e);
+        }
+    }
 
     // tokio::net::UnixListener: fully async, no EAGAIN issue
     let listener = UnixListener::bind(&socket_path)?;
