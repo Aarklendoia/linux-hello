@@ -27,6 +27,30 @@ SOURCE_SO="$SCRIPT_DIR/target/release/libpam_linux_hello.so"
 source "$SCRIPT_DIR/pam-lib.sh"
 PAM_MODULE="$(lh_module_path)"
 
+# Packaged location first (usr/share/linux-hello/sddm/Login.qml via
+# libpam-linux-hello), falling back to a source checkout — same convention
+# as $SOURCE_SO above.
+SDDM_QML_SOURCE="/usr/share/linux-hello/sddm/Login.qml"
+if [[ ! -f "$SDDM_QML_SOURCE" ]]; then
+    SDDM_QML_SOURCE="$SCRIPT_DIR/qml/sddm/Login.qml"
+fi
+
+# Detects the SDDM greeter theme actually configured: last `Current=` wins,
+# matching SDDM's own config-merging order (/etc/sddm.conf, then
+# /etc/sddm.conf.d/*.conf in lexicographic order — the numeric prefixes
+# distros use, e.g. 20-kubuntu.conf, are designed to sort correctly here).
+# Falls back to "breeze", SDDM's own upstream default, if nothing is set.
+lh_sddm_theme_name() {
+    local theme="breeze"
+    local f found
+    for f in /etc/sddm.conf /etc/sddm.conf.d/*.conf; do
+        [[ -f "$f" ]] || continue
+        found=$(grep -E '^\s*Current\s*=' "$f" 2>/dev/null | tail -1 | cut -d'=' -f2- | xargs || true)
+        [[ -n "$found" ]] && theme="$found"
+    done
+    echo "$theme"
+}
+
 # ── Colors ───────────────────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
 ok()   { echo -e "${GREEN}✓${NC} $*"; }
@@ -78,6 +102,12 @@ if [[ "${1:-}" == "--status" ]]; then
         fi
     done
     echo "   screenlock: handled by hello-daemon's own watcher (loginctl unlock-session), not PAM"
+    sddm_theme="$(lh_sddm_theme_name)"
+    if dpkg-divert --list "/usr/share/sddm/themes/$sddm_theme/Login.qml" 2>/dev/null | grep -q linux-hello; then
+        ok "SDDM greeter status indicator: installed (theme: $sddm_theme)"
+    else
+        warn "SDDM greeter status indicator: not installed (theme: $sddm_theme)"
+    fi
     exit 0
 fi
 
@@ -115,6 +145,14 @@ if [[ "${1:-}" == "--remove" ]]; then
     # listener running once its only caller (the sddm PAM line) is gone.
     if systemctl disable --now hello-daemon-system.service 2>/dev/null; then
         ok "Service hello-daemon-system: disabled"
+    fi
+    # SDDM greeter status indicator: revert the theme's Login.qml if we diverted it.
+    sddm_theme="$(lh_sddm_theme_name)"
+    SDDM_LOGIN_QML="/usr/share/sddm/themes/$sddm_theme/Login.qml"
+    if dpkg-divert --list "$SDDM_LOGIN_QML" 2>/dev/null | grep -q linux-hello; then
+        rm -f "$SDDM_LOGIN_QML"
+        dpkg-divert --package libpam-linux-hello --rename --remove "$SDDM_LOGIN_QML" 2>/dev/null || true
+        ok "SDDM greeter status indicator removed (theme: $sddm_theme)"
     fi
     echo ""
     ok "Linux Hello disabled. The password takes back control."
@@ -163,6 +201,26 @@ if systemctl enable --now hello-daemon-system.service 2>/dev/null; then
     ok "Service hello-daemon-system: enabled"
 else
     warn "Could not enable hello-daemon-system.service (systemd unavailable?)"
+fi
+
+# SDDM greeter status indicator: without it, the greeter shows nothing at
+# all while a face is being checked — pam_linux_hello's PAM_TEXT_INFO
+# messages do reach the greeter's `sddm` QML object, but no theme actually
+# has a handler for that signal, so they're silently dropped (confirmed on
+# a real login this session: it succeeded via face recognition alone, with
+# no visible cue, leaving the user unsure and typing a password anyway).
+sddm_theme="$(lh_sddm_theme_name)"
+SDDM_LOGIN_QML="/usr/share/sddm/themes/$sddm_theme/Login.qml"
+if [[ ! -f "$SDDM_LOGIN_QML" ]]; then
+    warn "SDDM theme '$sddm_theme' has no Login.qml — status indicator not installed (login via face still works, just without visual feedback)"
+elif [[ ! -f "$SDDM_QML_SOURCE" ]]; then
+    warn "Status indicator source missing ($SDDM_QML_SOURCE) — skipped"
+elif dpkg-divert --list "$SDDM_LOGIN_QML" 2>/dev/null | grep -q linux-hello; then
+    ok "SDDM greeter status indicator: already installed (theme: $sddm_theme)"
+else
+    dpkg-divert --package libpam-linux-hello --rename --add "$SDDM_LOGIN_QML" 2>/dev/null || true
+    cp "$SDDM_QML_SOURCE" "$SDDM_LOGIN_QML"
+    ok "SDDM greeter status indicator installed (theme: $sddm_theme)"
 fi
 
 # ── 5. polkit-1 ("Authentication required" graphical dialogs) ─────────────────

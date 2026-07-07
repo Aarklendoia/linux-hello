@@ -5,3 +5,4 @@ usr/lib/systemd/system/linux-hello-pam-autoconfigure.service
 usr/lib/systemd/system/linux-hello-pam-autoconfigure.timer
 usr/bin/hello-daemon-system
 usr/lib/systemd/system/hello-daemon-system.service
+usr/share/linux-hello/sddm/Login.qml
