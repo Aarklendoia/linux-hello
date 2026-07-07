@@ -110,9 +110,14 @@ pub async fn start_screenlock_watcher(
     let connection = zbus::Connection::session().await?;
     let proxy = ScreenSaverProxy::new(&connection).await?;
 
-    // Verify that the proxy responds before starting the loop
-    let _ = proxy.get_active().await?;
-
+    // Deliberately no pre-flight `get_active()` check here: at login time
+    // org.freedesktop.ScreenSaver may not be registered yet (kwin_wayland
+    // registers it slightly after the session bus becomes available), and a
+    // failure at this point used to abort this whole function, meaning
+    // `screenlock_loop` — the only code that ever listens on
+    // `retry_notify` — never started for the rest of the daemon's lifetime.
+    // The loop below already retries transient GetActive() errors every 2s,
+    // so let it own that recovery instead of gating startup on it.
     tokio::spawn(async move {
         screenlock_loop(proxy, daemon, user_id, session_id, status, retry_notify).await;
     });
