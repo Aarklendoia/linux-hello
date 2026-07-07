@@ -80,9 +80,22 @@ async fn main() -> anyhow::Result<()> {
         info!("✓ PAM helper socket: /run/hello-pam/{}.socket", uid);
     }
 
-    // Start monitoring the screen lock (automatic unlock via face)
-    if let Err(e) =
-        hello_daemon::screenlock::start_screenlock_watcher(daemon_arc.clone(), uid).await
+    // Start monitoring the screen lock (automatic unlock via face), sharing
+    // live status + a retry trigger with the control server below so
+    // qml/lockscreen/MainBlock.qml can show progress and let the user
+    // retry on demand instead of getting exactly one attempt per lock.
+    let screenlock_status = std::sync::Arc::new(std::sync::Mutex::new(
+        hello_daemon::screenlock::ScreenlockStatus::default(),
+    ));
+    let screenlock_retry_notify = std::sync::Arc::new(tokio::sync::Notify::new());
+
+    if let Err(e) = hello_daemon::screenlock::start_screenlock_watcher(
+        daemon_arc.clone(),
+        uid,
+        screenlock_status.clone(),
+        screenlock_retry_notify.clone(),
+    )
+    .await
     {
         warn!(
             "Screen lock monitoring not started: {} (automatic unlock unavailable)",
@@ -90,6 +103,20 @@ async fn main() -> anyhow::Result<()> {
         );
     } else {
         info!("✓ Screen lock monitoring active");
+    }
+
+    if let Err(e) = hello_daemon::screenlock::start_screenlock_control_server(
+        screenlock_status,
+        screenlock_retry_notify,
+    )
+    .await
+    {
+        warn!(
+            "Screenlock control server not started: {} (status/retry UI in the lock screen unavailable)",
+            e
+        );
+    } else {
+        info!("✓ Screenlock control server active");
     }
 
     // Start the MJPEG server for the GUI preview (real-time video stream)

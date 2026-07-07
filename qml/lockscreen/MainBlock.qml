@@ -15,6 +15,7 @@ import org.kde.kirigami as Kirigami
 import org.kde.kscreenlocker as ScreenLocker
 
 import org.kde.breeze.components
+import org.kde.plasma.plasma5support as P5Support
 
 SessionManagementScreen {
     id: sessionManager
@@ -89,6 +90,13 @@ SessionManagementScreen {
                     sessionManager.userList.incrementCurrentIndex();
                     event.accepted = true
                 }
+                // Linux Hello — any keypress means the user is back and
+                // paying attention (kscreenlocker_greet's QML tree stays
+                // resident across DPMS blank/unblank, so there's no separate
+                // "screen woke up" signal to hook — this is the reliable
+                // proxy). Harmless to call when a capture is already running
+                // or just finished: the control server no-ops on its own.
+                lhControl.requestRetry();
             }
 
             Connections {
@@ -167,52 +175,125 @@ SessionManagementScreen {
         label: i18ndc("plasma_shell_org.kde.plasma.desktop", "@info:usagetip", "(or scan your smartcard)")
     }
 
-    // Linux Hello — même style que FailableLabel (fingerprint / smartcard ci-dessus)
-    PlasmaComponents3.Label {
-        id: faceAuthHint
+    // Linux Hello — live screenlock status, polled from hello-daemon's local
+    // control server (started alongside its existing lock-watcher; see
+    // hello_daemon/src/screenlock.rs). kscreenlocker_greet's QML engine
+    // blocks XMLHttpRequest's real network access (confirmed empirically:
+    // requests complete with status=0), so status/retry go through a
+    // Plasma5Support.DataSource shelling out to curl instead — a spawned
+    // process isn't subject to that policy.
+    ColumnLayout {
         Layout.fillWidth: true
-        horizontalAlignment: Text.AlignHCenter
-        textFormat: Text.PlainText
-        text: "(ou regardez vers la caméra pour déverrouiller)"
-        visible: _faceAuthActive
+        visible: lhControl.active
+
+        PlasmaComponents3.Label {
+            Layout.fillWidth: true
+            horizontalAlignment: Text.AlignHCenter
+            textFormat: Text.PlainText
+            text: {
+                switch (lhControl.screenlockState) {
+                case "recognizing": return "🔍 Reconnaissance en cours…"
+                case "success": return "✓ Visage reconnu"
+                case "failed": return "✗ Non reconnu — réessayez ou saisissez votre mot de passe"
+                default: return "(ou regardez vers la caméra pour déverrouiller)"
+                }
+            }
+        }
+
+        RowLayout {
+            Layout.alignment: Qt.AlignHCenter
+
+            PlasmaComponents3.Button {
+                text: "Réessayer"
+                visible: lhControl.screenlockState !== "recognizing"
+                onClicked: lhControl.requestRetry()
+            }
+            PlasmaComponents3.Button {
+                text: "Utiliser le mot de passe"
+                onClicked: {
+                    lhControl.active = false
+                    passwordBox.forceActiveFocus()
+                }
+            }
+        }
     }
 
-    property bool _faceAuthActive: false
-
     // sessionManager's default property list only accepts QQuickItem children;
-    // Timer/Connections aren't QQuickItem, so nesting them directly here fails
-    // the whole component load ("Cannot assign object of type QQmlTimer to
-    // list property _children"). A plain Item's default property accepts any
-    // QtObject, so it's a safe container for these non-visual helpers.
+    // Timer/Connections/DataSource aren't QQuickItem, so nesting them
+    // directly here fails the whole component load ("Cannot assign object of
+    // type QQmlTimer to list property _children"). A plain Item's default
+    // property accepts any QtObject, so it's a safe container for these
+    // non-visual helpers.
     Item {
-        // Apparaît après le délai de démarrage du daemon (~1,2 s)
+        id: lhControl
+
+        property bool active: false
+        property string screenlockState: "idle"
+
+        function _portCmd() {
+            return '$(cat "$XDG_RUNTIME_DIR/hello-daemon-screenlock-ctrl.port" 2>/dev/null)'
+        }
+
+        function pollStatus() {
+            if (lhStatusSource.connectedSources.length === 0) {
+                lhStatusSource.connectSource(
+                    "sh -c 'curl -s http://127.0.0.1:" + _portCmd() + "/status 2>/dev/null'")
+            }
+        }
+
+        function requestRetry() {
+            lhRetrySource.connectSource(
+                "sh -c 'curl -s -X POST http://127.0.0.1:" + _portCmd() + "/retry 2>/dev/null'")
+        }
+
+        P5Support.DataSource {
+            id: lhStatusSource
+            engine: "executable"
+            onNewData: (sourceName, data) => {
+                disconnectSource(sourceName)
+                var out = data["stdout"]
+                if (!out) return
+                try {
+                    var parsed = JSON.parse(out)
+                    lhControl.screenlockState = parsed.state || "idle"
+                } catch (e) {
+                    // Empty/malformed response (daemon not up yet) — ignore.
+                }
+            }
+        }
+
+        P5Support.DataSource {
+            id: lhRetrySource
+            engine: "executable"
+            onNewData: (sourceName, data) => disconnectSource(sourceName)
+        }
+
+        Timer {
+            interval: 1000
+            running: sessionManager.lockScreenUiVisible && lhControl.active
+            repeat: true
+            onTriggered: lhControl.pollStatus()
+        }
+
+        // Gives the very first automatic attempt (fired by hello-daemon's
+        // own lock-transition watcher) time to start before showing
+        // anything, so the label doesn't flash "idle" uselessly right at
+        // lock time.
         Timer {
             id: faceAuthDelayTimer
             interval: 1100
             running: sessionManager.lockScreenUiVisible
             repeat: false
-            onTriggered: {
-                sessionManager._faceAuthActive = true
-                faceAuthHideTimer.restart()
-            }
-        }
-
-        // Disparaît après le timeout d'auth (12 s + marge)
-        Timer {
-            id: faceAuthHideTimer
-            interval: 13000
-            running: false
-            repeat: false
-            onTriggered: sessionManager._faceAuthActive = false
+            onTriggered: lhControl.active = true
         }
 
         Connections {
             target: sessionManager
             function onLockScreenUiVisibleChanged() {
                 if (!sessionManager.lockScreenUiVisible) {
-                    sessionManager._faceAuthActive = false
+                    lhControl.active = false
+                    lhControl.screenlockState = "idle"
                     faceAuthDelayTimer.stop()
-                    faceAuthHideTimer.stop()
                 }
             }
         }
