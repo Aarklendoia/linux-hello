@@ -195,6 +195,7 @@ SessionManagementScreen {
                 case "recognizing": return "🔍 Reconnaissance en cours…"
                 case "success": return "✓ Visage reconnu"
                 case "failed": return "✗ Non reconnu — réessayez ou saisissez votre mot de passe"
+                case "offline": return "⚠ Service de reconnaissance injoignable — saisissez votre mot de passe"
                 default: return "(ou regardez vers la caméra pour déverrouiller)"
                 }
             }
@@ -252,12 +253,19 @@ SessionManagementScreen {
             onNewData: (sourceName, data) => {
                 disconnectSource(sourceName)
                 var out = data["stdout"]
-                if (!out) return
+                if (!out) {
+                    // curl couldn't reach the control server at all (daemon
+                    // down/restarting) — say so instead of silently freezing
+                    // the label at its last value, which used to look like a
+                    // stuck "Reconnaissance en cours…" with a dead Retry button.
+                    lhControl.screenlockState = "offline"
+                    return
+                }
                 try {
                     var parsed = JSON.parse(out)
                     lhControl.screenlockState = parsed.state || "idle"
                 } catch (e) {
-                    // Empty/malformed response (daemon not up yet) — ignore.
+                    lhControl.screenlockState = "offline"
                 }
             }
         }

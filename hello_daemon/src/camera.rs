@@ -291,7 +291,7 @@ impl CameraManager {
                 // 2. Take the face with the highest confidence
                 let best_face = faces
                     .into_iter()
-                    .max_by(|a, b| a.confidence.partial_cmp(&b.confidence).unwrap());
+                    .max_by(|a, b| a.confidence.total_cmp(&b.confidence));
 
                 // 3. Extract the embedding
                 if let Some(face) = best_face {
@@ -452,7 +452,7 @@ impl CameraManager {
                     };
                     let Some(best_face) = faces
                         .into_iter()
-                        .max_by(|a, b| a.confidence.partial_cmp(&b.confidence).unwrap())
+                        .max_by(|a, b| a.confidence.total_cmp(&b.confidence))
                     else {
                         return false; // no face in this frame, keep going
                     };
