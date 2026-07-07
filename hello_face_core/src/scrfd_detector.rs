@@ -61,7 +61,7 @@ impl ScrfdDetector {
     }
 
     fn nms(&self, mut boxes: Vec<FaceRegion>) -> Vec<FaceRegion> {
-        boxes.sort_by(|a, b| b.confidence.partial_cmp(&a.confidence).unwrap());
+        boxes.sort_by(|a, b| b.confidence.total_cmp(&a.confidence));
         let mut keep = Vec::new();
         while !boxes.is_empty() {
             let best = boxes.remove(0);
@@ -185,7 +185,7 @@ impl FaceDetector for ScrfdDetector {
                         _ => continue,
                     };
 
-                    if conf < self.confidence_threshold {
+                    if !conf.is_finite() || conf < self.confidence_threshold {
                         continue;
                     }
 

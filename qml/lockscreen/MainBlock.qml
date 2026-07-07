@@ -5,6 +5,7 @@
 */
 
 import QtQuick
+import QtQuick.Window
 
 import QtQuick.Layouts
 import QtQuick.Controls as QQC2
@@ -32,6 +33,59 @@ SessionManagementScreen {
      * If username field is visible, it will be taken from that, otherwise from the "name" property of the currentIndex
      */
     signal passwordResult(string password)
+
+    // Linux Hello — any mouse movement means the user is back, mirroring
+    // the keypress handler in passwordBox.Keys.onPressed below. Without
+    // this, coming back and moving the mouse (rather than typing) after
+    // the original automatic attempt already timed out leaves the user
+    // stuck looking at a stale "failed" state until they notice and click
+    // Réessayer themselves. HoverHandler never grabs the pointer, so unlike
+    // a MouseArea it can't intercept clicks meant for the password field or
+    // buttons underneath it.
+    //
+    // sessionManager's default property list only accepts QQuickItem
+    // children (see lhControl's own comment below) and HoverHandler isn't
+    // one, so it needs a plain Item as its actual parent. That Item must
+    // in turn cover the *whole screen*, not just anchors.fill: sessionManager
+    // — sessionManager (MainBlock) is only the compact login panel embedded
+    // in a StackView inside LockScreenUi.qml (own height/position, not the
+    // full screen), so anchoring to it only caught mouse movement over that
+    // small panel (confirmed live: moving the mouse only retried once it
+    // passed near a button). Reparenting to the window's contentItem
+    // reaches the true full-screen root instead.
+    Item {
+        id: lhMouseActivityArea
+        parent: sessionManager.Window.window
+            ? sessionManager.Window.window.contentItem
+            : sessionManager
+        anchors.fill: parent
+
+        property point lastPoint
+        property bool hasLastPoint: false
+
+        HoverHandler {
+            // Qt can resynthesize a hover point-changed event when the
+            // scene geometry changes under an otherwise-stationary cursor
+            // (e.g. our own status label/Retry button appearing right when
+            // the first automatic attempt times out) — not just on genuine
+            // mouse movement. Requiring an actual position delta filters
+            // those out, along with sub-pixel sensor jitter from a mouse
+            // just resting on the desk, neither of which mean the user
+            // came back.
+            onPointChanged: {
+                const p = point.position
+                if (lhMouseActivityArea.hasLastPoint) {
+                    const dx = p.x - lhMouseActivityArea.lastPoint.x
+                    const dy = p.y - lhMouseActivityArea.lastPoint.y
+                    if (Math.abs(dx) >= 4 || Math.abs(dy) >= 4) {
+                        lhControl.notifyActivity()
+                    }
+                }
+                lhMouseActivityArea.lastPoint = p
+                lhMouseActivityArea.hasLastPoint = true
+            }
+        }
+    }
 
     onUserSelected: {
         const nextControl = (passwordBox.visible ? passwordBox : loginButton);
@@ -96,7 +150,7 @@ SessionManagementScreen {
                 // "screen woke up" signal to hook — this is the reliable
                 // proxy). Harmless to call when a capture is already running
                 // or just finished: the control server no-ops on its own.
-                lhControl.requestRetry();
+                lhControl.notifyActivity();
             }
 
             Connections {
@@ -195,6 +249,7 @@ SessionManagementScreen {
                 case "recognizing": return "🔍 Reconnaissance en cours…"
                 case "success": return "✓ Visage reconnu"
                 case "failed": return "✗ Non reconnu — réessayez ou saisissez votre mot de passe"
+                case "offline": return "⚠ Service de reconnaissance injoignable — saisissez votre mot de passe"
                 default: return "(ou regardez vers la caméra pour déverrouiller)"
                 }
             }
@@ -229,6 +284,22 @@ SessionManagementScreen {
 
         property bool active: false
         property string screenlockState: "idle"
+        property real lastActivityRetryMs: 0
+
+        // Throttles requestRetry() calls triggered by user activity
+        // (mouse movement, keypresses): without this, HoverHandler's
+        // onPointChanged would spawn a curl subprocess on every pixel of
+        // mouse movement. The daemon's own retry cooldown already no-ops
+        // redundant attempts server-side; this just avoids the subprocess
+        // spam client-side.
+        function notifyActivity() {
+            const now = Date.now()
+            if (now - lastActivityRetryMs < 3000) {
+                return
+            }
+            lastActivityRetryMs = now
+            requestRetry()
+        }
 
         function _portCmd() {
             return '$(cat "$XDG_RUNTIME_DIR/hello-daemon-screenlock-ctrl.port" 2>/dev/null)'
@@ -252,12 +323,19 @@ SessionManagementScreen {
             onNewData: (sourceName, data) => {
                 disconnectSource(sourceName)
                 var out = data["stdout"]
-                if (!out) return
+                if (!out) {
+                    // curl couldn't reach the control server at all (daemon
+                    // down/restarting) — say so instead of silently freezing
+                    // the label at its last value, which used to look like a
+                    // stuck "Reconnaissance en cours…" with a dead Retry button.
+                    lhControl.screenlockState = "offline"
+                    return
+                }
                 try {
                     var parsed = JSON.parse(out)
                     lhControl.screenlockState = parsed.state || "idle"
                 } catch (e) {
-                    // Empty/malformed response (daemon not up yet) — ignore.
+                    lhControl.screenlockState = "offline"
                 }
             }
         }
