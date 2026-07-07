@@ -107,14 +107,47 @@ home directory directly (root can read any home) and checks
 `~/.local/share/linux-hello/users/<uid>/` for enrolled faces, without ever
 creating anything there.
 
-**This capability is opt-in only**, via `sudo ./install-pam.sh` (which both
-inserts the `pam_linux_hello.so context=sddm` line into `/etc/pam.d/sddm`
-and enables `hello-daemon-system.service`) or reverted together via
-`install-pam.sh --remove`. It is deliberately **not** part of automatic
-activation (`linux-hello-pam-autoconfigure` never touches `sddm` or this
-service) — starting a new pre-authentication-reachable root listener is a
-large enough change to a machine's attack surface that it should never
-happen silently just because someone enrolled a face for sudo/screenlock.
+**This capability is opt-in only**, via `sudo ./install-pam.sh` (which
+inserts the `pam_linux_hello.so context=sddm` line into `/etc/pam.d/sddm`,
+enables `hello-daemon-system.service`, **and** installs a live status
+indicator into the configured SDDM greeter theme — see below) or reverted
+together via `install-pam.sh --remove`. It is deliberately **not** part of
+automatic activation (`linux-hello-pam-autoconfigure` never touches `sddm`
+or this service) — starting a new pre-authentication-reachable root
+listener is a large enough change to a machine's attack surface that it
+should never happen silently just because someone enrolled a face for
+sudo/screenlock.
+
+### Greeter status indicator
+
+Without any visual feedback, a successful face-based login is
+indistinguishable from nothing happening at all — confirmed on a real login
+this session: it completed via face recognition alone (`sddm-helper` never
+checked a password), but with no on-screen cue, the user couldn't tell and
+typed their password anyway "just in case." `pam_linux_hello`'s PAM_TEXT_INFO
+messages do reach the greeter (`sddm`'s own `informationMessage` QML signal
+fires), but no SDDM theme actually handles that signal — it was silently
+dropped.
+
+`install-pam.sh` fixes this by detecting the configured greeter theme (last
+`Current=` across `/etc/sddm.conf`/`/etc/sddm.conf.d/*.conf`, falling back
+to `breeze`) and `dpkg-divert`-installing a patched `Login.qml`
+(`qml/sddm/Login.qml` in this repo, shipped at
+`/usr/share/linux-hello/sddm/Login.qml`) that polls `hello-daemon-system`'s
+new status control server — `GET http://127.0.0.1:17825/status`, JSON
+`{"state": "idle"|"recognizing"|"success"|"failed"}` — and shows "🔍
+Reconnaissance en cours…" / "✓ Visage reconnu" / "✗ Non reconnu…"
+accordingly. No per-user session exists pre-login (no `$XDG_RUNTIME_DIR` to
+discover a port from, unlike the screenlock control server), so this uses a
+fixed, well-known loopback port instead — same rationale as
+`preview::MJPEG_PORT`/`screenlock::SCREENLOCK_CTRL_PORT`. Like the lock
+screen's equivalent, `Login.qml`'s QML engine is expected to block
+`XMLHttpRequest`'s real network access, so it shells out to `curl` via a
+`Plasma5Support.DataSource` instead. No retry button: selecting the account
+or pressing Enter again already starts a fresh PAM attempt.
+`install-pam.sh --remove` reverts the diversion; if the theme has no
+`Login.qml` (a non-Breeze-derived theme), the indicator is skipped with a
+warning — login still works via PAM, just without the visual cue.
 
 Security notes:
 
@@ -143,9 +176,11 @@ Known limitations (accepted, not solved):
 - Raw `/etc/passwd` parsing (no `getent`/NSS) won't resolve
   `systemd-homed`-only accounts, same as the automatic timer's limitation
   above.
-- No visual integration with the SDDM greeter itself (e.g. a live camera
-  preview) — feedback is text-only via the PAM conversation, matching the
-  existing sudo/screenlock experience.
+- No live camera preview in the greeter (unlike the GUI's own enrollment
+  screen) — just the idle/recognizing/success/failed status text described
+  above. The indicator also only ships for Breeze-derived themes (anything
+  shipping its own `Login.qml` in the `SessionManagementScreen` style); a
+  custom/non-Breeze theme falls back to no visual feedback, same as before.
 
 ## PAM Configuration
 

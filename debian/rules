@@ -76,6 +76,14 @@ override_dh_auto_install:
 	cp $(CURDIR)/qml/lockscreen/MainBlock.qml \
 	   $(CURDIR)/debian/tmp/usr/share/linux-hello/lockscreen/
 
+	# SDDM greeter status indicator QML overlay: stored in
+	# /usr/share/linux-hello/sddm/. install-pam.sh installs it in place via
+	# dpkg-divert (opt-in, unlike the lockscreen overlay above — matches
+	# SDDM support being opt-in everywhere else in this project).
+	mkdir -p $(CURDIR)/debian/tmp/usr/share/linux-hello/sddm
+	cp $(CURDIR)/qml/sddm/Login.qml \
+	   $(CURDIR)/debian/tmp/usr/share/linux-hello/sddm/
+
 	# Install ONNX models (downloaded by build.rs during cargo build --release)
 	mkdir -p $(CURDIR)/debian/tmp/usr/share/linux-hello/models
 	cp "$${XDG_DATA_HOME:-$(HOME)/.local/share}/linux-hello/models/det_500m.onnx" \
