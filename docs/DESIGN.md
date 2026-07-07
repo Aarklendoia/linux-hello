@@ -160,7 +160,7 @@ auth   [module_path] [service_name] [module_name] [arguments...]
 | Option | Value | Default | Description |
 | ------ | ----- | ------- | ----------- |
 | `context` | string | "default" | Authentication context |
-| `timeout_ms` | u64 | 5000 | Max timeout in ms |
+| `timeout_ms` | u64 | 30000 | How long the camera stays continuously engaged, retrying until a match or the deadline (see PAM_MODULE.md) |
 | `similarity_threshold` | f32 | 0.6 | Similarity threshold (0.0-1.0) |
 | `confirm` | (flag) | false | Ask for confirmation before success |
 | `debug` | (flag) | false | Debug mode |
@@ -209,14 +209,14 @@ PAM (sudo)
 pam_linux_hello.so:pam_sm_authenticate()
     ├─ Parses PAM options (context=sudo, confirm=true, etc.)
     ├─ Retrieves PAM_USER and PAM_RHOST
-    ├─ Calls D-Bus: Verify {user_id, context="sudo", timeout_ms=5000}
+    ├─ Connects to the daemon's Unix socket: Verify {user_id, context="sudo", timeout_ms=30000}
     │   ↓
     │   Face daemon
-    │   ├─ Opens camera
-    │   ├─ Captures frame, detects face
-    │   ├─ Extracts embedding
-    │   ├─ Compares with stored embeddings
-    │   └─ Returns MatchResult
+    │   ├─ Opens the camera once, keeps it engaged for up to timeout_ms
+    │   ├─ Per frame: detects face, extracts embedding, compares with
+    │   │  stored embeddings
+    │   ├─ Exits early on 2 consecutive matching (+ liveness-passing) frames
+    │   └─ Returns MatchResult (Success, NoMatch, or NoFaceDetected)
     │
     ├─ If Success and confirm=true:
     │   ├─ pam_conv() → displays "Confirm sudo? [y/N]"

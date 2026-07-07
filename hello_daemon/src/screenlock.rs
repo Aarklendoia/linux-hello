@@ -223,7 +223,7 @@ async fn try_face_unlock(
     tokio::time::sleep(Duration::from_millis(1200)).await;
 
     info!(
-        "Automatic facial auth for uid={} (context=screenlock, timeout=12s)",
+        "Automatic facial auth for uid={} (context=screenlock, timeout=30s)",
         user_id
     );
 
@@ -232,7 +232,7 @@ async fn try_face_unlock(
         d.verify(VerifyRequest {
             user_id,
             context: "screenlock".to_string(),
-            timeout_ms: 12000,
+            timeout_ms: 30000,
         })
         .await
     };

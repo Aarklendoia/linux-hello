@@ -24,7 +24,7 @@ pub mod storage;
 
 use camera::CameraManager;
 use dbus_interface::{DeleteFaceRequest, RegisterFaceRequest, VerifyRequest, VerifyResult};
-use matcher::FaceMatcher;
+use matcher::{FaceMatcher, MatchResult};
 use storage::FaceStorage;
 
 /// Daemon errors
@@ -272,7 +272,13 @@ impl FaceAuthDaemon {
     pub async fn verify(&self, request: VerifyRequest) -> Result<VerifyResult, DaemonError> {
         // Check permissions
         self.check_user_permission(request.user_id)?;
-        verify_with_storage(&self.storage, &self.camera, &self.matcher, &request).await
+        verify_with_storage(
+            &self.storage,
+            &self.camera,
+            Arc::clone(&self.matcher),
+            &request,
+        )
+        .await
     }
 
     pub async fn list_faces(&self, user_id: u32) -> Result<String, DaemonError> {
@@ -319,6 +325,54 @@ impl FaceAuthDaemon {
     }
 }
 
+/// Accumulated state across the frames of one `verify_with_storage` capture
+/// attempt.
+#[derive(Default)]
+struct VerifyLoopState {
+    consecutive: u32,
+    any_face_detected: bool,
+    /// Highest-scoring frame seen so far, matched or not — used to report a
+    /// helpful `NoMatch` score/threshold if nothing ever hits the
+    /// consecutive-match requirement.
+    best_result: Option<MatchResult>,
+    /// Set exactly once, on the frame that completes
+    /// `required_consecutive` — guaranteed `matched` with a `face_id`,
+    /// unlike `best_result` above.
+    success_result: Option<MatchResult>,
+}
+
+/// Folds one frame's `MatchResult` into `state` and returns whether the
+/// capture loop should stop now (`required_consecutive` matching frames
+/// reached in a row). Pure/deterministic — exercised directly in unit tests
+/// below without needing a real camera.
+fn record_frame_result(
+    state: &mut VerifyLoopState,
+    result: MatchResult,
+    required_consecutive: u32,
+) -> bool {
+    state.any_face_detected = true;
+
+    let is_better = state
+        .best_result
+        .as_ref()
+        .map(|b| result.best_score > b.best_score)
+        .unwrap_or(true);
+    if is_better {
+        state.best_result = Some(result.clone());
+    }
+
+    if result.matched {
+        state.consecutive += 1;
+        if state.consecutive >= required_consecutive && state.success_result.is_none() {
+            state.success_result = Some(result);
+        }
+    } else {
+        state.consecutive = 0;
+    }
+
+    state.success_result.is_some()
+}
+
 /// Verify a face against a given storage/camera/matcher, independent of any
 /// particular `FaceAuthDaemon` instance.
 ///
@@ -335,7 +389,7 @@ impl FaceAuthDaemon {
 pub async fn verify_with_storage(
     storage: &FaceStorage,
     camera: &CameraManager,
-    matcher: &FaceMatcher,
+    matcher: Arc<FaceMatcher>,
     request: &VerifyRequest,
 ) -> Result<VerifyResult, DaemonError> {
     info!(
@@ -353,34 +407,6 @@ pub async fn verify_with_storage(
         return Ok(VerifyResult::NoEnrollment);
     }
 
-    // Capture 5 frames and take the best score
-    const NUM_VERIFY_FRAMES: u32 = 5;
-    let capture = camera
-        .capture_frames(NUM_VERIFY_FRAMES, request.timeout_ms)
-        .await
-        .map_err(|e| DaemonError::CameraError(e.to_string()))?;
-
-    // Filter the valid frames (with a detected face)
-    let valid_probes: Vec<_> = capture
-        .embeddings
-        .iter()
-        .filter(|e| !e.vector.is_empty() && e.metadata.quality_score > 0.0)
-        .collect();
-
-    if valid_probes.is_empty() {
-        info!(
-            "No face detected in the {} verification frames",
-            NUM_VERIFY_FRAMES
-        );
-        return Ok(VerifyResult::NoFaceDetected);
-    }
-
-    info!(
-        "{}/{} valid frames for verification",
-        valid_probes.len(),
-        NUM_VERIFY_FRAMES
-    );
-
     // Load the stored embeddings
     let mut stored_embeddings = std::collections::HashMap::new();
     for face in &faces {
@@ -389,37 +415,59 @@ pub async fn verify_with_storage(
             .map_err(|e| DaemonError::StorageError(e.to_string()))?;
         stored_embeddings.insert(face.face_id.clone(), embedding);
     }
+    let stored_embeddings = Arc::new(stored_embeddings);
 
-    // Match each valid frame, keep the best result
-    let best_result = valid_probes
-        .iter()
-        .map(|probe| {
-            matcher.match_with_liveness(
-                probe,
-                &stored_embeddings,
-                &request.context,
-                capture.ir_liveness,
-            )
-        })
-        .max_by(|a, b| {
-            a.best_score
-                .partial_cmp(&b.best_score)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        })
-        .unwrap(); // safe: valid_probes is non-empty
+    // Camera stays engaged (no on/off blink) and keeps trying for the whole
+    // request.timeout_ms window instead of a fixed quick burst — gives the
+    // user real time to notice the prompt and turn toward the camera.
+    // Requiring 2 consecutive matching (+ liveness-passing) frames before
+    // declaring Success offsets the fact that a long window gives many more
+    // independent chances at a single lucky false-accept than the old fixed
+    // 5-frame batch did; a genuine match reliably produces 2 consecutive
+    // good frames within well under a second at the observed ~220ms/frame
+    // capture rate.
+    const REQUIRED_CONSECUTIVE_MATCHES: u32 = 2;
 
-    if best_result.matched {
-        Ok(VerifyResult::Success {
-            face_id: best_result.face_id.unwrap(),
-            similarity_score: best_result.best_score,
+    let state = Arc::new(std::sync::Mutex::new(VerifyLoopState::default()));
+
+    let context = request.context.clone();
+    let state_clone = Arc::clone(&state);
+    let stored_clone = Arc::clone(&stored_embeddings);
+
+    camera
+        .capture_until(request.timeout_ms, move |embedding, ir_liveness| {
+            let result =
+                matcher.match_with_liveness(&embedding, &stored_clone, &context, ir_liveness);
+            let mut s = state_clone.lock().unwrap();
+            record_frame_result(&mut s, result, REQUIRED_CONSECUTIVE_MATCHES)
         })
-    } else if best_result.best_score > 0.0 {
-        Ok(VerifyResult::NoMatch {
-            best_score: best_result.best_score,
-            threshold: best_result.threshold,
-        })
-    } else {
-        Ok(VerifyResult::NoFaceDetected)
+        .await
+        .map_err(|e| DaemonError::CameraError(e.to_string()))?;
+
+    let final_state = state.lock().unwrap();
+
+    if let Some(success) = &final_state.success_result {
+        info!(
+            "Face recognized after {} consecutive matching frames (score={:.3})",
+            REQUIRED_CONSECUTIVE_MATCHES, success.best_score
+        );
+        return Ok(VerifyResult::Success {
+            face_id: success.face_id.clone().unwrap_or_default(),
+            similarity_score: success.best_score,
+        });
+    }
+
+    if !final_state.any_face_detected {
+        info!("No face detected within the verification window");
+        return Ok(VerifyResult::NoFaceDetected);
+    }
+
+    match &final_state.best_result {
+        Some(best) if best.best_score > 0.0 => Ok(VerifyResult::NoMatch {
+            best_score: best.best_score,
+            threshold: best.threshold,
+        }),
+        _ => Ok(VerifyResult::NoFaceDetected),
     }
 }
 
@@ -446,5 +494,82 @@ mod tests {
         let json = serde_json::to_string(&record).unwrap();
         let restored: FaceRecord = serde_json::from_str(&json).unwrap();
         assert_eq!(record.face_id, restored.face_id);
+    }
+
+    fn match_result(matched: bool, score: f32, face_id: &str) -> MatchResult {
+        MatchResult {
+            face_id: if matched {
+                Some(face_id.to_string())
+            } else {
+                None
+            },
+            best_score: score,
+            threshold: 0.6,
+            all_scores: std::collections::HashMap::new(),
+            matched,
+        }
+    }
+
+    #[test]
+    fn test_record_frame_result_stops_after_required_consecutive_matches() {
+        let mut state = VerifyLoopState::default();
+
+        // First matching frame: not enough yet (need 2 in a row).
+        let stop = record_frame_result(&mut state, match_result(true, 0.7, "face_1"), 2);
+        assert!(!stop);
+        assert_eq!(state.consecutive, 1);
+        assert!(state.success_result.is_none());
+
+        // Second consecutive matching frame: now it should stop.
+        let stop = record_frame_result(&mut state, match_result(true, 0.72, "face_1"), 2);
+        assert!(stop);
+        assert_eq!(state.consecutive, 2);
+        assert!(state.success_result.is_some());
+    }
+
+    #[test]
+    fn test_record_frame_result_resets_streak_on_non_match() {
+        let mut state = VerifyLoopState::default();
+
+        record_frame_result(&mut state, match_result(true, 0.7, "face_1"), 2);
+        assert_eq!(state.consecutive, 1);
+
+        // A non-matching frame in between must reset the streak — a single
+        // lucky frame surrounded by misses must not grant access.
+        let stop = record_frame_result(&mut state, match_result(false, 0.2, "face_1"), 2);
+        assert!(!stop);
+        assert_eq!(state.consecutive, 0);
+
+        // Two fresh consecutive matches after the reset should still work.
+        record_frame_result(&mut state, match_result(true, 0.7, "face_1"), 2);
+        let stop = record_frame_result(&mut state, match_result(true, 0.71, "face_1"), 2);
+        assert!(stop);
+    }
+
+    #[test]
+    fn test_record_frame_result_tracks_best_score_for_reporting() {
+        let mut state = VerifyLoopState::default();
+
+        record_frame_result(&mut state, match_result(false, 0.3, "face_1"), 2);
+        record_frame_result(&mut state, match_result(false, 0.5, "face_1"), 2);
+        record_frame_result(&mut state, match_result(false, 0.1, "face_1"), 2);
+
+        assert!(state.any_face_detected);
+        assert!(state.success_result.is_none());
+        assert_eq!(state.best_result.unwrap().best_score, 0.5);
+    }
+
+    #[test]
+    fn test_record_frame_result_success_result_locked_in_once() {
+        let mut state = VerifyLoopState::default();
+
+        record_frame_result(&mut state, match_result(true, 0.6, "face_1"), 2);
+        record_frame_result(&mut state, match_result(true, 0.6, "face_1"), 2);
+        // Further frames after success must not overwrite the recorded
+        // success_result (the loop is expected to have already stopped, but
+        // this guards the state transition itself regardless).
+        record_frame_result(&mut state, match_result(true, 0.99, "face_2"), 2);
+
+        assert_eq!(state.success_result.unwrap().face_id.unwrap(), "face_1");
     }
 }

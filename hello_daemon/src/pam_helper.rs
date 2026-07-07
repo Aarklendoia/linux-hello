@@ -381,7 +381,7 @@ async fn handle_system_pam_request(
                     let timeout = std::time::Duration::from_millis(verify_req.timeout_ms + 1000);
                     let result = tokio::time::timeout(
                         timeout,
-                        verify_with_storage(&storage, &camera, &matcher, &verify_req),
+                        verify_with_storage(&storage, &camera, Arc::clone(&matcher), &verify_req),
                     )
                     .await;
 

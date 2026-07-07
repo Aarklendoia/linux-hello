@@ -158,7 +158,15 @@ auth [sufficient|required] /path/to/libpam_linux_hello.so [options]
 ### Available options
 
 - `context=<context>`: Authentication context (login, sudo, screenlock, sddm, test, etc.) [default: default]
-- `timeout_ms=<ms>`: Timeout in milliseconds for capture [default: 5000]
+- `timeout_ms=<ms>`: How long the camera stays engaged trying to recognize
+  you [default: 30000]. Unlike a fixed quick burst, the camera opens once
+  and keeps retrying continuously for up to this long — giving you real
+  time to notice the prompt and turn toward the camera — and exits as soon
+  as it gets 2 consecutive matching frames, so a fast recognition doesn't
+  make you wait out the full window. (Previously this was a ceiling on a
+  single fixed 5-frame capture that always finished in ~1-2s regardless of
+  the value configured — raising it now actually extends the engagement
+  window.)
 - `similarity_threshold=<0.0-1.0>`: Similarity threshold [default: 0.6]
 - `confirm`: After a face match, prompt "Confirm? [y/N]" and require an
   explicit `y` before granting access, instead of granting immediately.

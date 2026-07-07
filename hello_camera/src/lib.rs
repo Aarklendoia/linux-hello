@@ -555,6 +555,76 @@ where
     Ok(())
 }
 
+/// Capture RGB frames continuously from a **single, persistently open**
+/// V4L2 stream, invoking `on_frame` for each one and stopping as soon as it
+/// returns `true` ("I've decided, stop") or the wall-clock `timeout_ms`
+/// deadline is reached — whichever comes first.
+///
+/// Unlike `capture_rgb_stream_v4l2` (kept as-is for enrollment's fixed
+/// sample-count use case), this is for the verify path: it keeps the device
+/// open for the whole attempt window so the camera's activity LED stays
+/// steadily on instead of blinking on/off on every repeated call.
+///
+/// Explicitly sets the underlying `v4l::Stream`'s per-dequeue poll timeout
+/// (left unset — i.e. block forever — by the other capture functions here):
+/// without it, a single stalled `stream.next()` isn't actually bounded by
+/// `timeout_ms` at all, since the deadline is only checked *before* starting
+/// a new dequeue, not during one already in flight.
+#[cfg(feature = "v4l2")]
+pub fn capture_rgb_stream_until<F>(
+    device_path: &str,
+    timeout_ms: u64,
+    mut on_frame: F,
+) -> Result<(), CameraError>
+where
+    F: FnMut(Vec<u8>, u32, u32) -> bool,
+{
+    use v4l::buffer::Type;
+    use v4l::io::traits::CaptureStream;
+    use v4l::video::Capture;
+
+    let dev = v4l::Device::with_path(device_path)
+        .map_err(|e| CameraError::NotAvailable(format!("{}: {}", device_path, e)))?;
+
+    let mut fmt = dev
+        .format()
+        .map_err(|e| CameraError::OpenFailed(e.to_string()))?;
+    fmt.width = 640;
+    fmt.height = 480;
+    fmt.fourcc = v4l::format::FourCC::new(b"YUYV");
+
+    let applied = dev
+        .set_format(&fmt)
+        .map_err(|e| CameraError::OpenFailed(format!("set_format YUYV: {}", e)))?;
+
+    let width = applied.width;
+    let height = applied.height;
+
+    let mut stream = v4l::io::mmap::Stream::with_buffers(&dev, Type::VideoCapture, 4)
+        .map_err(|e| CameraError::CaptureFailed(format!("Stream creation error: {}", e)))?;
+    // Per-dequeue bound, well above the observed ~220ms/frame rate, so a
+    // stalled frame can't silently defeat the overall deadline below.
+    stream.set_timeout(std::time::Duration::from_millis(2000));
+
+    let start = std::time::Instant::now();
+    let deadline = std::time::Duration::from_millis(timeout_ms);
+
+    while start.elapsed() < deadline {
+        match stream.next() {
+            Ok((buf, _meta)) => {
+                let rgb = yuyv_to_rgb_strided(buf, width, height, applied.stride);
+                if on_frame(rgb, width, height) {
+                    return Ok(());
+                }
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::TimedOut => continue,
+            Err(e) => return Err(CameraError::CaptureFailed(format!("Capture error: {}", e))),
+        }
+    }
+
+    Ok(())
+}
+
 /// Create a camera with the default available backend
 pub fn create_camera(config: CameraConfig) -> Result<Box<dyn CameraBackend>, CameraError> {
     #[cfg(feature = "v4l2")]
