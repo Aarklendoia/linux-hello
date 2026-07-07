@@ -49,6 +49,27 @@ is named `kscreenlocker`, with no file present unless the distro ships one),
 so that approach never did anything in practice — removed rather than fixed,
 since the watcher already solves this without it.
 
+The watcher only ever made one attempt, right at the moment the screen
+locked, with no way to retry if you didn't come back within its window —
+`hello-daemon` now also runs a small local control server (loopback,
+`GET /status` / `POST /retry`) and the diverted KDE lock-screen QML
+(`qml/lockscreen/MainBlock.qml`) polls it to show a live status ("🔍
+Reconnaissance en cours…", "✓ Visage reconnu", "✗ Non reconnu…"), offers a
+"Réessayer" button, and auto-retries on any keypress (the reliable proxy for
+"the user is back," since `kscreenlocker_greet`'s QML tree stays resident
+across DPMS blank/unblank — there's no separate "screen woke up" signal to
+hook). A "Utiliser le mot de passe" button hides the status UI and focuses
+the password field. Note: `kscreenlocker_greet`'s QML engine blocks
+`XMLHttpRequest`'s real network access (confirmed empirically — requests
+complete with `status=0`), so the QML side reaches the control server via a
+`Plasma5Support.DataSource` (`engine: "executable"`) shelling out to `curl`
+instead, which isn't subject to that restriction. This makes `curl` a soft
+runtime dependency of the live status/retry UI (not declared as a package
+`Depends`, matching this file's other implicit Plasma-desktop-only
+dependencies): if it's missing, the status poll just silently gets no data
+and the UI simply doesn't update — the original one-shot automatic unlock
+attempt at lock time still works either way.
+
 **Not covered by the automatic timer — the SDDM login screen.**
 `linux-hello-pam-autoconfigure` deliberately never touches `/etc/pam.d/sddm`.
 Login-screen support does exist (see [SDDM (Login Screen)](#sddm-login-screen)
