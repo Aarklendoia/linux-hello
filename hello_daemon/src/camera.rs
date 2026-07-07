@@ -363,6 +363,122 @@ impl CameraManager {
         })
     }
 
+    /// Capture RGB frames continuously (device opened once, for the whole
+    /// attempt) for up to `timeout_ms`, extracting an embedding from each
+    /// frame with a detected face and handing it to `on_frame` together
+    /// with a once-per-session IR liveness score (sampled from a single IR
+    /// frame at the very start — same "first frame" semantics
+    /// `capture_frames` already used; periodic re-sampling across the
+    /// window would be a nice future improvement, not required now). Stops
+    /// as soon as `on_frame` returns `true` ("I've decided, stop") or the
+    /// deadline elapses.
+    ///
+    /// Used by `verify()`'s attempt loop so the camera stays visibly
+    /// engaged for the whole window instead of a fixed quick burst —
+    /// `capture_frames` is kept unchanged for enrollment's fixed-sample-
+    /// count use case.
+    pub async fn capture_until<F>(
+        &self,
+        timeout_ms: u64,
+        mut on_frame: F,
+    ) -> Result<(), CameraError>
+    where
+        F: FnMut(Embedding, Option<f32>) -> bool + Send + 'static,
+    {
+        let timeout = if timeout_ms == 0 {
+            self.default_timeout_ms
+        } else {
+            timeout_ms
+        };
+
+        info!(
+            "Continuous capture for up to {}ms, rgb={}, ir={}",
+            timeout,
+            self.rgb_device,
+            self.ir_device.as_deref().unwrap_or("none")
+        );
+
+        let rgb_device = self.rgb_device.clone();
+        let ir_device = self.ir_device.clone();
+        let detector = Arc::clone(&self.detector);
+        let extractor = Arc::clone(&self.extractor);
+
+        tokio::task::spawn_blocking(move || -> Result<(), CameraError> {
+            // Held for the whole attempt; released when this closure returns.
+            let _camera_lock = CameraLock::try_acquire()?;
+
+            // Sample IR liveness once at the start of the attempt (same
+            // "first frame" semantics as capture_frames today).
+            let ir_liveness = ir_device.as_deref().and_then(|ir_path| {
+                let mut ir_frame: Option<Frame> = None;
+                let _ = hello_camera::capture_gray_stream_v4l2(ir_path, 1, 2000, |data, w, h| {
+                    ir_frame = Some(Frame {
+                        data,
+                        width: w,
+                        height: h,
+                        format: FrameFormat::Gray8,
+                        timestamp_ms: 0,
+                    });
+                });
+                let frame = ir_frame?;
+                let dummy_face = hello_face_core::FaceRegion {
+                    bounding_box: (
+                        frame.width / 4,
+                        frame.height / 5,
+                        frame.width / 2,
+                        frame.height * 3 / 5,
+                    ),
+                    confidence: 1.0,
+                    landmarks: vec![],
+                };
+                Some(hello_face_core::liveness::ir_liveness_score(
+                    &frame.data,
+                    frame.width,
+                    frame.height,
+                    &dummy_face,
+                ))
+            });
+
+            let mut frame_index: u32 = 0;
+            let result =
+                hello_camera::capture_rgb_stream_until(&rgb_device, timeout, |data, w, h| {
+                    frame_index += 1;
+                    let faces = match detector.detect(&data, w, h, 3) {
+                        Ok(f) => f,
+                        Err(e) => {
+                            warn!("SCRFD detection error frame {}: {}", frame_index, e);
+                            return false;
+                        }
+                    };
+                    let Some(best_face) = faces
+                        .into_iter()
+                        .max_by(|a, b| a.confidence.partial_cmp(&b.confidence).unwrap())
+                    else {
+                        return false; // no face in this frame, keep going
+                    };
+                    let embedding = match extractor.extract(&best_face, &data, w, h, 3) {
+                        Ok(emb) => emb,
+                        Err(e) => {
+                            warn!("Embedding extraction frame {}: {}", frame_index, e);
+                            return false;
+                        }
+                    };
+                    on_frame(embedding, ir_liveness)
+                });
+
+            if let Err(e) = result {
+                // Same fail-safe spirit as capture_frames: a capture hiccup
+                // degrades to "no more frames for this attempt", it doesn't
+                // hard-fail verify() (camera lock contention above is the
+                // one exception that does propagate).
+                warn!("Continuous RGB capture ended: {}", e);
+            }
+            Ok(())
+        })
+        .await
+        .map_err(|e| CameraError::CaptureError(e.to_string()))?
+    }
+
     /// Start a capture session with live streaming
     pub async fn start_capture_stream<F>(
         &self,
