@@ -1,7 +1,6 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import QtMultimedia
 import org.kde.kirigami as Kirigami
 import Linux.Hello 1.0
 
@@ -13,19 +12,22 @@ Kirigami.Page {
     Layout.fillWidth: true
     Layout.fillHeight: true
 
-    // Start the MJPEG player on creation (page is only created when navigated to via URL)
+    // Start polling snapshots on creation (page is only created when navigated to via URL)
     Component.onCompleted: {
-        mjpegPlayer.play();
+        snapshotTimer.start();
     }
 
     Component.onDestruction: {
-        mjpegPlayer.stop();
+        snapshotTimer.stop();
     }
-    // MJPEG player — connects to the daemon's server on 127.0.0.1:17823
-    MediaPlayer {
-        id: mjpegPlayer
-        videoOutput: cameraPreview
-        source: "http://127.0.0.1:17823"
+
+    // Polls a single JPEG per tick instead of playing the daemon's MJPEG feed:
+    // QtMultimedia's MediaPlayer cannot demux a raw multipart/x-mixed-replace stream.
+    Timer {
+        id: snapshotTimer
+        interval: 150
+        repeat: true
+        onTriggered: cameraPreview.source = "http://127.0.0.1:17823/snapshot?t=" + Date.now()
     }
 
     ColumnLayout {
@@ -56,10 +58,13 @@ Kirigami.Page {
             radius: Kirigami.Units.smallSpacing
             property string previewStatus: qsTr("Aperçu inactif")
 
-            VideoOutput {
+            Image {
                 id: cameraPreview
                 anchors.fill: parent
                 anchors.margins: Kirigami.Units.smallSpacing
+                fillMode: Image.PreserveAspectFit
+                cache: false
+                asynchronous: true
             }
 
             Label {
