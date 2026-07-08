@@ -14,6 +14,11 @@ pub const MJPEG_PORT: u16 = 17823;
 /// Broadcast channel: capacity 1 = always keep the most recent frame.
 static MJPEG_TX: OnceLock<broadcast::Sender<Vec<u8>>> = OnceLock::new();
 
+/// Latest encoded frame, for single-shot snapshot requests (GET /snapshot).
+/// QtMultimedia's MediaPlayer cannot demux a raw multipart/x-mixed-replace
+/// stream, so the GUI polls single JPEGs instead of playing the MJPEG feed.
+static LATEST_JPEG: OnceLock<Mutex<Option<Vec<u8>>>> = OnceLock::new();
+
 /// EMA-smoothed state of the detection rectangle: (x, y, w, h) as f32.
 type SmoothBoxState = Mutex<Option<(f32, f32, f32, f32)>>;
 static SMOOTH_BOX: OnceLock<SmoothBoxState> = OnceLock::new();
@@ -38,9 +43,34 @@ pub async fn start_mjpeg_server() -> anyhow::Result<()> {
                     let mut rx = tx.subscribe();
                     tokio::spawn(async move {
                         let (mut reader, mut writer) = stream.into_split();
-                        // Read and discard the incoming HTTP request
+                        // Read the incoming HTTP request line to route /snapshot vs the MJPEG feed
                         let mut buf = [0u8; 1024];
-                        let _ = reader.read(&mut buf).await;
+                        let n = reader.read(&mut buf).await.unwrap_or(0);
+                        let is_snapshot = buf[..n].starts_with(b"GET /snapshot");
+
+                        if is_snapshot {
+                            let jpeg = LATEST_JPEG
+                                .get_or_init(|| Mutex::new(None))
+                                .lock()
+                                .unwrap()
+                                .clone();
+                            match jpeg {
+                                Some(jpeg) => {
+                                    let headers = format!(
+                                        "HTTP/1.1 200 OK\r\nContent-Type: image/jpeg\r\nCache-Control: no-cache\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                                        jpeg.len()
+                                    );
+                                    let _ = writer.write_all(headers.as_bytes()).await;
+                                    let _ = writer.write_all(&jpeg).await;
+                                }
+                                None => {
+                                    let _ = writer
+                                        .write_all(b"HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n")
+                                        .await;
+                                }
+                            }
+                            return;
+                        }
 
                         // MJPEG multipart HTTP headers
                         let headers = b"HTTP/1.1 200 OK\r\nContent-Type: multipart/x-mixed-replace; boundary=frame\r\nCache-Control: no-cache\r\nConnection: close\r\n\r\n";
@@ -185,6 +215,7 @@ pub fn export_preview_frame_rgb(data: &[u8], width: u32, height: u32) -> anyhow:
     let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut cursor, 65);
     small.write_with_encoder(encoder)?;
 
+    *LATEST_JPEG.get_or_init(|| Mutex::new(None)).lock().unwrap() = Some(jpeg_bytes.clone());
     if let Some(tx) = MJPEG_TX.get() {
         let _ = tx.send(jpeg_bytes);
     }

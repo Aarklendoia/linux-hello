@@ -1,3 +1,18 @@
+linux-hello (1.0.5-2) unstable; urgency=medium
+
+  * Cargo.toml workspace version was stuck at 0.1.0, out of sync with this
+    changelog, so hello-daemon logged "Version: 0.1.0" for what was actually
+    a 1.0.5-1 package — bumped to 1.0.5 to match.
+  * linux_hello_config: Enrollment.qml/TestAuth.qml played the daemon's MJPEG
+    preview (127.0.0.1:17823, multipart/x-mixed-replace) through a
+    QtMultimedia MediaPlayer/VideoOutput, which cannot demux a raw multipart
+    stream (confirmed hanging indefinitely under ffprobe) — the camera
+    preview never rendered. Replaced with an Image polling a new /snapshot
+    route added to hello_daemon's preview server, which returns the latest
+    frame as a single image/jpeg response (503 until the first frame lands).
+
+ -- Linux Hello Team <dev@linuxhello.local>  Mon, 06 Jul 2026 12:41:10 +0200
+
 linux-hello (1.0.5-1) unstable; urgency=medium
 
   * Add SDDM (login screen) biometric authentication support.

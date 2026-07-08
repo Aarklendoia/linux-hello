@@ -1,7 +1,6 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import QtMultimedia
 import org.kde.kirigami as Kirigami
 import Linux.Hello 1.0
 
@@ -13,18 +12,20 @@ Kirigami.Page {
     Layout.fillHeight: true
 
     Component.onCompleted: {
-        mjpegPlayer.play();
+        snapshotTimer.start();
     }
 
     Component.onDestruction: {
-        mjpegPlayer.stop();
+        snapshotTimer.stop();
     }
 
-    // Live camera preview during the test
-    MediaPlayer {
-        id: mjpegPlayer
-        videoOutput: cameraPreview
-        source: "http://127.0.0.1:17823"
+    // Polls a single JPEG per tick instead of playing the daemon's MJPEG feed:
+    // QtMultimedia's MediaPlayer cannot demux a raw multipart/x-mixed-replace stream.
+    Timer {
+        id: snapshotTimer
+        interval: 150
+        repeat: true
+        onTriggered: cameraPreview.source = "http://127.0.0.1:17823/snapshot?t=" + Date.now()
     }
 
     // Internal states
@@ -70,10 +71,13 @@ Kirigami.Page {
                 return Kirigami.Theme.textColor;
             }
 
-            VideoOutput {
+            Image {
                 id: cameraPreview
                 anchors.fill: parent
                 anchors.margins: Kirigami.Units.smallSpacing
+                fillMode: Image.PreserveAspectFit
+                cache: false
+                asynchronous: true
             }
 
             // Centered result overlay
