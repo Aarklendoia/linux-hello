@@ -49,7 +49,11 @@ pub async fn start_mjpeg_server() -> anyhow::Result<()> {
                         let is_snapshot = buf[..n].starts_with(b"GET /snapshot");
 
                         if is_snapshot {
-                            let jpeg = LATEST_JPEG.get_or_init(|| Mutex::new(None)).lock().unwrap().clone();
+                            let jpeg = LATEST_JPEG
+                                .get_or_init(|| Mutex::new(None))
+                                .lock()
+                                .unwrap()
+                                .clone();
                             match jpeg {
                                 Some(jpeg) => {
                                     let headers = format!(
