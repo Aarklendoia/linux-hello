@@ -76,6 +76,13 @@ Commit message format:
 - `test:` for tests
 - `chore:` for maintenance tasks
 
+Commit messages drive automated releases (see "Releases" below), so the
+prefix matters: `feat:` bumps the minor version, `fix:`/`perf:` bump the
+patch version, and a `!` after the type (e.g. `feat!:`) or a `BREAKING
+CHANGE:` footer bumps the major version. Everything else (`chore:`,
+`style:`, `docs:`, `refactor:`, `test:`, `ci:`) doesn't trigger a release
+by itself.
+
 ### 5. Push and create a Pull Request
 
 ```bash
@@ -95,7 +102,7 @@ The project uses the Debian 3.0 (quilt) format for Debian packages.
 
 ### Structure
 
-```
+```text
 debian/
 ├── source/
 │   └── format (3.0 quilt)
@@ -114,6 +121,20 @@ quilt add file-to-modify
 # Modify the file
 quilt refresh
 ```
+
+## Releases
+
+Versioning and releases are automated by
+[release-please](https://github.com/googleapis/release-please) — **don't
+hand-edit the version in `Cargo.toml` or add a `debian/changelog` entry
+for a release.** On every push to `main`, it reads the Conventional
+Commits since the last release, maintains an up-to-date "Release PR"
+that bumps `Cargo.toml`'s workspace version and accumulates
+`CHANGELOG.md`. Merging that PR creates a `vX.Y.Z` git tag and a GitHub
+Release, which triggers `build-debian.yml`: it generates a matching
+`debian/changelog` entry on the fly (pointing back to `CHANGELOG.md` for
+details — this entry is never committed, only used for that build) and
+attaches the built `.deb` files to the Release.
 
 ## Debian Packages
 
