@@ -12,7 +12,6 @@
         "action3": "• Configurer les paramètres de sécurité",
         "registerBtn": "📷 Enregistrer le Visage",
         "manageFacesBtn": "👤 Gérer les Visages",
-        "testAuthBtn": "🔍 Tester l'Authentification",
         "settingsBtn": "⚙️ Paramètres"
     },
     "enrollment": {
@@ -52,31 +51,5 @@
         "deleteBtn": "🗑️ Supprimer",
         "registerNewBtn": "+ Enregistrer un Nouveau Visage",
         "backBtn": "Retour"
-    },
-    "testAuth": {
-        "title": "Test d’Authentification",
-        "subtitle": "Tester la Reconnaissance Faciale",
-        "context": "Contexte :",
-        "score": "Score de similarité :",
-        "startBtn": "🔍 Tester l’Authentification",
-        "testing": "Test en cours...",
-        "ctx": {
-            "gui": "Interface graphique",
-            "sudo": "sudo",
-            "login": "Connexion",
-            "screenlock": "Écran de verrouillage",
-            "sddm": "Écran de connexion (SDDM)"
-        },
-        "result": {
-            "success": "Authentification réussie",
-            "noMatch": "Visage non reconnu",
-            "noFace": "Aucun visage détecté",
-            "noEnrollment": "Aucun visage enregistré",
-            "cancelled": "Annulé"
-        },
-        "err": {
-            "daemon": "Daemon non disponible",
-            "unknown": "Erreur inconnue"
-        }
     }
 }

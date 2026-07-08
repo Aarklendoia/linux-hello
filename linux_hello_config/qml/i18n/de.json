@@ -12,8 +12,7 @@
         "action3": "• Sicherheitseinstellungen konfigurieren",
         "registerBtn": "📷 Gesicht Registrieren",
         "manageFacesBtn": "👤 Gesichter Verwalten",
-        "settingsBtn": "⚙️ Einstellungen",
-        "testAuthBtn": "🔍 Authentifizierung testen"
+        "settingsBtn": "⚙️ Einstellungen"
     },
     "enrollment": {
         "title": "Gesichtsregistrierung",
@@ -51,31 +50,5 @@
         "deleteBtn": "🗑️ Löschen",
         "registerNewBtn": "+ Neues Gesicht Registrieren",
         "backBtn": "Zurück"
-    },
-    "testAuth": {
-        "title": "Authentifizierungstest",
-        "subtitle": "Gesichtserkennung testen",
-        "context": "Kontext:",
-        "score": "Ähnlichkeitswert:",
-        "startBtn": "🔍 Authentifizierung testen",
-        "testing": "Teste...",
-        "ctx": {
-            "gui": "Grafische Oberfläche",
-            "sudo": "sudo",
-            "login": "Anmeldung",
-            "screenlock": "Bildschirmsperre",
-            "sddm": "Anmeldebildschirm (SDDM)"
-        },
-        "result": {
-            "success": "Authentifizierung erfolgreich",
-            "noMatch": "Gesicht nicht erkannt",
-            "noFace": "Kein Gesicht erkannt",
-            "noEnrollment": "Keine registrierten Gesichter",
-            "cancelled": "Abgebrochen"
-        },
-        "err": {
-            "daemon": "Dienst nicht verfügbar",
-            "unknown": "Unbekannter Fehler"
-        }
     }
 }

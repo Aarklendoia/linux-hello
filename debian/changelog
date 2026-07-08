@@ -1,3 +1,17 @@
+linux-hello (1.0.6-1) unstable; urgency=medium
+
+  * linux_hello_config: remove the "Test Authentication" GUI screen
+    (TestAuth.qml) and its home.testAuthBtn entry point. It called Verify
+    directly over D-Bus, bypassing PAM entirely, so a pass there didn't
+    mean sudo/screenlock/SDDM would actually accept the face — misleading
+    despite the name. Enrollment and face management are unaffected; use
+    a real auth prompt (sudo, screenlock) to test recognition instead.
+    Also drops the now-unused /test-auth route from the GUI's local
+    control server and the corresponding translation strings in all 10
+    locales.
+
+ -- Linux Hello Team <dev@linuxhello.local>  Wed, 08 Jul 2026 11:10:00 +0200
+
 linux-hello (1.0.5-2) unstable; urgency=medium
 
   * Cargo.toml workspace version was stuck at 0.1.0, out of sync with this

@@ -31,8 +31,8 @@ The Rust binary (`src/main.rs`) is a thin launcher, not a GUI toolkit host:
 - `main.qml` — root window and navigation
 - `AppController.qml` — talks to the Rust control server (enrollment,
   status polling)
-- `Home.qml`, `Enrollment.qml`, `Settings.qml`, `ManageFaces.qml`,
-  `TestAuth.qml` — the app's screens
+- `Home.qml`, `Enrollment.qml`, `Settings.qml`, `ManageFaces.qml` — the
+  app's screens
 - `I18n.qml` + `i18n/*.json` — the translation layer and per-language
   string tables (10 languages, see `docs/I18N_IMPLEMENTATION.md`)
 
