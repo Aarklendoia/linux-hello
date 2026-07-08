@@ -63,6 +63,22 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-
       
+      - name: Generate debian/changelog entry for this release
+        # Only on the tag release-please creates (vX.Y.Z) — regular branch/PR
+        # builds keep whatever entry is already committed. This is generated
+        # fresh at build time, never committed back: release-please already
+        # owns Cargo.toml's version and CHANGELOG.md, so debian/changelog no
+        # longer needs to be hand-bumped in lockstep (see CONTRIBUTING.md).
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          DEBFULLNAME: Linux Hello Team
+          DEBEMAIL: dev@linuxhello.local
+        run: |
+          cd $GITHUB_WORKSPACE
+          VERSION="${GITHUB_REF_NAME#v}"
+          dch --newversion "${VERSION}-1" --distribution unstable --urgency medium \
+            "Automated release ${VERSION}. See CHANGELOG.md for full details."
+
       - name: Build Debian packages
         run: |
           cd $GITHUB_WORKSPACE
