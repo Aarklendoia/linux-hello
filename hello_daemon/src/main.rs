@@ -7,8 +7,6 @@ use hello_daemon::{dbus::FaceAuthInterface, DaemonConfig, FaceAuthDaemon};
 use std::path::PathBuf;
 use tracing::{error, info, warn};
 
-extern crate libc;
-
 #[derive(Parser, Debug)]
 #[command(name = "hello-daemon")]
 #[command(about = "Linux Hello - Facial authentication daemon", long_about = None)]
