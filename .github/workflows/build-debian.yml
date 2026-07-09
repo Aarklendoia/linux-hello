@@ -76,7 +76,11 @@ jobs:
         run: |
           cd $GITHUB_WORKSPACE
           VERSION="${GITHUB_REF_NAME#v}"
-          dch --newversion "${VERSION}-1" --distribution unstable --urgency medium \
+          # No "-1" Debian revision suffix: this package is "3.0 (native)"
+          # format (see debian/source/format), where dpkg-source warns that
+          # native packages can't carry a revision number — the upstream
+          # version alone is the package version.
+          dch --newversion "${VERSION}" --distribution unstable --urgency medium \
             "Automated release ${VERSION}. See CHANGELOG.md for full details."
 
       - name: Build Debian packages

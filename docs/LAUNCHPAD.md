@@ -135,8 +135,9 @@ For each series you want to support (e.g. `noble` 24.04, `plucky` 25.04):
 
 # One changelog entry per series, with a ~ppa<N>~<series><N> suffix so
 # versions sort correctly and never collide with an eventual Debian/Ubuntu
-# archive version:
-dch --newversion "1.1.0-1~ppa1~noble1" --distribution noble \
+# archive version. No "-1" revision: this package is "3.0 (native)"
+# format, which can't carry a Debian revision number.
+dch --newversion "1.1.0~ppa1~noble1" --distribution noble \
   "Automated PPA build for Ubuntu 24.04 (noble)."
 
 # Build a signed, source-only package (needs the GPG key from step 1):
@@ -144,7 +145,7 @@ debuild -S -sa
 
 # Upload — dput reads the changes file, uploads over SFTP, Launchpad
 # builds it on its farm and publishes to the PPA once it succeeds:
-dput ppa:aarklendoia-edtech/linux-hello ../linux-hello_1.1.0-1~ppa1~noble1_source.changes
+dput ppa:aarklendoia-edtech/linux-hello ../linux-hello_1.1.0~ppa1~noble1_source.changes
 ```
 
 Repeat the `dch` + `debuild -S -sa` + `dput` cycle per series (no need to
