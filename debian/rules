@@ -17,7 +17,16 @@ override_dh_auto_clean:
 	true
 
 override_dh_auto_build:
-	cargo build --release --verbose
+	# If vendor/ + .cargo/config.toml are present (see
+	# debian/scripts/prepare-offline-build.sh), build fully offline — this is
+	# what a Launchpad PPA build needs, since its builders have no general
+	# internet access to reach crates.io. Otherwise (GitHub Actions, local
+	# dev), fall back to the normal networked build.
+	if [ -d $(CURDIR)/vendor ] && [ -f $(CURDIR)/.cargo/config.toml ]; then \
+		cargo build --release --verbose --offline; \
+	else \
+		cargo build --release --verbose; \
+	fi
 	# Qt6 GUI is built as a simple Rust binary by cargo, QML files are handled at runtime
 
 override_dh_auto_test:

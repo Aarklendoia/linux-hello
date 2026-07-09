@@ -4,6 +4,11 @@ Cargo.lock
 **/*.rs.bk
 *.pdb
 
+# Vendored deps for offline Launchpad/PPA builds (regenerated per release,
+# see debian/scripts/prepare-offline-build.sh) — not meant to live in git.
+/vendor/
+/.cargo/
+
 # IDEs
 .vscode/
 .idea/

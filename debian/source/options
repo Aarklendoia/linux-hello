@@ -1,0 +1,9 @@
+# Keep Rust build artifacts out of the source tarball regardless of what's
+# sitting in the working directory when `debuild -S` runs — dpkg-source's
+# default ignore list only knows about VCS/backup files, not `target/`.
+#
+# This is `3.0 (native)` format, so there's no upstream/debian diff being
+# generated — the whole directory is tarred directly, which is what
+# --tar-ignore (not --diff-ignore, which only affects non-native diffs)
+# controls.
+tar-ignore = "target"
