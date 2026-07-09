@@ -1,5 +1,5 @@
 Source: linux-hello
-Section: system
+Section: admin
 Priority: optional
 Maintainer: Linux Hello Team <dev@linuxhello.local>
 Build-Depends:
