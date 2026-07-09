@@ -454,7 +454,7 @@ pub unsafe extern "C" fn pam_sm_authenticate(
     log_pam(&format!("Face authentication for user: {}", username));
     log_pam(&format!(
         "pam_sm_authenticate user={} context={} timeout_ms={}",
-        username, &opts.context, opts.timeout_ms
+        username, opts.context, opts.timeout_ms
     ));
 
     // Retrieve the user's UID
