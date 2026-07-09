@@ -14,8 +14,9 @@ Build-Depends:
   qml6-module-qtquick-layouts,
   qml6-module-qtquick-controls
 Standards-Version: 4.6.1
-Homepage: <https://github.com/linuxhello/face-auth>
-Vcs-Git: <https://github.com/linuxhello/face-auth.git>
+Homepage: https://github.com/Aarklendoia/linux-hello
+Vcs-Git: https://github.com/Aarklendoia/linux-hello.git
+Vcs-Browser: https://github.com/Aarklendoia/linux-hello
 Rules-Requires-Root: no
 
 Package: linux-hello

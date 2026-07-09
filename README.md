@@ -1,6 +1,44 @@
 # Linux Hello
 
+[![Tests](https://github.com/Aarklendoia/linux-hello/actions/workflows/test.yml/badge.svg)](https://github.com/Aarklendoia/linux-hello/actions/workflows/test.yml)
+[![Build Debian Packages](https://github.com/Aarklendoia/linux-hello/actions/workflows/build-debian.yml/badge.svg)](https://github.com/Aarklendoia/linux-hello/actions/workflows/build-debian.yml)
+[![Quality](https://github.com/Aarklendoia/linux-hello/actions/workflows/quality.yml/badge.svg)](https://github.com/Aarklendoia/linux-hello/actions/workflows/quality.yml)
+[![Latest release](https://img.shields.io/github/v/release/Aarklendoia/linux-hello)](https://github.com/Aarklendoia/linux-hello/releases/latest)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3--or--later-blue.svg)](LICENSE)
+[![Rust](https://img.shields.io/badge/rust-1.94%2B-orange.svg)](https://www.rust-lang.org)
+
 A Windows Hello-style facial recognition authentication system for Linux, integrating with PAM (`sudo`, screen unlock) via a D-Bus daemon and a KDE Plasma configuration GUI.
+
+**Keywords:** face recognition Linux, facial authentication Linux, biometric login Ubuntu Debian, Windows Hello alternative Linux, PAM face unlock, sudo face authentication, KDE Plasma face unlock, screen unlock face recognition, ONNX face detection, open source biometric authentication.
+
+## What is Linux Hello?
+
+Linux Hello lets you unlock `sudo` prompts and your screen lock by looking at your webcam, the same way Windows Hello or macOS's biometric prompts work — except it's free, open source, and runs entirely on your machine (no cloud, no telemetry).
+
+- **You don't need to be a developer to use it.** If you're comfortable installing a `.deb` file and running one or two commands in a terminal, you can set it up in a few minutes — see [Quick start](#quick-start-for-everyday-users) below.
+- **It never locks you out.** If the camera fails, the light is bad, or your face isn't recognized, Linux Hello simply falls back to your normal password — it only ever adds a faster option, it never replaces or breaks your existing login.
+- **It works alongside `sudo` and your screen lock**, not instead of them — nothing about your existing password-based login changes unless you choose to enroll your face.
+
+## Quick start (for everyday users)
+
+Requirements: a Debian- or Ubuntu-based Linux distribution, a webcam, and a terminal.
+
+1. **Download** the latest `.deb` packages from the [Releases page](https://github.com/Aarklendoia/linux-hello/releases/latest).
+2. **Install** them (this also installs any missing dependencies):
+
+   ```bash
+   sudo apt install ./linux-hello_*.deb
+   ```
+
+3. **Enroll your face** (replace `$(id -u)` with your own if enrolling for another user):
+
+   ```bash
+   linux-hello enroll $(id -u) --context sudo --samples 3
+   ```
+
+4. **Try it**: open a terminal and run `sudo -k && sudo -v` — look at your webcam, and it should authenticate you without asking for a password.
+
+That's it. To also enable face unlock on your login/lock screen, or to manage enrolled faces through a graphical settings app, see [docs/QUICKSTART.md](docs/QUICKSTART.md) and the `linux-hello-gui` package.
 
 ## How it works
 
@@ -111,7 +149,7 @@ linux-hello delete <uid> [face_id]
 
 ## Documentation
 
-Further docs live in [`docs/`](docs/): architecture and D-Bus/PAM design, GUI architecture, internationalization, screenlock integration, CI/CD infrastructure, command reference, development and release process.
+Further docs live in [`docs/`](docs/): architecture and D-Bus/PAM design, GUI architecture, internationalization, screenlock integration, CI/CD infrastructure, command reference, development and release process, and [publishing to Launchpad](docs/LAUNCHPAD.md).
 
 ## Contributing
 
@@ -119,4 +157,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) and [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.
 
 ## License
 
-GPL-3.0-or-later.
+[GPL-3.0-or-later](LICENSE).
