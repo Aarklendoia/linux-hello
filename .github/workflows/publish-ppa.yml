@@ -1,0 +1,88 @@
+name: Publish to Launchpad PPA
+
+# Automatically uploads a source package to ppa:aarklendoia-edtech/linux-hello
+# on every vX.Y.Z release tag (same trigger as build-debian.yml's GitHub
+# Release build). See docs/LAUNCHPAD.md for the full manual process this
+# automates, and for how the ~ppa1~<series>1 versioning scheme works.
+#
+# Signs with a CI-only GPG key (fingerprint below), registered as an
+# additional OpenPGP key on the aarklendoia-edtech Launchpad account —
+# deliberately separate from the maintainer's personal key, so a leaked
+# CI secret only compromises PPA-upload rights, not personal identity.
+# The private key has no passphrase (required for unattended signing);
+# it's stored only as the PPA_GPG_PRIVATE_KEY repository secret.
+
+on:
+  push:
+    tags: [ 'v*' ]
+  workflow_dispatch:
+    inputs:
+      series:
+        description: 'Target Ubuntu series codename'
+        required: true
+        default: 'resolute'
+      rust_toolchain:
+        description: "That series' packaged cargo/rustc version (rmadison -u ubuntu cargo)"
+        required: true
+        default: '1.93.1'
+
+env:
+  PPA: 'ppa:aarklendoia-edtech/linux-hello'
+  GPG_KEY_ID: '78E5E953B5D26A386600270F28CCA4654276F229'
+  DEBFULLNAME: 'Linux Hello CI'
+  DEBEMAIL: 'aarklendoia+ci@proton.me'
+  SERIES: ${{ github.event.inputs.series || 'resolute' }}
+  RUST_TOOLCHAIN: ${{ github.event.inputs.rust_toolchain || '1.93.1' }}
+
+jobs:
+  publish-ppa:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Install packaging tools
+        # No project build-dependencies needed here (libssl-dev, qt6-base-dev,
+        # libclang-dev, ...) — debuild -S only tars the source, it doesn't
+        # compile anything, and cargo vendor doesn't run build scripts either.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y devscripts dpkg-dev dput lintian gnupg jq curl unzip
+
+      - name: Install Rust matching ${{ env.SERIES }}'s packaged toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+
+      - name: Import the CI signing key
+        env:
+          PPA_GPG_PRIVATE_KEY: ${{ secrets.PPA_GPG_PRIVATE_KEY }}
+        run: |
+          echo "$PPA_GPG_PRIVATE_KEY" | gpg --batch --import
+          gpg --list-secret-keys "$GPG_KEY_ID"
+
+      - name: Vendor dependencies and fetch ONNX models
+        run: |
+          RUST_TOOLCHAIN="${{ env.RUST_TOOLCHAIN }}" ./debian/scripts/prepare-offline-build.sh
+
+      - name: Bump changelog for this PPA upload
+        env:
+          IS_TAG: ${{ github.ref_type == 'tag' }}
+        run: |
+          if [ "$IS_TAG" = "true" ]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            # workflow_dispatch on a branch: no vX.Y.Z tag to derive from
+            VERSION="$(grep -m1 '^version' Cargo.toml | sed -E 's/.*"(.+)"/\1/')"
+          fi
+          dch --newversion "${VERSION}~ppa1~${SERIES}1" --distribution "$SERIES" --urgency medium \
+            "Automated PPA build for ${SERIES}, release ${VERSION}."
+
+      - name: Build signed source package
+        run: |
+          rm -rf target
+          debuild -S -sa -d -k"$GPG_KEY_ID"
+
+      - name: Upload to the PPA
+        run: |
+          dput "$PPA" ../linux-hello_*_source.changes
