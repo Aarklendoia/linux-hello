@@ -5,7 +5,8 @@
 [![Quality](https://github.com/Aarklendoia/linux-hello/actions/workflows/quality.yml/badge.svg)](https://github.com/Aarklendoia/linux-hello/actions/workflows/quality.yml)
 [![Latest release](https://img.shields.io/github/v/release/Aarklendoia/linux-hello)](https://github.com/Aarklendoia/linux-hello/releases/latest)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3--or--later-blue.svg)](LICENSE)
-[![Rust](https://img.shields.io/badge/rust-1.94%2B-orange.svg)](https://www.rust-lang.org)
+[![Rust](https://img.shields.io/badge/rust-1.93%2B-orange.svg)](https://www.rust-lang.org)
+[![Launchpad PPA](https://img.shields.io/badge/PPA-linux--hello-orange)](https://launchpad.net/~aarklendoia-edtech/+archive/ubuntu/linux-hello)
 
 A Windows Hello-style facial recognition authentication system for Linux, integrating with PAM (`sudo`, screen unlock) via a D-Bus daemon and a KDE Plasma configuration GUI.
 
@@ -23,22 +24,31 @@ Linux Hello lets you unlock `sudo` prompts and your screen lock by looking at yo
 
 Requirements: a Debian- or Ubuntu-based Linux distribution, a webcam, and a terminal.
 
-1. **Download** the latest `.deb` packages from the [Releases page](https://github.com/Aarklendoia/linux-hello/releases/latest).
-2. **Install** them (this also installs any missing dependencies):
+1. **Install** the `linux-hello` package — it pulls in everything needed (the daemon, the ONNX models, PAM integration, and the CLI):
 
-   ```bash
-   sudo apt install ./linux-hello_*.deb
-   ```
+   - **Ubuntu 26.04 LTS (resolute)**, via the [Launchpad PPA](https://launchpad.net/~aarklendoia-edtech/+archive/ubuntu/linux-hello) (simplest — `apt` handles updates too):
 
-3. **Enroll your face** (replace `$(id -u)` with your own if enrolling for another user):
+     ```bash
+     sudo add-apt-repository ppa:aarklendoia-edtech/linux-hello
+     sudo apt update
+     sudo apt install linux-hello
+     ```
+
+   - **Other Debian/Ubuntu versions**: download the `.deb` files from the [Releases page](https://github.com/Aarklendoia/linux-hello/releases/latest) into one directory, then:
+
+     ```bash
+     sudo apt install ./*.deb
+     ```
+
+2. **Enroll your face** (replace `$(id -u)` with your own if enrolling for another user):
 
    ```bash
    linux-hello enroll $(id -u) --context sudo --samples 3
    ```
 
-4. **Try it**: open a terminal and run `sudo -k && sudo -v` — look at your webcam, and it should authenticate you without asking for a password.
+3. **Try it**: open a terminal and run `sudo -k && sudo -v` — look at your webcam, and it should authenticate you without asking for a password.
 
-That's it. To also enable face unlock on your login/lock screen, or to manage enrolled faces through a graphical settings app, see [docs/QUICKSTART.md](docs/QUICKSTART.md) and the `linux-hello-gui` package.
+That's it. To also enable face unlock on your login/lock screen, or to manage enrolled faces through a graphical settings app, see [docs/QUICKSTART.md](docs/QUICKSTART.md) and the separate, optional `linux-hello-gui` package.
 
 ## How it works
 
@@ -74,22 +84,27 @@ Each crate builds and tests independently; see [docs/DESIGN.md](docs/DESIGN.md) 
 
 The project builds 6 `.deb` packages:
 
-- `linux-hello` — meta-package (depends on the packages below)
-- `linux-hello-daemon` — the daemon binary + systemd user service
+- `linux-hello` — metapackage; depends on the four packages below. Install this one for a complete, working setup
+- `linux-hello-daemon` — the daemon binary + PAM module library, systemd user service (depends on `linux-hello-models`)
 - `linux-hello-models` — the ONNX models (SCRFD-500M detector + ArcFace MobileNetV3 embedder)
-- `linux-hello-tools` — the `linux-hello` CLI
-- `libpam-linux-hello` — the PAM module
-- `linux-hello-gui` — the Kirigami configuration app
+- `linux-hello-tools` — the `linux-hello` CLI (depends on `linux-hello-daemon`)
+- `libpam-linux-hello` — wires the PAM module into `sudo`/screenlock (depends on `linux-hello-daemon` and `linux-hello-tools`)
+- `linux-hello-gui` — the Kirigami configuration app (depends on `linux-hello-daemon`); **not** pulled in by the `linux-hello` metapackage since it drags in Qt6/Kirigami, which headless/server installs don't need — install it separately if you want the graphical settings app
 
 ```bash
-sudo apt install ./linux-hello_*.deb
+sudo apt install ./linux-hello_*.deb ./linux-hello-daemon_*.deb ./linux-hello-tools_*.deb \
+  ./libpam-linux-hello_*.deb ./linux-hello-models_*.deb
+# or, simplest, if you downloaded every .deb into one directory:
+sudo apt install ./*.deb
 ```
+
+Also available via a [Launchpad PPA](https://launchpad.net/~aarklendoia-edtech/+archive/ubuntu/linux-hello) for Ubuntu 26.04 LTS — see [Quick start](#quick-start-for-everyday-users) above.
 
 See [docs/DEBIAN_PACKAGE.md](docs/DEBIAN_PACKAGE.md) for build instructions and package details.
 
 ## Building from source
 
-Requires Rust ≥ 1.94 — check with `rustc --version`; if your distro's package is older (Ubuntu's `rustc` package can lag), install a current toolchain with [rustup](https://rustup.rs/) instead.
+Requires Rust ≥ 1.93 — check with `rustc --version`; if your distro's package is older (Ubuntu's `rustc` package can lag), install a current toolchain with [rustup](https://rustup.rs/) instead.
 
 System dependencies (Debian/Ubuntu):
 

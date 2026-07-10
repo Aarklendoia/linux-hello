@@ -5,13 +5,18 @@ This is a step-by-step guide to publish Linux Hello as a Launchpad PPA
 directly instead of downloading `.deb` files from GitHub Releases.
 
 - Launchpad account: `aarklendoia-edtech`
-- Signing key: fingerprint `86EB1CE672402B0B104049C3D4251A0893FE3895`
-  (`aarklendoia@proton.me`) — confirmed on the account, Code of Conduct
-  signed.
+- Personal signing key (manual uploads): fingerprint
+  `86EB1CE672402B0B104049C3D4251A0893FE3895` (`aarklendoia@proton.me`) —
+  confirmed on the account, Code of Conduct signed.
+- CI signing key (automated uploads, see [Automated publishing](#5-automated-publishing-ci)):
+  fingerprint `78E5E953B5D26A386600270F28CCA4654276F229`
+  (`aarklendoia+ci@proton.me`) — a separate, dedicated key so a leaked CI
+  secret can't be used to impersonate the personal identity; confirmed on
+  the same Launchpad account.
 - PPA: `ppa:aarklendoia-edtech/linux-hello`
   (<https://launchpad.net/~aarklendoia-edtech/+archive/ubuntu/linux-hello>)
-  — created, currently empty (see the blocker below for why nothing's been
-  uploaded yet).
+  — first successful build published 2026-07-10 (`linux-hello 1.1.1~ppa1~resolute1`,
+  amd64, Ubuntu 26.04 LTS).
 
 Launchpad's build farm has no general internet access, so the plain
 `cargo build --release` in `debian/rules` would fail there — see
@@ -175,18 +180,48 @@ Repeat the whole `prepare-offline-build.sh` (with that series' toolchain) +
 
 ## 4. Once published
 
-- Add an install line to the README:
+Done: the README's [Quick start](../README.md#quick-start-for-everyday-users)
+has the `add-apt-repository`/`apt install linux-hello` line, and the
+Launchpad badge is in the badge row. `debian/changelog`'s PPA-suffixed
+entries (`~ppa1~resolute1` etc.) are never committed — see
+[Vendoring](#2-vendoring-required-before-every-ppa-upload) above; the
+`dch` step there generates them locally, right before `debuild`, on top
+of whatever release-please/[docs/RELEASE.md](RELEASE.md) already put in
+`debian/changelog` for that tag.
 
-  ```bash
-  sudo add-apt-repository ppa:aarklendoia-edtech/linux-hello
-  sudo apt update
-  sudo apt install linux-hello
-  ```
+## 5. Automated publishing (CI)
 
-- Add a Launchpad badge next to the others in [README.md](../README.md), e.g.
-  `[![Launchpad PPA](https://img.shields.io/badge/PPA-linux--hello-orange)](https://launchpad.net/~aarklendoia-edtech/+archive/ubuntu/linux-hello)`.
-- Keep `debian/changelog`'s PPA-suffixed entries (`~ppa1~noble1` etc.) out of
-  the entries release-please manages on `main` — the automated release flow
-  in [docs/RELEASE.md](RELEASE.md) generates a plain `X.Y.Z-1` entry per
-  GitHub tag; PPA uploads should branch off that with the series suffix
-  added on top, not replace it.
+[.github/workflows/publish-ppa.yml](../.github/workflows/publish-ppa.yml)
+automates the whole cycle above — triggered on every `vX.Y.Z` tag push
+(same trigger as `build-debian.yml`'s GitHub Release build), or manually
+via `workflow_dispatch` (useful to test against a series/toolchain
+combination before relying on the automatic trigger, or to re-run after a
+failure without pushing a new tag).
+
+It signs with a **separate, CI-only GPG key** (fingerprint
+`78E5E953B5D26A386600270F28CCA4654276F229`, `aarklendoia+ci@proton.me`),
+not the personal one used for manual uploads — a leaked `PPA_GPG_PRIVATE_KEY`
+repository secret then only grants PPA-upload rights, not the ability to
+impersonate the maintainer's own identity elsewhere (git tag signing, Code
+of Conduct, other services). The key:
+
+- Has no passphrase (required — GitHub Actions can't answer a pinentry
+  prompt), which is exactly why it must stay a low-privilege, single-purpose
+  key and not the personal one.
+- Is registered as an *additional* OpenPGP key on the same
+  `aarklendoia-edtech` Launchpad account (Launchpad supports multiple keys
+  per account — same `+editpgpkeys` → paste fingerprint → confirm via
+  encrypted email flow as [step 1](#1-one-time-account-setup-manual-on-launchpadnet--done) above).
+- Its private key (armored, `gpg --armor --export-secret-keys <fingerprint>`)
+  is stored only as the `PPA_GPG_PRIVATE_KEY` GitHub Actions repository
+  secret — never committed, never printed in logs.
+
+Since GitHub Actions runners have full internet access (unlike Launchpad's
+build farm), the CI job's own vendoring step (`prepare-offline-build.sh`)
+is fast — no local `rustup`-juggling needed, it just installs the target
+series' exact toolchain via `dtolnay/rust-toolchain` fresh each run.
+
+To support an additional series, add a `workflow_dispatch` test run first
+(pass the series codename and its `rmadison -u ubuntu cargo` version) to
+confirm it builds, before considering whether to extend the tag-triggered
+default beyond `resolute`.
