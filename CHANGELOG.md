@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.1.1](https://github.com/Aarklendoia/linux-hello/compare/v1.1.0...v1.1.1) (2026-07-10)
+
+
+### Bug Fixes
+
+* add missing cargo/rustc Build-Depends ([ebbae9c](https://github.com/Aarklendoia/linux-hello/commit/ebbae9ca85f2415d2845abf231d43e815dcc9c8d))
+* add missing libv4l-dev/libjpeg-dev/libclang-dev/clang Build-Depends ([3c816a4](https://github.com/Aarklendoia/linux-hello/commit/3c816a4f835df11dccbd192ac3ac6aa78558567e))
+* disable per-file checksum verification for vendored crates ([d48d752](https://github.com/Aarklendoia/linux-hello/commit/d48d752835af485de476e371c06254919484ac58))
+* downgrade sqlx to 0.8 to unblock Launchpad's rustc 1.93.1 ([3d915c7](https://github.com/Aarklendoia/linux-hello/commit/3d915c73127298352bdf10dc7847fd776f27267e))
+* downgrade sqlx to 0.8 to unblock Launchpad's rustc 1.93.1 ([a1facd6](https://github.com/Aarklendoia/linux-hello/commit/a1facd6f7e0c8f90e275fedf51642ad5347f9141))
+* exclude vendor/ from dh_clean's default cruft removal ([01dc891](https://github.com/Aarklendoia/linux-hello/commit/01dc891d96d67c4f50e59af89fd281835fcafb61))
+* remove redundant borrow in pam_linux_hello log format string ([200b707](https://github.com/Aarklendoia/linux-hello/commit/200b7076952b22af10a9835dce9bc78e58769c1a))
+* ship ONNX models in-tree instead of the packager's \$HOME ([904caa9](https://github.com/Aarklendoia/linux-hello/commit/904caa96cb12d8c959fd7b96b3b3aeeba69cfbe4))
+* stop using tar-ignore for target/, remove it outright instead ([00c10e8](https://github.com/Aarklendoia/linux-hello/commit/00c10e8098efb65507b8d7aebacaf44419342c0e))
+* use a valid Debian archive section in debian/control ([07320ec](https://github.com/Aarklendoia/linux-hello/commit/07320ecb6b082ec00221e886d3e4f638e6c2c4e6))
+* vendor with the target series' exact cargo version, not local stable ([821ec8c](https://github.com/Aarklendoia/linux-hello/commit/821ec8cad5806431362c424432a4ac817e8bab18))
+
 ## [1.1.0](https://github.com/Aarklendoia/linux-hello/compare/v1.0.6...v1.1.0) (2026-07-08)
 
 
