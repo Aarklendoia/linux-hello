@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.2.0](https://github.com/Aarklendoia/linux-hello/compare/v1.1.1...v1.2.0) (2026-07-10)
+
+
+### Features
+
+* turn linux-hello into a real metapackage ([64bbe8c](https://github.com/Aarklendoia/linux-hello/commit/64bbe8c1f2a86f5327f26761e8cf90b5b38b55b0))
+
+
+### Bug Fixes
+
+* make libpam-linux-hello pull in a complete, working setup ([49727d3](https://github.com/Aarklendoia/linux-hello/commit/49727d30e3dadbb13abcc850b2306e1996df00fd))
+
 ## [1.1.1](https://github.com/Aarklendoia/linux-hello/compare/v1.1.0...v1.1.1) (2026-07-10)
 
 
