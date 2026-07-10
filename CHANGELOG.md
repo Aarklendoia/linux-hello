@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.2.1](https://github.com/Aarklendoia/linux-hello/compare/v1.2.0...v1.2.1) (2026-07-10)
+
+
+### Bug Fixes
+
+* install debhelper (and fakeroot/quilt) in publish-ppa.yml ([26a2595](https://github.com/Aarklendoia/linux-hello/commit/26a2595dc5a1bcce90bdcbd675591e585e1e0d25))
+
 ## [1.2.0](https://github.com/Aarklendoia/linux-hello/compare/v1.1.1...v1.2.0) (2026-07-10)
 
 
