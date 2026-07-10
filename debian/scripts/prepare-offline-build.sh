@@ -12,20 +12,43 @@
 #      checks first (hello_face_core/build.rs's `present()` check) — so the
 #      offline build finds them already there and never tries to download.
 #
+# IMPORTANT: vendor with the SAME cargo version the target Ubuntu series
+# ships (check with `rmadison -u ubuntu cargo`), not whatever's locally
+# "stable". A newer cargo vendoring the tree can silently omit
+# Cargo.toml.orig companion files that an OLDER cargo needs at build time
+# to verify a vendored crate's checksum against Cargo.lock — cargo then
+# fails offline with "failed to calculate checksum of: vendor/<crate>/
+# Cargo.toml.orig: No such file or directory". Confirmed by building
+# linux-hello 1.1.0 for resolute (26.04, cargo 1.93.1): vendoring with a
+# local 1.96.1 produced zero .orig files; re-vendoring with
+# `rustup toolchain install 1.93.1` first fixed it (431 .orig files, all
+# needed). Set RUST_TOOLCHAIN to the version to vendor with; defaults to
+# "stable", which is very likely wrong for an older LTS target — pass the
+# real one explicitly:
+#   RUST_TOOLCHAIN=1.93.1 ./debian/scripts/prepare-offline-build.sh
+#
 # See docs/LAUNCHPAD.md for how this fits into the release process.
 
 set -eu
 
+RUST_TOOLCHAIN="${RUST_TOOLCHAIN:-stable}"
+
 cd "$(dirname "$0")/../.."
 REPO_ROOT="$(pwd)"
 
-echo "==> Vendoring Cargo dependencies into vendor/"
+echo "==> Vendoring Cargo dependencies into vendor/ (toolchain: $RUST_TOOLCHAIN)"
+if [ "$RUST_TOOLCHAIN" = "stable" ]; then
+  echo "    WARNING: no RUST_TOOLCHAIN given, using 'stable' — check the target" >&2
+  echo "    series' cargo version first (rmadison -u ubuntu cargo) and pass" >&2
+  echo "    RUST_TOOLCHAIN=<version> explicitly if it differs." >&2
+fi
+rustup toolchain install "$RUST_TOOLCHAIN" > /dev/null 2>&1 || true
 rm -rf vendor .cargo
-cargo vendor vendor > /tmp/cargo-vendor-config.toml.tmp
+cargo "+$RUST_TOOLCHAIN" vendor vendor > /tmp/cargo-vendor-config.toml.tmp
 mkdir -p .cargo
 cat /tmp/cargo-vendor-config.toml.tmp > .cargo/config.toml
 rm -f /tmp/cargo-vendor-config.toml.tmp
-echo "    $(du -sh vendor | cut -f1) in vendor/"
+echo "    $(du -sh vendor | cut -f1) in vendor/, $(find vendor -name '*.orig' | wc -l) .orig files"
 
 echo "==> Pre-fetching ONNX models"
 MODELS_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/linux-hello/models"
