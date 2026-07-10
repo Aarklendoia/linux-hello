@@ -6,11 +6,11 @@ The Linux Hello project builds 5 Debian packages:
 
 | Package | Contents |
 | --- | --- |
-| `linux-hello` | Meta-package; depends on the packages below |
+| `linux-hello` | The daemon binary and PAM module library, systemd user service. Depends on `linux-hello-models` |
 | `linux-hello-models` | The ONNX models (SCRFD-500M detector + ArcFace MobileNetV3 embedder) |
-| `libpam-linux-hello` | PAM module, plus the automatic sudo activation timer and the opt-in SDDM system listener |
-| `linux-hello-tools` | The `linux-hello` CLI |
-| `linux-hello-gui` | The Kirigami configuration app |
+| `linux-hello-tools` | The `linux-hello` CLI. Depends on `linux-hello` |
+| `libpam-linux-hello` | Wires the PAM module into `sudo`/screenlock, plus the automatic sudo activation timer and the opt-in SDDM system listener. Depends on `linux-hello` and `linux-hello-tools` — install this one package for a complete, enrollable setup |
+| `linux-hello-gui` | The Kirigami configuration app. Depends on `linux-hello`; kept separate since it pulls in Qt6/Kirigami |
 
 ## Building the Debian Package
 
@@ -51,11 +51,14 @@ This creates the `.deb` files in the parent directory, e.g.:
 ## Installation
 
 ```bash
-sudo apt install ./linux-hello_<version>_amd64.deb
+sudo apt install ./libpam-linux-hello_<version>_amd64.deb ./linux-hello_<version>_amd64.deb \
+  ./linux-hello-tools_<version>_amd64.deb ./linux-hello-models_<version>_all.deb
+# or, simplest, from the directory holding all the built .deb files:
+sudo apt install ./*.deb
 ```
 
-`apt` resolves the meta-package's dependencies and installs everything.
-`linux-hello`'s postinst:
+`apt` resolves `libpam-linux-hello`'s dependencies and installs everything needed for a
+working setup. `linux-hello`'s postinst:
 
 - Creates `~/.local/share/linux-hello` for the installing user
 - Enables and starts the per-user `hello-daemon.service`

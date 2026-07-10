@@ -63,16 +63,23 @@ Depends:
   ${shlibs:Depends},
   ${misc:Depends},
   linux-hello,
+  linux-hello-tools,
   libpam-runtime
 Description: PAM module for Linux Hello
  This PAM module integrates Linux Hello facial recognition
  with system authentication (sudo, screenlock, etc).
+ .
+ Installing this package pulls in everything needed for a working
+ setup: the daemon, the ONNX models, and the linux-hello CLI for
+ enrolling faces. The graphical configuration app is a separate,
+ optional package (linux-hello-gui).
 
 Package: linux-hello-tools
 Architecture: any
 Depends:
   ${shlibs:Depends},
-  ${misc:Depends}
+  ${misc:Depends},
+  linux-hello
 Description: Command-line tools for Linux Hello
  Includes the linux-hello CLI for managing faces and testing.
 
