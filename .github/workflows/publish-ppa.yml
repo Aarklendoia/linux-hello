@@ -47,7 +47,7 @@ jobs:
         # compile anything, and cargo vendor doesn't run build scripts either.
         run: |
           sudo apt-get update
-          sudo apt-get install -y devscripts dpkg-dev dput lintian gnupg jq curl unzip
+          sudo apt-get install -y devscripts dpkg-dev debhelper fakeroot quilt dput lintian gnupg jq curl unzip
 
       - name: Install Rust matching ${{ env.SERIES }}'s packaged toolchain
         uses: dtolnay/rust-toolchain@master
