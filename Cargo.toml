@@ -70,7 +70,7 @@ image = "0.25"
 clap = { version = "4.4", features = ["derive"] }
 
 # Database
-sqlx = { version = "0.9", features = [
+sqlx = { version = "0.8", features = [
     "runtime-tokio",
     "tls-native-tls",
     "sqlite",
