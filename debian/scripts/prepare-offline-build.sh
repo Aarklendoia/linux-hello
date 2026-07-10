@@ -36,6 +36,14 @@ RUST_TOOLCHAIN="${RUST_TOOLCHAIN:-stable}"
 cd "$(dirname "$0")/../.."
 REPO_ROOT="$(pwd)"
 
+echo "==> Removing target/ (must not exist when dpkg-source tars up the tree)"
+# debian/source/options deliberately doesn't use --tar-ignore for this: it
+# matches "target" as a path component ANYWHERE, which also strips
+# vendor/cc/src/target/ (a real subdirectory of the vendored `cc` crate,
+# not a build artifact) — confirmed the hard way against a real Launchpad
+# build. Physically removing target/ is the only reliable option.
+rm -rf target
+
 echo "==> Vendoring Cargo dependencies into vendor/ (toolchain: $RUST_TOOLCHAIN)"
 if [ "$RUST_TOOLCHAIN" = "stable" ]; then
   echo "    WARNING: no RUST_TOOLCHAIN given, using 'stable' — check the target" >&2
