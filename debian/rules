@@ -16,6 +16,17 @@ override_dh_auto_clean:
 	# In CI, the target directory is absent anyway (clean clone).
 	true
 
+override_dh_clean:
+	# dh_clean's default cruft-removal (part of every `debian/rules clean`,
+	# which dpkg-buildpackage always runs before building — including on
+	# the Launchpad builder itself, unconditionally) deletes any *.orig
+	# file anywhere in the tree, meant for stray patch-reject leftovers.
+	# It doesn't know vendor/*/Cargo.toml.orig are files cargo actually
+	# needs at build time to verify a vendored crate's checksum — without
+	# this exclude, they get wiped right before override_dh_auto_build
+	# runs, even though they were present in the uploaded source tarball.
+	dh_clean -Xvendor
+
 override_dh_auto_build:
 	# If vendor/ + .cargo/config.toml are present (see
 	# debian/scripts/prepare-offline-build.sh), build fully offline — this is
