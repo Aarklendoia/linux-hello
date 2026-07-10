@@ -84,19 +84,38 @@ build, is to **vendor everything before packaging**, from a machine with
 network access:
 
 ```bash
-./debian/scripts/prepare-offline-build.sh
+# Check the target series' packaged cargo version first:
+rmadison -u ubuntu cargo | grep resolute   # or whatever series you're targeting
+
+RUST_TOOLCHAIN=1.93.1 ./debian/scripts/prepare-offline-build.sh
 ```
+
+**The vendoring toolchain must match the target series' packaged cargo
+version** (installed via `rustup toolchain install <version>` if you don't
+have it — the script does this for you if `RUST_TOOLCHAIN` is set). This
+isn't optional: a newer local cargo vendoring the tree can silently omit
+`Cargo.toml.orig` companion files that an *older* cargo needs at build time
+to verify a vendored crate's checksum against `Cargo.lock`. Hit this for
+real going from a local cargo 1.96.1 to resolute's 1.93.1 — the mismatched
+vendor snapshot failed on Launchpad with `failed to calculate checksum of:
+vendor/anyhow/Cargo.toml.orig: No such file or directory`, on every crate
+whose manifest cargo 1.93.1 needed to normalize (431 of ~400 vendored
+crates, in this case). Re-vendoring with `+1.93.1` fixed it — verified
+locally with `cargo +1.93.1 build --workspace --offline` before
+re-uploading, which is the cheapest way to catch this class of bug without
+waiting on a Launchpad build round-trip.
+
+Practically, this means **a separate vendor snapshot per target series**
+if you support more than one (their packaged cargo versions differ) — not
+a single one reused everywhere.
 
 This script (never run by `debian/rules` itself, and never run on a
 Launchpad builder):
 
 - Runs `cargo vendor vendor` and writes `.cargo/config.toml` so Cargo
   resolves every dependency from the local `vendor/` directory instead of
-  crates.io (confirmed working with `cargo build --workspace --offline`
-  against a throwaway `CARGO_HOME` — see the commit that added this script
-  for how it was verified). The vendored tree is ~320 MB across ~400
-  crates — normal for this dependency set (`ort`, `tract-onnx`, `sqlx`,
-  `image`, `zbus`, …).
+  crates.io. The vendored tree is ~320 MB across ~400 crates — normal for
+  this dependency set (`ort`, `tract-onnx`, `sqlx`, `image`, `zbus`, …).
 - Pre-fetches the ONNX model pack into
   `${XDG_DATA_HOME:-$HOME/.local/share}/linux-hello/models/` — the same
   path `hello_face_core/build.rs` already checks first, so it finds the
@@ -126,12 +145,14 @@ each get built separately against that series' own library versions) — you
 can't upload one generic package for "Ubuntu" the way GitHub Actions builds
 one generic `.deb`.
 
-For each series you want to support (e.g. `noble` 24.04, `plucky` 25.04):
+For each series you want to support (e.g. `noble` 24.04, `plucky` 25.04) —
+**repeat the vendor step too**, matching that series' cargo version (see
+[Vendoring](#2-vendoring-required-before-every-ppa-upload) above), not just
+the changelog's target distribution:
 
 ```bash
-# Vendor once per release (not per series — the vendored tree doesn't
-# change between series, only the changelog's target distribution does):
-./debian/scripts/prepare-offline-build.sh
+rmadison -u ubuntu cargo | grep noble
+RUST_TOOLCHAIN=<that version> ./debian/scripts/prepare-offline-build.sh
 
 # One changelog entry per series, with a ~ppa<N>~<series><N> suffix so
 # versions sort correctly and never collide with an eventual Debian/Ubuntu
@@ -148,9 +169,8 @@ debuild -S -sa
 dput ppa:aarklendoia-edtech/linux-hello ../linux-hello_1.1.0~ppa1~noble1_source.changes
 ```
 
-Repeat the `dch` + `debuild -S -sa` + `dput` cycle per series (no need to
-re-run `prepare-offline-build.sh` each time, unless `Cargo.lock` changed
-since). Track build status at
+Repeat the whole `prepare-offline-build.sh` (with that series' toolchain) +
+`dch` + `debuild -S -sa` + `dput` cycle per series. Track build status at
 <https://launchpad.net/~aarklendoia-edtech/+archive/ubuntu/linux-hello/+packages>.
 
 ## 4. Once published

@@ -8,6 +8,7 @@ Cargo.lock
 # see debian/scripts/prepare-offline-build.sh) — not meant to live in git.
 /vendor/
 /.cargo/
+/debian/offline-models/
 
 # IDEs
 .vscode/
