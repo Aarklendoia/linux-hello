@@ -8,9 +8,16 @@
 # It does two things dpkg-buildpackage would otherwise do over the network:
 #   1. cargo vendor: pulls every crates.io/git dependency into vendor/, and
 #      writes .cargo/config.toml to point cargo at it instead of the registry.
-#   2. Pre-fetches the ONNX models into the same XDG path build.rs already
-#      checks first (hello_face_core/build.rs's `present()` check) — so the
-#      offline build finds them already there and never tries to download.
+#   2. Pre-fetches the ONNX models into debian/offline-models/ — an IN-TREE
+#      path (part of the source tarball dpkg-source builds), not the
+#      packager's real $HOME. debian/rules points build.rs's XDG_DATA_HOME
+#      lookup at it during an offline build, and installs the models from
+#      there too. Using the real $HOME doesn't work: the Launchpad builder
+#      runs with HOME=/sbuild-nonexistent, so anything fetched into the
+#      packaging machine's actual home directory never reaches the
+#      builder at all — confirmed the hard way, override_dh_auto_install
+#      failing with "cannot stat '/sbuild-nonexistent/.local/share/
+#      linux-hello/models/det_500m.onnx'".
 #
 # IMPORTANT: vendor with the SAME cargo version the target Ubuntu series
 # ships (check with `rmadison -u ubuntu cargo`), not whatever's locally
@@ -78,8 +85,8 @@ find vendor -maxdepth 2 -name ".cargo-checksum.json" |
     jq '.files = {}' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
   done
 
-echo "==> Pre-fetching ONNX models"
-MODELS_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/linux-hello/models"
+echo "==> Pre-fetching ONNX models into debian/offline-models/ (in-tree)"
+MODELS_DIR="$REPO_ROOT/debian/offline-models/linux-hello/models"
 mkdir -p "$MODELS_DIR"
 MODEL_PACK_URL="https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_sc.zip"
 ZIP_PATH="$(mktemp -t linux-hello-buffalo_sc-XXXXXX.zip)"
@@ -100,6 +107,7 @@ and $MODELS_DIR populated), debian/rules will now build with
 'cargo build --offline'. Proceed with the dch / debuild -S -sa / dput cycle
 from docs/LAUNCHPAD.md.
 
-Nothing here is meant to be committed to git — vendor/ and .cargo/ are
-regenerated per release right before packaging (see .gitignore).
+Nothing here is meant to be committed to git — vendor/, .cargo/ and
+debian/offline-models/ are regenerated per release right before
+packaging (see .gitignore).
 EOF

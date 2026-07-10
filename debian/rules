@@ -33,8 +33,15 @@ override_dh_auto_build:
 	# what a Launchpad PPA build needs, since its builders have no general
 	# internet access to reach crates.io. Otherwise (GitHub Actions, local
 	# dev), fall back to the normal networked build.
+	#
+	# XDG_DATA_HOME=debian/offline-models points hello_face_core/build.rs at
+	# the ONNX models prepare-offline-build.sh pre-fetched INTO THE SOURCE
+	# TREE (not the packager's real $HOME, which doesn't exist on the
+	# Launchpad builder — $HOME is /sbuild-nonexistent there). Without this,
+	# build.rs can't find or download the models (no network either) and
+	# silently falls back to the stub detector.
 	if [ -d $(CURDIR)/vendor ] && [ -f $(CURDIR)/.cargo/config.toml ]; then \
-		cargo build --release --verbose --offline; \
+		XDG_DATA_HOME=$(CURDIR)/debian/offline-models cargo build --release --verbose --offline; \
 	else \
 		cargo build --release --verbose; \
 	fi
@@ -104,12 +111,18 @@ override_dh_auto_install:
 	cp $(CURDIR)/qml/sddm/Login.qml \
 	   $(CURDIR)/debian/tmp/usr/share/linux-hello/sddm/
 
-	# Install ONNX models (downloaded by build.rs during cargo build --release)
+	# Install ONNX models (downloaded by build.rs during cargo build --release,
+	# or pre-fetched into debian/offline-models/ for an offline/vendored
+	# build — see override_dh_auto_build above and
+	# debian/scripts/prepare-offline-build.sh)
 	mkdir -p $(CURDIR)/debian/tmp/usr/share/linux-hello/models
-	cp "$${XDG_DATA_HOME:-$(HOME)/.local/share}/linux-hello/models/det_500m.onnx" \
-	   $(CURDIR)/debian/tmp/usr/share/linux-hello/models/
-	cp "$${XDG_DATA_HOME:-$(HOME)/.local/share}/linux-hello/models/w600k_mbf.onnx" \
-	   $(CURDIR)/debian/tmp/usr/share/linux-hello/models/
+	if [ -d $(CURDIR)/vendor ]; then \
+		MODELS_SRC=$(CURDIR)/debian/offline-models/linux-hello/models; \
+	else \
+		MODELS_SRC="$${XDG_DATA_HOME:-$(HOME)/.local/share}/linux-hello/models"; \
+	fi; \
+	cp "$$MODELS_SRC/det_500m.onnx" $(CURDIR)/debian/tmp/usr/share/linux-hello/models/; \
+	cp "$$MODELS_SRC/w600k_mbf.onnx" $(CURDIR)/debian/tmp/usr/share/linux-hello/models/
 
 	# Install example config
 	mkdir -p $(CURDIR)/debian/tmp/etc/linux-hello
