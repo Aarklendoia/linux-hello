@@ -24,14 +24,14 @@ Linux Hello lets you unlock `sudo` prompts and your screen lock by looking at yo
 
 Requirements: a Debian- or Ubuntu-based Linux distribution, a webcam, and a terminal.
 
-1. **Install** the `libpam-linux-hello` package — it pulls in everything needed (the daemon, the ONNX models, and the CLI):
+1. **Install** the `linux-hello` package — it pulls in everything needed (the daemon, the ONNX models, PAM integration, and the CLI):
 
    - **Ubuntu 26.04 LTS (resolute)**, via the [Launchpad PPA](https://launchpad.net/~aarklendoia-edtech/+archive/ubuntu/linux-hello) (simplest — `apt` handles updates too):
 
      ```bash
      sudo add-apt-repository ppa:aarklendoia-edtech/linux-hello
      sudo apt update
-     sudo apt install libpam-linux-hello
+     sudo apt install linux-hello
      ```
 
    - **Other Debian/Ubuntu versions**: download the `.deb` files from the [Releases page](https://github.com/Aarklendoia/linux-hello/releases/latest) into one directory, then:
@@ -82,16 +82,18 @@ Each crate builds and tests independently; see [docs/DESIGN.md](docs/DESIGN.md) 
 
 ## Installing from Debian packages
 
-The project builds 5 `.deb` packages:
+The project builds 6 `.deb` packages:
 
-- `linux-hello` — the daemon binary + PAM module library, systemd user service (depends on `linux-hello-models`)
+- `linux-hello` — metapackage; depends on the four packages below. Install this one for a complete, working setup
+- `linux-hello-daemon` — the daemon binary + PAM module library, systemd user service (depends on `linux-hello-models`)
 - `linux-hello-models` — the ONNX models (SCRFD-500M detector + ArcFace MobileNetV3 embedder)
-- `linux-hello-tools` — the `linux-hello` CLI (depends on `linux-hello`)
-- `libpam-linux-hello` — wires the PAM module into `sudo`/screenlock (depends on `linux-hello` and `linux-hello-tools` — installing this one package is enough for a working, enrollable setup)
-- `linux-hello-gui` — the Kirigami configuration app (depends on `linux-hello`); kept separate since it pulls in Qt6/Kirigami, which headless/server installs don't need
+- `linux-hello-tools` — the `linux-hello` CLI (depends on `linux-hello-daemon`)
+- `libpam-linux-hello` — wires the PAM module into `sudo`/screenlock (depends on `linux-hello-daemon` and `linux-hello-tools`)
+- `linux-hello-gui` — the Kirigami configuration app (depends on `linux-hello-daemon`); **not** pulled in by the `linux-hello` metapackage since it drags in Qt6/Kirigami, which headless/server installs don't need — install it separately if you want the graphical settings app
 
 ```bash
-sudo apt install ./libpam-linux-hello_*.deb ./linux-hello_*.deb ./linux-hello-tools_*.deb ./linux-hello-models_*.deb
+sudo apt install ./linux-hello_*.deb ./linux-hello-daemon_*.deb ./linux-hello-tools_*.deb \
+  ./libpam-linux-hello_*.deb ./linux-hello-models_*.deb
 # or, simplest, if you downloaded every .deb into one directory:
 sudo apt install ./*.deb
 ```

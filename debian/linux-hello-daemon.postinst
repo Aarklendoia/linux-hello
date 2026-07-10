@@ -1,5 +1,5 @@
 #!/bin/bash
-# Postinstallation script for linux-hello
+# Postinstallation script for linux-hello-daemon
 
 set -e
 
@@ -25,7 +25,7 @@ echo "✓ Socket directory /run/hello-pam/ ready"
 PLASMA_QML="/usr/share/plasma/shells/org.kde.plasma.desktop/contents/lockscreen/MainBlock.qml"
 LINUX_HELLO_QML="/usr/share/linux-hello/lockscreen/MainBlock.qml"
 if [ -f "$LINUX_HELLO_QML" ] && [ -f "$PLASMA_QML" ]; then
-    dpkg-divert --package linux-hello --rename --add "$PLASMA_QML" 2>/dev/null || true
+    dpkg-divert --package linux-hello-daemon --rename --add "$PLASMA_QML" 2>/dev/null || true
     cp "$LINUX_HELLO_QML" "$PLASMA_QML"
     echo "✓ Lock screen QML overlay installed"
 fi

@@ -27,7 +27,7 @@ systemctl --user disable hello-daemon.service 2>/dev/null || true
 PLASMA_QML="/usr/share/plasma/shells/org.kde.plasma.desktop/contents/lockscreen/MainBlock.qml"
 if dpkg-divert --list "$PLASMA_QML" 2>/dev/null | grep -q linux-hello; then
     rm -f "$PLASMA_QML"
-    dpkg-divert --package linux-hello --rename --remove "$PLASMA_QML" 2>/dev/null || true
+    dpkg-divert --package linux-hello-daemon --rename --remove "$PLASMA_QML" 2>/dev/null || true
     echo "✓ Original lock screen QML restored"
 fi
 

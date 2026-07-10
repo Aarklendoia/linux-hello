@@ -2,15 +2,16 @@
 
 ## Package Information
 
-The Linux Hello project builds 5 Debian packages:
+The Linux Hello project builds 6 Debian packages:
 
 | Package | Contents |
 | --- | --- |
-| `linux-hello` | The daemon binary and PAM module library, systemd user service. Depends on `linux-hello-models` |
+| `linux-hello` | Metapackage — depends on the four packages below. Install this one for a complete, working setup |
+| `linux-hello-daemon` | The daemon binary and PAM module library, systemd user service. Depends on `linux-hello-models` |
 | `linux-hello-models` | The ONNX models (SCRFD-500M detector + ArcFace MobileNetV3 embedder) |
-| `linux-hello-tools` | The `linux-hello` CLI. Depends on `linux-hello` |
-| `libpam-linux-hello` | Wires the PAM module into `sudo`/screenlock, plus the automatic sudo activation timer and the opt-in SDDM system listener. Depends on `linux-hello` and `linux-hello-tools` — install this one package for a complete, enrollable setup |
-| `linux-hello-gui` | The Kirigami configuration app. Depends on `linux-hello`; kept separate since it pulls in Qt6/Kirigami |
+| `linux-hello-tools` | The `linux-hello` CLI. Depends on `linux-hello-daemon` |
+| `libpam-linux-hello` | Wires the PAM module into `sudo`/screenlock, plus the automatic sudo activation timer and the opt-in SDDM system listener. Depends on `linux-hello-daemon` and `linux-hello-tools` |
+| `linux-hello-gui` | The Kirigami configuration app. Depends on `linux-hello-daemon`; **not** pulled in by the `linux-hello` metapackage since it drags in Qt6/Kirigami, which headless/server installs don't need |
 
 ## Building the Debian Package
 
@@ -41,7 +42,8 @@ dpkg-buildpackage -b -d --no-check-builddeps -us -uc
 This creates the `.deb` files in the parent directory, e.g.:
 
 ```text
-../linux-hello_<version>_amd64.deb
+../linux-hello_<version>_all.deb
+../linux-hello-daemon_<version>_amd64.deb
 ../linux-hello-models_<version>_all.deb
 ../libpam-linux-hello_<version>_amd64.deb
 ../linux-hello-tools_<version>_amd64.deb
@@ -51,14 +53,15 @@ This creates the `.deb` files in the parent directory, e.g.:
 ## Installation
 
 ```bash
-sudo apt install ./libpam-linux-hello_<version>_amd64.deb ./linux-hello_<version>_amd64.deb \
-  ./linux-hello-tools_<version>_amd64.deb ./linux-hello-models_<version>_all.deb
+sudo apt install ./linux-hello_<version>_all.deb ./linux-hello-daemon_<version>_amd64.deb \
+  ./linux-hello-tools_<version>_amd64.deb ./libpam-linux-hello_<version>_amd64.deb \
+  ./linux-hello-models_<version>_all.deb
 # or, simplest, from the directory holding all the built .deb files:
 sudo apt install ./*.deb
 ```
 
-`apt` resolves `libpam-linux-hello`'s dependencies and installs everything needed for a
-working setup. `linux-hello`'s postinst:
+`apt` resolves the `linux-hello` metapackage's dependencies and installs everything needed
+for a working setup. `linux-hello-daemon`'s postinst:
 
 - Creates `~/.local/share/linux-hello` for the installing user
 - Enables and starts the per-user `hello-daemon.service`
@@ -104,8 +107,15 @@ Screenlock: lock the screen and present your face to unlock.
 ## Uninstallation
 
 ```bash
-sudo apt remove linux-hello
+sudo apt remove --autoremove linux-hello
 ```
+
+`--autoremove` is needed since `linux-hello` is a metapackage — a plain
+`apt remove linux-hello` only removes the metapackage itself, leaving
+`linux-hello-daemon`, `linux-hello-tools`, `libpam-linux-hello`, and
+`linux-hello-models` installed (apt considers them independently
+requested once the metapackage that pulled them in is gone, unless told
+to clean them up too).
 
 This stops/disables the daemon and the autoconfigure timer. It does
 **not** revert `/etc/pam.d/*` changes — run `sudo ./install-pam.sh
@@ -190,9 +200,11 @@ Or just run `sudo ./install-pam.sh --remove`.
 
 ## Package Dependencies
 
-- `linux-hello`: `dbus`, `systemd`, `libonnxruntime1.23`, `linux-hello-models`
-- `libpam-linux-hello`: `linux-hello`, `libpam-runtime`
-- `linux-hello-gui`: `linux-hello`, `qml-qt6`, `qml6-module-org-kde-kirigami`,
+- `linux-hello` (metapackage): `linux-hello-daemon`, `linux-hello-tools`, `libpam-linux-hello`
+- `linux-hello-daemon`: `dbus`, `systemd`, `libonnxruntime1.23`, `linux-hello-models`
+- `linux-hello-tools`: `linux-hello-daemon`
+- `libpam-linux-hello`: `linux-hello-daemon`, `linux-hello-tools`, `libpam-runtime`
+- `linux-hello-gui`: `linux-hello-daemon`, `qml-qt6`, `qml6-module-org-kde-kirigami`,
   `qml6-module-qtcore`, `qml6-module-qtquick`,
   `qml6-module-qtquick-layouts`, `qml6-module-qtquick-controls`
 

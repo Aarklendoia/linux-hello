@@ -26,6 +26,26 @@ Vcs-Browser: https://github.com/Aarklendoia/linux-hello
 Rules-Requires-Root: no
 
 Package: linux-hello
+Architecture: all
+Depends:
+  ${misc:Depends},
+  linux-hello-daemon (= ${source:Version}),
+  linux-hello-tools (= ${source:Version}),
+  libpam-linux-hello (= ${source:Version})
+Description: Face Authentication System for Linux (metapackage)
+ Linux Hello provides facial recognition authentication for:
+ .
+ .
+  * sudo authentication
+  * screenlock unlock (KDE/GNOME)
+  * login screen (future)
+ .
+ This is a metapackage: installing it pulls in the daemon, the ONNX
+ models, the CLI, and the PAM integration — everything needed for a
+ complete, enrollable setup. The graphical configuration app is a
+ separate, optional package (linux-hello-gui).
+
+Package: linux-hello-daemon
 Architecture: any
 Depends:
   ${shlibs:Depends},
@@ -34,7 +54,7 @@ Depends:
   systemd,
   libonnxruntime1.23,
   linux-hello-models
-Description: Face Authentication System for Linux
+Description: Face Authentication System for Linux — daemon
  Linux Hello provides facial recognition authentication for:
  .
  .
@@ -42,7 +62,7 @@ Description: Face Authentication System for Linux
   * screenlock unlock (KDE/GNOME)
   * login screen (future)
  .
- This package includes the daemon and PAM module.
+ This package includes the daemon and PAM module library.
 
 Package: linux-hello-models
 Architecture: all
@@ -62,7 +82,7 @@ Architecture: any
 Depends:
   ${shlibs:Depends},
   ${misc:Depends},
-  linux-hello,
+  linux-hello-daemon,
   linux-hello-tools,
   libpam-runtime
 Description: PAM module for Linux Hello
@@ -79,7 +99,7 @@ Architecture: any
 Depends:
   ${shlibs:Depends},
   ${misc:Depends},
-  linux-hello
+  linux-hello-daemon
 Description: Command-line tools for Linux Hello
  Includes the linux-hello CLI for managing faces and testing.
 
@@ -88,7 +108,7 @@ Architecture: any
 Depends:
   ${shlibs:Depends},
   ${misc:Depends},
-  linux-hello,
+  linux-hello-daemon,
   qml-qt6,
   qml6-module-org-kde-kirigami,
   qml6-module-qtcore,
