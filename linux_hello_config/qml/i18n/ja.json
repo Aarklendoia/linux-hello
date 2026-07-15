@@ -9,10 +9,8 @@
         "youCan": "以下のことができます:",
         "action1": "• 認証用に顔を登録する",
         "action2": "• 登録済みの顔を管理する",
-        "action3": "• セキュリティ設定を構成する",
         "registerBtn": "📷 顔を登録",
-        "manageFacesBtn": "👤 顔を管理",
-        "settingsBtn": "⚙️ 設定"
+        "manageFacesBtn": "👤 顔を管理"
     },
     "enrollment": {
         "title": "顔登録",
@@ -23,22 +21,6 @@
         "startBtn": "キャプチャを開始",
         "stopBtn": "停止",
         "cancelBtn": "キャンセル"
-    },
-    "settings": {
-        "title": "設定",
-        "configuration": "構成",
-        "authentication": "認証",
-        "minConfidence": "最小信頼度:",
-        "timeout": "タイムアウト(秒):",
-        "camera": "カメラ",
-        "resolution": "解像度:",
-        "fps": "FPS:",
-        "system": "システム",
-        "pamIntegrated": "PAM統合:",
-        "dbusActive": "DBusアクティブ:",
-        "language": "言語:",
-        "saveBtn": "保存",
-        "backBtn": "戻る"
     },
     "manageFaces": {
         "title": "顔を管理",

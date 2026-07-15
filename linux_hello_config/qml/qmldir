@@ -4,5 +4,4 @@ singleton AppController 1.0 AppController.qml
 Home 1.0 Home.qml
 Enrollment 1.0 Enrollment.qml
 ManageFaces 1.0 ManageFaces.qml
-Settings 1.0 Settings.qml
 

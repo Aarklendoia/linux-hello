@@ -9,10 +9,8 @@
         "youCan": "You can:",
         "action1": "• Register your face for authentication",
         "action2": "• Manage registered faces",
-        "action3": "• Configure security settings",
         "registerBtn": "📷 Register Face",
-        "manageFacesBtn": "👤 Manage Faces",
-        "settingsBtn": "⚙️ Settings"
+        "manageFacesBtn": "👤 Manage Faces"
     },
     "enrollment": {
         "title": "Face Registration",
@@ -24,22 +22,6 @@
         "startBtn": "Start Capture",
         "stopBtn": "Stop",
         "cancelBtn": "Cancel"
-    },
-    "settings": {
-        "title": "Settings",
-        "configuration": "Configuration",
-        "authentication": "Authentication",
-        "minConfidence": "Minimum Confidence:",
-        "timeout": "Timeout (seconds):",
-        "camera": "Camera",
-        "resolution": "Resolution:",
-        "fps": "FPS:",
-        "system": "System",
-        "pamIntegrated": "PAM Integrated:",
-        "dbusActive": "DBus Active:",
-        "language": "Language:",
-        "saveBtn": "Save",
-        "backBtn": "Back"
     },
     "manageFaces": {
         "title": "Manage Faces",

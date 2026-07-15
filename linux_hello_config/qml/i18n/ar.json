@@ -9,10 +9,8 @@
         "youCan": "يمكنك:",
         "action1": "• تسجيل وجهك للمصادقة",
         "action2": "• إدارة الوجوه المسجلة",
-        "action3": "• تكوين إعدادات الأمان",
         "registerBtn": "📷 تسجيل الوجه",
-        "manageFacesBtn": "👤 إدارة الوجوه",
-        "settingsBtn": "⚙️ الإعدادات"
+        "manageFacesBtn": "👤 إدارة الوجوه"
     },
     "enrollment": {
         "title": "تسجيل الوجه",
@@ -23,22 +21,6 @@
         "startBtn": "بدء الالتقاط",
         "stopBtn": "إيقاف",
         "cancelBtn": "إلغاء"
-    },
-    "settings": {
-        "title": "الإعدادات",
-        "configuration": "التكوين",
-        "authentication": "المصادقة",
-        "minConfidence": "الحد الأدنى للثقة:",
-        "timeout": "المهلة الزمنية (ثواني):",
-        "camera": "الكاميرا",
-        "resolution": "الدقة:",
-        "fps": "الإطارات في الثانية:",
-        "system": "النظام",
-        "pamIntegrated": "PAM متكامل:",
-        "dbusActive": "DBus نشط:",
-        "language": "اللغة:",
-        "saveBtn": "حفظ",
-        "backBtn": "رجوع"
     },
     "manageFaces": {
         "title": "إدارة الوجوه",

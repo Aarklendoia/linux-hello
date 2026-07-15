@@ -85,12 +85,6 @@ Kirigami.Page {
                     color: Kirigami.Theme.textColor
                     wrapMode: Text.WordWrap
                 }
-
-                Label {
-                    text: I18n.tr("home.action3")
-                    color: Kirigami.Theme.textColor
-                    wrapMode: Text.WordWrap
-                }
             }
         }
 
@@ -120,13 +114,6 @@ Kirigami.Page {
                 Layout.fillWidth: true
                 implicitHeight: Kirigami.Units.gridUnit * 2.5
                 onClicked: AppController.navigateToManageFacesImpl()
-            }
-
-            Button {
-                text: I18n.tr("home.settingsBtn")
-                Layout.fillWidth: true
-                implicitHeight: Kirigami.Units.gridUnit * 2.5
-                onClicked: AppController.navigateToSettingsImpl()
             }
         }
     }

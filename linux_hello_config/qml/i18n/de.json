@@ -9,10 +9,8 @@
         "youCan": "Du kannst:",
         "action1": "• Dein Gesicht zur Authentifizierung registrieren",
         "action2": "• Registrierte Gesichter verwalten",
-        "action3": "• Sicherheitseinstellungen konfigurieren",
         "registerBtn": "📷 Gesicht Registrieren",
-        "manageFacesBtn": "👤 Gesichter Verwalten",
-        "settingsBtn": "⚙️ Einstellungen"
+        "manageFacesBtn": "👤 Gesichter Verwalten"
     },
     "enrollment": {
         "title": "Gesichtsregistrierung",
@@ -23,22 +21,6 @@
         "startBtn": "Erfassung Starten",
         "stopBtn": "Stoppen",
         "cancelBtn": "Abbrechen"
-    },
-    "settings": {
-        "title": "Einstellungen",
-        "configuration": "Konfiguration",
-        "authentication": "Authentifizierung",
-        "minConfidence": "Mindestvertrauen:",
-        "timeout": "Zeitüberschreitung (Sekunden):",
-        "camera": "Kamera",
-        "resolution": "Auflösung:",
-        "fps": "FPS:",
-        "system": "System",
-        "pamIntegrated": "PAM Integriert:",
-        "dbusActive": "DBus Aktiv:",
-        "language": "Sprache:",
-        "saveBtn": "Speichern",
-        "backBtn": "Zurück"
     },
     "manageFaces": {
         "title": "Gesichter Verwalten",

@@ -20,7 +20,6 @@ QtObject {
     // Navigation signals — main.qml listens and performs the actual pageStack.replace
     signal navigateToHomeSignal
     signal navigateToEnrollSignal
-    signal navigateToSettingsSignal
     signal navigateToManageFacesSignal
 
     // Internal signal to restart the animation timer (which lives in main.qml)
@@ -104,10 +103,6 @@ QtObject {
         xhr.send();
     }
 
-    function saveSettings() {
-        console.log("Settings saved");
-    }
-
     function loadFaces() {
         console.log("🔄 loadFaces called, ctrlPort=", ctrlPort);
         if (ctrlPort === "0")
@@ -149,10 +144,6 @@ QtObject {
 
     function navigateToEnrollImpl() {
         navigateToEnrollSignal();
-    }
-
-    function navigateToSettingsImpl() {
-        navigateToSettingsSignal();
     }
 
     function navigateToManageFacesImpl() {
