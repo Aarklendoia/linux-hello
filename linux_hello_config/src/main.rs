@@ -210,6 +210,13 @@ fn extract_face_id_from_busctl(output: &str) -> Option<String> {
     Some(rest[..end].to_string())
 }
 
+/// Whether a PAM service file already has the linux-hello auth line —
+/// the same substring check `install-pam.sh --status` and `lh_configure_service`
+/// (in pam-lib.sh) use to decide "already configured".
+fn sddm_pam_line_present(contents: &str) -> bool {
+    contents.contains("pam_linux_hello")
+}
+
 /// Starts a multi-threaded HTTP server on 127.0.0.1 (port allocated by the OS).
 /// Each connection is handled in a dedicated thread.
 /// Returns the assigned port.
@@ -328,7 +335,7 @@ fn handle_ctrl_connection(mut stream: TcpStream, uid: u32) {
         // instead of offering a button that can never work.
         let available = std::path::Path::new("/usr/bin/install-pam.sh").exists();
         let active = std::fs::read_to_string("/etc/pam.d/sddm")
-            .map(|contents| contents.contains("pam_linux_hello"))
+            .map(|contents| sddm_pam_line_present(&contents))
             .unwrap_or(false);
         (
             "200 OK",
@@ -441,4 +448,33 @@ fn handle_ctrl_connection(mut stream: TcpStream, uid: u32) {
         body
     );
     let _ = stream.write_all(response.as_bytes());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sddm_pam_line_present_detects_configured_line() {
+        let contents = "#%PAM-1.0\n\
+            auth    requisite       pam_nologin.so\n\
+            # >>> linux-hello-start\n\
+            auth       sufficient   pam_linux_hello.so context=sddm\n\
+            # <<< linux-hello-end\n\
+            @include common-auth\n";
+        assert!(sddm_pam_line_present(contents));
+    }
+
+    #[test]
+    fn sddm_pam_line_present_false_for_stock_file() {
+        let contents = "#%PAM-1.0\n\
+            auth    requisite       pam_nologin.so\n\
+            @include common-auth\n";
+        assert!(!sddm_pam_line_present(contents));
+    }
+
+    #[test]
+    fn sddm_pam_line_present_false_for_empty_string() {
+        assert!(!sddm_pam_line_present(""));
+    }
 }

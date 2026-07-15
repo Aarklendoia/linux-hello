@@ -109,7 +109,7 @@ Depends:
   ${shlibs:Depends},
   ${misc:Depends},
   linux-hello-daemon,
-  policykit-1,
+  pkexec,
   qml-qt6,
   qml6-module-org-kde-kirigami,
   qml6-module-qtcore,
