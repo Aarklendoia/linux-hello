@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.3.0](https://github.com/Aarklendoia/linux-hello/compare/v1.2.1...v1.3.0) (2026-07-15)
+
+
+### Features
+
+* **gui:** redesign Home/Enrollment/ManageFaces + smoother camera preview ([36fb789](https://github.com/Aarklendoia/linux-hello/commit/36fb7895b104c84362e0d2a021c3a428929ca323))
+* **gui:** redesign Home/Enrollment/ManageFaces with a friendlier Kirigami look ([35cd98b](https://github.com/Aarklendoia/linux-hello/commit/35cd98bf3ed97ab5d6d193759cc75c5af8045f7b))
+
+
+### Bug Fixes
+
+* **gui:** remove the fake Settings page ([8d058c9](https://github.com/Aarklendoia/linux-hello/commit/8d058c95de8957722b078136721dfb0be2218586))
+
+
+### Performance Improvements
+
+* **gui:** smooth out the enrollment camera preview ([2e9b347](https://github.com/Aarklendoia/linux-hello/commit/2e9b3470e02904e3a440419caf6a6b364432235d))
+
 ## [1.2.1](https://github.com/Aarklendoia/linux-hello/compare/v1.2.0...v1.2.1) (2026-07-10)
 
 
