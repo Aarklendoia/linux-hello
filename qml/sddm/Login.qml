@@ -7,7 +7,6 @@ import QtQuick.Controls as QQC2
 import org.kde.plasma.components as PlasmaComponents3
 import org.kde.plasma.extras as PlasmaExtras
 import org.kde.kirigami as Kirigami
-import org.kde.plasma.plasma5support as P5Support
 
 SessionManagementScreen {
     id: root
@@ -62,6 +61,11 @@ SessionManagementScreen {
     function startLogin() {
         const username = showUsernamePrompt ? userNameInput.text : userList.selectedUser
         const password = passwordBox.text
+
+        // Clear any Linux Hello status text left over from a previous
+        // attempt (e.g. "✗ Visage non reconnu") so it can't be mistaken
+        // for feedback on this new one.
+        lhLastMessage.text = ""
 
         footer.enabled = false
         mainStack.enabled = false
@@ -156,72 +160,45 @@ SessionManagementScreen {
         }
     }
 
-    // Linux Hello — live status of the SDDM biometric login attempt,
-    // polled from hello-daemon-system's control server (fixed loopback
-    // port — no per-user session/$XDG_RUNTIME_DIR exists pre-login, unlike
-    // the KDE lock screen's equivalent). Same technique as
-    // qml/lockscreen/MainBlock.qml: this greeter's QML engine is expected to
-    // block XMLHttpRequest's real network access the same way
-    // kscreenlocker_greet's does, so status goes through a
-    // Plasma5Support.DataSource shelling out to curl instead — a spawned
-    // process isn't subject to that policy.
+    // Linux Hello — live status of the SDDM biometric login attempt.
     //
-    // No retry button here (unlike the lock screen): selecting the
-    // account/pressing Enter again already re-triggers a fresh PAM attempt.
+    // First attempt at this used a Plasma5Support.DataSource shelling out
+    // to curl, polling hello-daemon-system's HTTP status endpoint every
+    // 1000ms (same technique as qml/lockscreen/MainBlock.qml, whose QML
+    // engine really does block XMLHttpRequest's real network access).
+    // Confirmed on real hardware that was the wrong approach here: a full
+    // recognition attempt (prompt → matched → LoginSucceeded) completes in
+    // well under a second, so a 1-second poll interval — plus whatever
+    // delay before root.loginScreenUiVisible even goes true — routinely
+    // never fires even once before the greeter has already moved on.
+    // Meanwhile pam_linux_hello's actual PAM_TEXT_INFO/PAM_ERROR_MSG
+    // messages (already localized, already emoji-prefixed — see
+    // pam_linux_hello::pam_t) were confirmed via journalctl to reach the
+    // greeter process itself within milliseconds ("Information Message
+    // received from daemon") — SDDM's own greeter↔daemon PAM-conversation
+    // channel, not something this theme needs to build itself. The only
+    // real gap (also true of the stock Breeze/Kubuntu themes, matching
+    // upstream SDDM's default behavior) was that nothing displayed it.
     PlasmaComponents3.Label {
         Layout.fillWidth: true
         horizontalAlignment: Text.AlignHCenter
         textFormat: Text.PlainText
         visible: text.length > 0
-        text: {
-            switch (lhControl.sddmState) {
-            case "recognizing": return "🔍 Reconnaissance en cours…"
-            case "success": return "✓ Visage reconnu"
-            case "failed": return "✗ Non reconnu — saisissez votre mot de passe"
-            default: return ""
-            }
-        }
+        text: lhLastMessage.text
     }
 
     // sessionManager's (root's) default property list only accepts
-    // QQuickItem children; Timer/DataSource aren't QQuickItem, so nesting
-    // them directly here fails the whole component load ("Cannot assign
-    // object of type QQmlTimer to list property _children" — the same
-    // crash already hit and fixed in MainBlock.qml). A plain Item's default
-    // property accepts any QtObject, so it's a safe container.
+    // QQuickItem children — a plain Item's default property accepts any
+    // QtObject, so it's a safe container for the Connections below (same
+    // reasoning as the Timer/DataSource container this replaced).
     Item {
-        id: lhControl
+        id: lhLastMessage
+        property string text: ""
+    }
 
-        property string sddmState: "idle"
-
-        function pollStatus() {
-            if (lhStatusSource.connectedSources.length === 0) {
-                lhStatusSource.connectSource(
-                    "sh -c 'curl -s http://127.0.0.1:17825/status 2>/dev/null'")
-            }
-        }
-
-        P5Support.DataSource {
-            id: lhStatusSource
-            engine: "executable"
-            onNewData: (sourceName, data) => {
-                disconnectSource(sourceName)
-                var out = data["stdout"]
-                if (!out) return
-                try {
-                    var parsed = JSON.parse(out)
-                    lhControl.sddmState = parsed.state || "idle"
-                } catch (e) {
-                    // Empty/malformed response (listener not up) — ignore.
-                }
-            }
-        }
-
-        Timer {
-            interval: 1000
-            running: root.loginScreenUiVisible
-            repeat: true
-            onTriggered: lhControl.pollStatus()
-        }
+    Connections {
+        target: sddm
+        function onInformationMessage(message) { lhLastMessage.text = message }
+        function onErrorMessage(message) { lhLastMessage.text = message }
     }
 }

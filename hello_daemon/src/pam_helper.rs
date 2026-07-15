@@ -14,48 +14,10 @@ use crate::storage::FaceStorage;
 use crate::verify_with_storage;
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixListener;
 use tracing::{debug, error, info, warn};
-
-/// Fixed loopback port for the SDDM greeter's status control server (`GET
-/// /status` only — unlike the screenlock case there's no retry button:
-/// selecting the account/pressing Enter again already re-triggers a fresh
-/// PAM attempt). Distinct from `preview::MJPEG_PORT` (17823) and
-/// `screenlock::SCREENLOCK_CTRL_PORT` (17824).
-///
-/// No per-user `$XDG_RUNTIME_DIR` exists pre-login (confirmed: `sddm`'s own
-/// home is `/var/lib/sddm`, no session), so unlike the screenlock control
-/// server there's no port-file to write — a fixed, well-known port needs no
-/// discovery mechanism at all and reaches any local process regardless of
-/// which user the greeter theme QML runs as.
-pub const SDDM_CTRL_PORT: u16 = 17825;
-
-/// Live state of the one SDDM login attempt that can be in flight at a
-/// time (one seat, one greeter, same single-attempt assumption the camera
-/// lock at `/run/lock/linux-hello-camera.lock` already makes — no per-uid
-/// keying needed).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SddmStatus {
-    Idle,
-    Recognizing,
-    Success,
-    Failed,
-}
-
-impl SddmStatus {
-    fn as_str(self) -> &'static str {
-        match self {
-            SddmStatus::Idle => "idle",
-            SddmStatus::Recognizing => "recognizing",
-            SddmStatus::Success => "success",
-            SddmStatus::Failed => "failed",
-        }
-    }
-}
-
-pub type SharedSddmStatus = Arc<Mutex<SddmStatus>>;
 
 /// PAM request via socket
 #[derive(Debug, Serialize, Deserialize)]
@@ -305,7 +267,6 @@ fn resolve_home_dir(uid: u32) -> Option<std::path::PathBuf> {
 pub async fn start_system_pam_helper(
     camera: Arc<crate::camera::CameraManager>,
     matcher: Arc<crate::matcher::FaceMatcher>,
-    status: SharedSddmStatus,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let socket_path = system_socket_path();
     let _ = fs::remove_file(&socket_path);
@@ -344,11 +305,8 @@ pub async fn start_system_pam_helper(
 
                     let camera = camera.clone();
                     let matcher = matcher.clone();
-                    let status = Arc::clone(&status);
                     tokio::spawn(async move {
-                        if let Err(e) =
-                            handle_system_pam_request(stream, camera, matcher, status).await
-                        {
+                        if let Err(e) = handle_system_pam_request(stream, camera, matcher).await {
                             error!("PAM system helper error: {}", e);
                         }
                     });
@@ -369,7 +327,6 @@ async fn handle_system_pam_request(
     mut stream: tokio::net::UnixStream,
     camera: Arc<crate::camera::CameraManager>,
     matcher: Arc<crate::matcher::FaceMatcher>,
-    status: SharedSddmStatus,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // Bounded read: defense in depth. This socket is reachable before any
     // authentication happens, so a stalled/malicious peer must not be able
@@ -398,8 +355,6 @@ async fn handle_system_pam_request(
     let request_json = String::from_utf8(buf)?;
     debug!("PAM system helper received: {}", request_json);
     let req: PamHelperRequest = serde_json::from_str(&request_json)?;
-
-    *status.lock().unwrap() = SddmStatus::Recognizing;
 
     let response = match resolve_home_dir(req.user_id) {
         None => {
@@ -456,72 +411,11 @@ async fn handle_system_pam_request(
         }
     };
 
-    *status.lock().unwrap() = match &response {
-        PamHelperResponse::Success { .. } => SddmStatus::Success,
-        PamHelperResponse::Failure { .. } => SddmStatus::Failed,
-    };
-
     let response_json = serde_json::to_string(&response)?;
     stream.write_all(response_json.as_bytes()).await?;
     stream.shutdown().await?;
 
     Ok(())
-}
-
-/// Start the SDDM greeter's status control server (`GET /status` only) on
-/// loopback. Same hand-rolled raw-tokio-TCP style as
-/// `preview::start_mjpeg_server`/`screenlock::start_screenlock_control_server`
-/// — no HTTP framework dependency.
-pub async fn start_sddm_control_server(
-    status: SharedSddmStatus,
-) -> Result<(), Box<dyn std::error::Error>> {
-    use tokio::net::TcpListener;
-
-    let listener = TcpListener::bind(("127.0.0.1", SDDM_CTRL_PORT)).await?;
-    info!(
-        "SDDM greeter control server: http://127.0.0.1:{}",
-        SDDM_CTRL_PORT
-    );
-
-    tokio::spawn(async move {
-        loop {
-            match listener.accept().await {
-                Ok((stream, _)) => {
-                    let status = Arc::clone(&status);
-                    tokio::spawn(async move {
-                        handle_sddm_control_conn(stream, status).await;
-                    });
-                }
-                Err(e) => error!("SDDM control server accept error: {}", e),
-            }
-        }
-    });
-
-    Ok(())
-}
-
-async fn handle_sddm_control_conn(mut stream: tokio::net::TcpStream, status: SharedSddmStatus) {
-    let mut buf = [0u8; 1024];
-    let n = match stream.read(&mut buf).await {
-        Ok(n) if n > 0 => n,
-        _ => return,
-    };
-    let request = String::from_utf8_lossy(&buf[..n]);
-    let request_line = request.lines().next().unwrap_or("");
-
-    let body = if request_line.starts_with("GET /status") {
-        let state = *status.lock().unwrap();
-        format!(r#"{{"state":"{}"}}"#, state.as_str())
-    } else {
-        r#"{"error":"not found"}"#.to_string()
-    };
-
-    let response = format!(
-        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-        body.len(),
-        body
-    );
-    let _ = stream.write_all(response.as_bytes()).await;
 }
 
 #[cfg(test)]
@@ -556,28 +450,5 @@ mod tests {
         unsafe {
             std::env::remove_var("LINUX_HELLO_SYSTEM_SOCKET_PATH");
         }
-    }
-
-    #[test]
-    fn test_sddm_status_as_str() {
-        assert_eq!(SddmStatus::Idle.as_str(), "idle");
-        assert_eq!(SddmStatus::Recognizing.as_str(), "recognizing");
-        assert_eq!(SddmStatus::Success.as_str(), "success");
-        assert_eq!(SddmStatus::Failed.as_str(), "failed");
-    }
-
-    #[test]
-    fn test_sddm_status_transitions_via_shared_mutex() {
-        // Mirrors how handle_system_pam_request updates the shared status:
-        // Recognizing at the start, then Success/Failed based on the
-        // response — exercised here without a real camera/PAM socket.
-        let status: SharedSddmStatus = Arc::new(Mutex::new(SddmStatus::Idle));
-        assert_eq!(*status.lock().unwrap(), SddmStatus::Idle);
-
-        *status.lock().unwrap() = SddmStatus::Recognizing;
-        assert_eq!(*status.lock().unwrap(), SddmStatus::Recognizing);
-
-        *status.lock().unwrap() = SddmStatus::Success;
-        assert_eq!(*status.lock().unwrap(), SddmStatus::Success);
     }
 }
