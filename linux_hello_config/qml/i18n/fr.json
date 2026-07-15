@@ -1,7 +1,7 @@
 {
     "app": {
         "title": "Linux Hello",
-        "subtitle": "Configuration de l'Authentification Biométrique"
+        "subtitle": "Déverrouillez <font face=\"monospace\">sudo</font> et votre écran d'un regard."
     },
     "home": {
         "title": "Accueil",
@@ -9,8 +9,16 @@
         "youCan": "Vous pouvez :",
         "action1": "• Enregistrer votre visage pour l'authentification",
         "action2": "• Gérer les visages enregistrés",
-        "registerBtn": "📷 Enregistrer le Visage",
-        "manageFacesBtn": "👤 Gérer les Visages"
+        "registerBtn": "Enrôler un visage",
+        "manageFacesBtn": "Gérer les visages",
+        "daemonActive": "Démon actif",
+        "daemonInactive": "Démon indisponible",
+        "daemonActiveSub": "Prêt à authentifier",
+        "daemonInactiveSub": "Vérifiez le service hello-daemon",
+        "registerBtnDesc": "Ajouter un nouveau profil biométrique",
+        "manageFacesBtnDesc": "%1 profils enregistrés",
+        "fallbackNote": "Si le visage n'est pas reconnu, le mot de passe reste toujours disponible — la reconnaissance faciale ne fait qu'ajouter une option, jamais un blocage.",
+        "manageFacesBtnDescOne": "1 profil enregistré"
     },
     "enrollment": {
         "title": "Enregistrement du Visage",
@@ -21,7 +29,14 @@
         "instructions": "Présentez votre visage à la caméra. Le système capturera plusieurs angles pour une meilleure reconnaissance.",
         "startBtn": "Démarrer la Capture",
         "stopBtn": "Arrêter",
-        "cancelBtn": "Annuler"
+        "cancelBtn": "Annuler",
+        "previewInactive": "Aperçu inactif",
+        "previewCancelled": "Capture annulée",
+        "previewStopped": "Capture arrêtée",
+        "previewAnalyzing": "Analyse du visage en cours…",
+        "previewValidating": "Validation en cours…",
+        "previewSuccess": "✓ Visage enregistré avec succès !",
+        "previewError": "✗ Erreur :"
     },
     "manageFaces": {
         "title": "Gérer les Visages",
@@ -30,8 +45,10 @@
         "confidence": "Confiance :",
         "registered": "Enregistré :",
         "unknown": "Inconnu",
-        "deleteBtn": "🗑️ Supprimer",
+        "deleteBtn": "Supprimer",
         "registerNewBtn": "+ Enregistrer un Nouveau Visage",
-        "backBtn": "Retour"
+        "backBtn": "Retour",
+        "sample": "échantillon",
+        "anyFaceNote": "N'importe quel visage enregistré peut vous authentifier — pour sudo, le déverrouillage d'écran, et partout où Linux Hello est activé."
     }
 }

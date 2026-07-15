@@ -9,8 +9,16 @@
         "youCan": "Du kannst:",
         "action1": "• Dein Gesicht zur Authentifizierung registrieren",
         "action2": "• Registrierte Gesichter verwalten",
-        "registerBtn": "📷 Gesicht Registrieren",
-        "manageFacesBtn": "👤 Gesichter Verwalten"
+        "registerBtn": "Gesicht Registrieren",
+        "manageFacesBtn": "Gesichter Verwalten",
+        "daemonActive": "Dienst aktiv",
+        "daemonInactive": "Dienst nicht verfügbar",
+        "daemonActiveSub": "Bereit zur Authentifizierung",
+        "daemonInactiveSub": "hello-daemon-Dienst prüfen",
+        "registerBtnDesc": "Neues biometrisches Profil hinzufügen",
+        "manageFacesBtnDesc": "%1 Gesichter registriert",
+        "fallbackNote": "Wird Ihr Gesicht nicht erkannt, steht das Passwort immer zur Verfügung — die Gesichtserkennung fügt nur eine schnellere Option hinzu und sperrt Sie nie aus.",
+        "manageFacesBtnDescOne": "1 Gesicht registriert"
     },
     "enrollment": {
         "title": "Gesichtsregistrierung",
@@ -20,7 +28,14 @@
         "instructions": "Zeige dein Gesicht zur Kamera. Das System erfasst mehrere Winkel für bessere Erkennung.",
         "startBtn": "Erfassung Starten",
         "stopBtn": "Stoppen",
-        "cancelBtn": "Abbrechen"
+        "cancelBtn": "Abbrechen",
+        "previewInactive": "Vorschau inaktiv",
+        "previewCancelled": "Aufnahme abgebrochen",
+        "previewStopped": "Aufnahme gestoppt",
+        "previewAnalyzing": "Gesicht wird analysiert…",
+        "previewValidating": "Wird überprüft…",
+        "previewSuccess": "✓ Gesicht erfolgreich registriert!",
+        "previewError": "✗ Fehler:"
     },
     "manageFaces": {
         "title": "Gesichter Verwalten",
@@ -29,8 +44,10 @@
         "confidence": "Vertrauen:",
         "registered": "Registriert:",
         "unknown": "Unbekannt",
-        "deleteBtn": "🗑️ Löschen",
+        "deleteBtn": "Löschen",
         "registerNewBtn": "+ Neues Gesicht Registrieren",
-        "backBtn": "Zurück"
+        "backBtn": "Zurück",
+        "sample": "Probe",
+        "anyFaceNote": "Jedes registrierte Gesicht kann Sie authentifizieren — für sudo, die Bildschirmsperre und überall sonst, wo Linux Hello aktiviert ist."
     }
 }

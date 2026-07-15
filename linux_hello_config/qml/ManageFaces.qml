@@ -13,20 +13,18 @@ Kirigami.Page {
     Layout.fillWidth: true
     Layout.fillHeight: true
 
+    padding: Kirigami.Units.largeSpacing
+
     // Reload the list every time the page becomes visible
     Component.onCompleted: AppController.loadFaces()
 
     ColumnLayout {
-        anchors {
-            fill: parent
-            margins: Kirigami.Units.largeSpacing
-        }
+        anchors.fill: parent
         spacing: Kirigami.Units.largeSpacing
 
-        // Title
         Label {
             text: I18n.tr("manageFaces.registeredFaces")
-            font.pixelSize: 20
+            font.pixelSize: 18
             font.weight: Font.Bold
             color: Kirigami.Theme.textColor
         }
@@ -40,103 +38,143 @@ Kirigami.Page {
             ListView {
                 id: facesListView
                 model: AppController.facesList
+                spacing: Kirigami.Units.smallSpacing
                 clip: true
 
-                delegate: Item {
+                delegate: Kirigami.Card {
                     id: faceItem
                     required property var modelData
                     required property int index
 
                     width: ListView.view.width
-                    height: Kirigami.Units.gridUnit * 4
+                    padding: Kirigami.Units.mediumSpacing
 
-                    readonly property string contextLabel: {
-                        var ctx = modelData.context || "";
-                        if (ctx === "gui")
-                            return qsTr("Interface graphique");
-                        if (ctx === "screenlock")
-                            return qsTr("Écran de verrouillage");
-                        if (ctx === "sudo")
-                            return qsTr("Commande sudo");
-                        if (ctx === "login")
-                            return qsTr("Connexion");
-                        if (ctx === "sddm")
-                            return qsTr("Écran de connexion");
-                        if (ctx === "test")
-                            return qsTr("Test");
-                        return ctx;
-                    }
+                    contentItem: RowLayout {
+                        spacing: Kirigami.Units.largeSpacing * 0.7
 
-                    RowLayout {
-                        anchors {
-                            left: parent.left
-                            right: parent.right
-                            verticalCenter: parent.verticalCenter
-                            margins: Kirigami.Units.smallSpacing
-                        }
-                        spacing: Kirigami.Units.mediumSpacing * 1.5
-
-                        // Thumbnail (placeholder)
+                        // Avatar
                         Rectangle {
-                            Layout.preferredWidth: Kirigami.Units.gridUnit * 2.5
-                            Layout.preferredHeight: Kirigami.Units.gridUnit * 2.5
-                            color: Kirigami.Theme.highlightColor
-                            radius: 4
-
-                            Label {
-                                anchors.centerIn: parent
-                                text: "👤"
-                                font.pixelSize: 24
-                            }
-                        }
-
-                        // Info
-                        ColumnLayout {
-                            spacing: Kirigami.Units.smallSpacing * 1.5
-                            Layout.fillWidth: true
-
-                            Label {
-                                text: AppController.uidToName(faceItem.modelData.user_id) + " — " + faceItem.contextLabel + " #" + (faceItem.index + 1)
-                                font.weight: Font.Bold
-                                color: Kirigami.Theme.textColor
-                                elide: Text.ElideRight
-                                Layout.fillWidth: true
-                            }
-
-                            Label {
-                                text: I18n.tr("manageFaces.confidence") + " " + Math.round((faceItem.modelData.quality_score || 0) * 100) + "%"
-                                font.pixelSize: 11
-                                color: Kirigami.Theme.disabledTextColor
-                            }
-
-                            Label {
-                                text: I18n.tr("manageFaces.registered") + " " + (faceItem.modelData.registered_at ? new Date(faceItem.modelData.registered_at * 1000).toLocaleDateString() : I18n.tr("manageFaces.unknown"))
-                                font.pixelSize: 10
-                                color: Kirigami.Theme.disabledTextColor
-                            }
-                        }
-
-                        // Delete button — fixed width, always on the right
-                        Button {
-                            text: I18n.tr("manageFaces.deleteBtn")
-                            Layout.preferredWidth: Kirigami.Units.gridUnit * 6
+                            Layout.preferredWidth: Kirigami.Units.gridUnit * 2
                             Layout.preferredHeight: Kirigami.Units.gridUnit * 2
-                            Layout.alignment: Qt.AlignRight | Qt.AlignVCenter
+                            radius: Kirigami.Units.smallSpacing
+                            color: Qt.rgba(Kirigami.Theme.highlightColor.r, Kirigami.Theme.highlightColor.g, Kirigami.Theme.highlightColor.b, 0.15)
 
+                            Kirigami.Icon {
+                                anchors.centerIn: parent
+                                width: Kirigami.Units.gridUnit
+                                height: width
+                                source: "im-user-symbolic"
+                                color: Kirigami.Theme.highlightColor
+                                isMask: true
+                            }
+                        }
+
+                        // Meta
+                        ColumnLayout {
+                            Layout.fillWidth: true
+                            spacing: 3
+
+                            RowLayout {
+                                spacing: Kirigami.Units.smallSpacing * 0.6
+                                Label {
+                                    text: AppController.uidToName(faceItem.modelData.user_id)
+                                    font.weight: Font.DemiBold
+                                    font.pixelSize: 13
+                                    color: Kirigami.Theme.textColor
+                                    elide: Text.ElideRight
+                                }
+                                Label {
+                                    // Enrollment sessions aren't scoped to a context — any
+                                    // registered face can authenticate any context (sudo,
+                                    // screenlock, ...); this just distinguishes multiple
+                                    // independent enrollments for the same account.
+                                    text: "· " + I18n.tr("manageFaces.sample") + " " + (faceItem.index + 1)
+                                    font.pixelSize: 11
+                                    color: Kirigami.Theme.disabledTextColor
+                                }
+                            }
+
+                            RowLayout {
+                                spacing: Kirigami.Units.largeSpacing * 0.7
+
+                                RowLayout {
+                                    spacing: Kirigami.Units.smallSpacing * 0.6
+                                    Label {
+                                        text: Math.round((faceItem.modelData.quality_score || 0) * 100)
+                                        font.pixelSize: 11
+                                        font.family: "monospace"
+                                        color: Kirigami.Theme.disabledTextColor
+                                    }
+                                    Rectangle {
+                                        Layout.preferredWidth: Kirigami.Units.gridUnit * 2.2
+                                        Layout.preferredHeight: 4
+                                        radius: 2
+                                        color: Qt.rgba(Kirigami.Theme.textColor.r, Kirigami.Theme.textColor.g, Kirigami.Theme.textColor.b, 0.15)
+                                        Rectangle {
+                                            width: parent.width * Math.min(1, Math.max(0, faceItem.modelData.quality_score || 0))
+                                            height: parent.height
+                                            radius: parent.radius
+                                            color: Kirigami.Theme.positiveTextColor
+                                        }
+                                    }
+                                }
+
+                                Label {
+                                    text: faceItem.modelData.registered_at
+                                        ? new Date(faceItem.modelData.registered_at * 1000).toLocaleDateString()
+                                        : I18n.tr("manageFaces.unknown")
+                                    font.pixelSize: 11
+                                    color: Kirigami.Theme.disabledTextColor
+                                }
+                            }
+                        }
+
+                        // Delete
+                        ToolButton {
+                            icon.name: "edit-delete-symbolic"
+                            display: AbstractButton.IconOnly
+                            Layout.preferredWidth: Kirigami.Units.gridUnit * 1.8
+                            Layout.preferredHeight: Kirigami.Units.gridUnit * 1.8
                             onClicked: AppController.deleteFace(faceItem.modelData.face_id)
+
+                            Accessible.name: I18n.tr("manageFaces.deleteBtn")
+                            ToolTip.visible: hovered
+                            ToolTip.text: I18n.tr("manageFaces.deleteBtn")
                         }
                     }
                 }
 
                 // Message if no faces
-                Label {
+                ColumnLayout {
                     visible: AppController.facesList.length === 0
-                    text: I18n.tr("manageFaces.noFaces")
-                    color: Kirigami.Theme.disabledTextColor
-                    horizontalAlignment: Text.AlignHCenter
                     anchors.centerIn: parent
+                    spacing: Kirigami.Units.smallSpacing
+
+                    Kirigami.Icon {
+                        source: "im-user-symbolic"
+                        width: Kirigami.Units.gridUnit * 2.5
+                        height: width
+                        color: Kirigami.Theme.disabledTextColor
+                        isMask: true
+                        opacity: 0.5
+                        Layout.alignment: Qt.AlignHCenter
+                    }
+                    Label {
+                        text: I18n.tr("manageFaces.noFaces")
+                        color: Kirigami.Theme.disabledTextColor
+                        horizontalAlignment: Text.AlignHCenter
+                    }
                 }
             }
+        }
+
+        Label {
+            visible: AppController.facesList.length > 0
+            text: I18n.tr("manageFaces.anyFaceNote")
+            font.pixelSize: 10
+            color: Kirigami.Theme.disabledTextColor
+            wrapMode: Text.WordWrap
+            Layout.fillWidth: true
         }
 
         // Action buttons
@@ -145,21 +183,21 @@ Kirigami.Page {
             Layout.fillWidth: true
 
             Button {
+                text: I18n.tr("manageFaces.backBtn")
+                flat: true
+                onClicked: AppController.navigateToHomeImpl()
+            }
+
+            Item { Layout.fillWidth: true }
+
+            Button {
                 text: I18n.tr("manageFaces.registerNewBtn")
-                Layout.fillWidth: true
-                implicitHeight: Kirigami.Units.gridUnit * 2.2
+                highlighted: true
 
                 palette.buttonText: Kirigami.Theme.highlightedTextColor
                 palette.button: Kirigami.Theme.highlightColor
 
                 onClicked: AppController.navigateToEnrollImpl()
-            }
-
-            Button {
-                text: I18n.tr("manageFaces.backBtn")
-                Layout.fillWidth: true
-                implicitHeight: Kirigami.Units.gridUnit * 2.2
-                onClicked: AppController.navigateToHomeImpl()
             }
         }
     }

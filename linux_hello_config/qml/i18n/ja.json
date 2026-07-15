@@ -9,8 +9,16 @@
         "youCan": "以下のことができます:",
         "action1": "• 認証用に顔を登録する",
         "action2": "• 登録済みの顔を管理する",
-        "registerBtn": "📷 顔を登録",
-        "manageFacesBtn": "👤 顔を管理"
+        "registerBtn": "顔を登録",
+        "manageFacesBtn": "顔を管理",
+        "daemonActive": "デーモン稼働中",
+        "daemonInactive": "デーモン利用不可",
+        "daemonActiveSub": "認証の準備完了",
+        "daemonInactiveSub": "hello-daemon サービスを確認してください",
+        "registerBtnDesc": "新しい生体認証プロファイルを追加",
+        "manageFacesBtnDesc": "%1 件の顔を登録済み",
+        "fallbackNote": "顔が認識されない場合でも、パスワードは常に使用できます — 顔認証はより速い選択肢を追加するだけで、アクセスをブロックすることはありません。",
+        "manageFacesBtnDescOne": "1 件の顔を登録済み"
     },
     "enrollment": {
         "title": "顔登録",
@@ -20,7 +28,14 @@
         "instructions": "顔をカメラに向けてください。より良い認識のために、複数の角度から撮影します。",
         "startBtn": "キャプチャを開始",
         "stopBtn": "停止",
-        "cancelBtn": "キャンセル"
+        "cancelBtn": "キャンセル",
+        "previewInactive": "プレビュー無効",
+        "previewCancelled": "キャプチャがキャンセルされました",
+        "previewStopped": "キャプチャを停止しました",
+        "previewAnalyzing": "顔を分析中…",
+        "previewValidating": "検証中…",
+        "previewSuccess": "✓ 顔の登録に成功しました！",
+        "previewError": "✗ エラー:"
     },
     "manageFaces": {
         "title": "顔を管理",
@@ -29,8 +44,10 @@
         "confidence": "信頼度:",
         "registered": "登録日:",
         "unknown": "不明",
-        "deleteBtn": "🗑️ 削除",
+        "deleteBtn": "削除",
         "registerNewBtn": "+ 新しい顔を登録",
-        "backBtn": "戻る"
+        "backBtn": "戻る",
+        "sample": "サンプル",
+        "anyFaceNote": "登録済みのどの顔でも認証できます — sudo、画面ロック解除、その他 Linux Hello が有効な箇所すべてで。"
     }
 }

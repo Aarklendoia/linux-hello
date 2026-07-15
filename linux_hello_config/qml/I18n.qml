@@ -12,7 +12,15 @@ QtObject {
         "home.action1": "Register a new face for authentication",
         "home.action2": "Manage your registered faces",
         "home.registerBtn": "Register Face",
+        "home.registerBtnDesc": "Add a new biometric profile",
         "home.manageFacesBtn": "Manage Faces",
+        "home.manageFacesBtnDesc": "%1 faces registered",
+        "home.manageFacesBtnDescOne": "1 face registered",
+        "home.daemonActive": "Daemon active",
+        "home.daemonInactive": "Daemon unavailable",
+        "home.daemonActiveSub": "Ready to authenticate",
+        "home.daemonInactiveSub": "Check the hello-daemon service",
+        "home.fallbackNote": "If your face isn't recognized, your password always works — face recognition only ever adds a faster option, it never locks you out.",
         "app.subtitle": "Advanced face recognition authentication for Linux",
         "enrollment.title": "Register New Face",
         "enrollment.registerNew": "Register a New Face",
@@ -22,6 +30,13 @@ QtObject {
         "enrollment.startBtn": "Start Capture",
         "enrollment.stopBtn": "Stop Capture",
         "enrollment.cancelBtn": "Cancel",
+        "enrollment.previewInactive": "Preview inactive",
+        "enrollment.previewCancelled": "Capture cancelled",
+        "enrollment.previewStopped": "Capture stopped",
+        "enrollment.previewAnalyzing": "Analyzing face…",
+        "enrollment.previewValidating": "Validating…",
+        "enrollment.previewSuccess": "✓ Face registered successfully!",
+        "enrollment.previewError": "✗ Error:",
         "manageFaces.title": "Manage Faces",
         "manageFaces.registeredFaces": "Registered Faces",
         "manageFaces.confidence": "Confidence",
@@ -30,7 +45,9 @@ QtObject {
         "manageFaces.deleteBtn": "Delete",
         "manageFaces.noFaces": "No faces registered yet",
         "manageFaces.registerNewBtn": "Register New Face",
-        "manageFaces.backBtn": "Back"
+        "manageFaces.backBtn": "Back",
+        "manageFaces.sample": "sample",
+        "manageFaces.anyFaceNote": "Any registered face can authenticate you — for sudo, screen unlock, and anywhere else Linux Hello is enabled."
     })
     property string currentLanguage: "en"
 

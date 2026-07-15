@@ -241,6 +241,26 @@ fn handle_ctrl_connection(mut stream: TcpStream, uid: u32) {
         }
     } else if req.contains("/stop-capture") {
         ("200 OK", "STOPPED".to_string())
+    } else if req.contains("/daemon-status") {
+        // Cheap D-Bus liveness check for the Home screen's status card: does
+        // the per-user session bus currently have an owner for
+        // com.linuxhello.FaceAuth? No RegisterFace/Verify call involved, so
+        // this can't trigger a camera capture or block on one.
+        let active = Command::new("busctl")
+            .args([
+                "--user",
+                "call",
+                "org.freedesktop.DBus",
+                "/org/freedesktop/DBus",
+                "org.freedesktop.DBus",
+                "NameHasOwner",
+                "s",
+                "com.linuxhello.FaceAuth",
+            ])
+            .output()
+            .map(|out| out.status.success() && String::from_utf8_lossy(&out.stdout).contains("true"))
+            .unwrap_or(false);
+        ("200 OK", format!(r#"{{"active":{}}}"#, active))
     } else if req.contains("/list-faces") {
         match Command::new("busctl")
             .args([

@@ -9,8 +9,16 @@
         "youCan": "You can:",
         "action1": "• Register your face for authentication",
         "action2": "• Manage registered faces",
-        "registerBtn": "📷 Register Face",
-        "manageFacesBtn": "👤 Manage Faces"
+        "registerBtn": "Register Face",
+        "manageFacesBtn": "Manage Faces",
+        "daemonActive": "Daemon active",
+        "daemonInactive": "Daemon unavailable",
+        "daemonActiveSub": "Ready to authenticate",
+        "daemonInactiveSub": "Check the hello-daemon service",
+        "registerBtnDesc": "Add a new biometric profile",
+        "manageFacesBtnDesc": "%1 faces registered",
+        "fallbackNote": "If your face isn't recognized, your password always works — face recognition only ever adds a faster option, it never locks you out.",
+        "manageFacesBtnDescOne": "1 face registered"
     },
     "enrollment": {
         "title": "Face Registration",
@@ -21,7 +29,14 @@
         "instructions": "Present your face to the camera. The system will capture multiple angles for better recognition.",
         "startBtn": "Start Capture",
         "stopBtn": "Stop",
-        "cancelBtn": "Cancel"
+        "cancelBtn": "Cancel",
+        "previewInactive": "Preview inactive",
+        "previewCancelled": "Capture cancelled",
+        "previewStopped": "Capture stopped",
+        "previewAnalyzing": "Analyzing face…",
+        "previewValidating": "Validating…",
+        "previewSuccess": "✓ Face registered successfully!",
+        "previewError": "✗ Error:"
     },
     "manageFaces": {
         "title": "Manage Faces",
@@ -30,8 +45,10 @@
         "confidence": "Confidence:",
         "registered": "Registered:",
         "unknown": "Unknown",
-        "deleteBtn": "🗑️ Delete",
+        "deleteBtn": "Delete",
         "registerNewBtn": "+ Register New Face",
-        "backBtn": "Back"
+        "backBtn": "Back",
+        "sample": "sample",
+        "anyFaceNote": "Any registered face can authenticate you — for sudo, screen unlock, and anywhere else Linux Hello is enabled."
     }
 }
