@@ -172,7 +172,7 @@ For enrolling and managing faces without the terminal, there's an optional Kirig
    linux_hello_config
    ```
 
-From there you can enroll a new face, see how many faces are registered, and delete any of them — the daemon status shown on the home screen reflects whether `hello-daemon` is actually running.
+From there you can enroll a new face, see how many faces are registered, and delete any of them — the daemon status shown on the home screen reflects whether `hello-daemon` is actually running. A third card lets you enable or disable face auth on the SDDM login screen (used when switching users) with a single click — this needs `libpam-linux-hello` installed and prompts for authentication via `pkexec`, since it's opt-in for security reasons (see [docs/PAM_MODULE.md](docs/PAM_MODULE.md#sddm-login-screen)).
 
 ## Security notes
 

@@ -319,6 +319,49 @@ fn handle_ctrl_connection(mut stream: TcpStream, uid: u32) {
             })
             .unwrap_or(false);
         ("200 OK", format!(r#"{{"active":{}}}"#, active))
+    } else if req.contains("/sddm-status") {
+        // No elevation needed: /etc/pam.d/sddm is world-readable, and this
+        // is exactly what `install-pam.sh --status` itself checks. Also
+        // reports whether the SDDM toggle is even usable at all — the GUI
+        // package doesn't hard-depend on libpam-linux-hello (install-pam.sh
+        // lives there), so a GUI-only install must degrade gracefully
+        // instead of offering a button that can never work.
+        let available = std::path::Path::new("/usr/bin/install-pam.sh").exists();
+        let active = std::fs::read_to_string("/etc/pam.d/sddm")
+            .map(|contents| contents.contains("pam_linux_hello"))
+            .unwrap_or(false);
+        (
+            "200 OK",
+            format!(r#"{{"active":{},"available":{}}}"#, active, available),
+        )
+    } else if req.contains("/sddm-enable") || req.contains("/sddm-disable") {
+        // Blocking is fine: each connection already runs on its own thread.
+        // pkexec shows the native polkit auth-agent dialog (matched to our
+        // action via install-pam.sh's exec-path annotation in
+        // com.linuxhello.pam-setup.policy) and waits for it — can take
+        // several seconds while the user actually looks at the prompt.
+        let flag = if req.contains("/sddm-enable") {
+            "--enable-sddm"
+        } else {
+            "--disable-sddm"
+        };
+        match Command::new("pkexec")
+            .args(["/usr/bin/install-pam.sh", flag])
+            .output()
+        {
+            Ok(out) if out.status.success() => ("200 OK", r#"{"ok":true}"#.to_string()),
+            Ok(out) => {
+                let err = String::from_utf8_lossy(&out.stderr)
+                    .replace('"', "\\\"")
+                    .replace('\n', " ");
+                eprintln!("✗ {} failed: {}", flag, err);
+                ("200 OK", format!(r#"{{"ok":false,"error":"{}"}}"#, err))
+            }
+            Err(e) => {
+                eprintln!("✗ {} spawn error: {}", flag, e);
+                ("200 OK", format!(r#"{{"ok":false,"error":"{}"}}"#, e))
+            }
+        }
     } else if req.contains("/list-faces") {
         match Command::new("busctl")
             .args([

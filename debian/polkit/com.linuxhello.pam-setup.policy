@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<policyconfig>
+  <vendor>Linux Hello</vendor>
+  <vendor_url>https://github.com/Aarklendoia/linux-hello</vendor_url>
+
+  <!--
+    Registered against install-pam.sh's exec path so pkexec shows this
+    message instead of its generic "run an arbitrary program as root" one.
+    auth_admin_keep for the active console session only: this is meant to be
+    triggered from the GUI's home-screen SDDM toggle (or by hand), never
+    unattended — SDDM support starts a root-owned, always-on,
+    pre-authentication-reachable listener, so it must always require an
+    explicit, interactive admin confirmation.
+  -->
+  <action id="com.linuxhello.pam-setup">
+    <description>Configure Linux Hello PAM integration</description>
+    <message>Authentication is required to change how Linux Hello integrates with the SDDM login screen</message>
+    <icon_name>linux-hello</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/bin/install-pam.sh</annotate>
+  </action>
+</policyconfig>

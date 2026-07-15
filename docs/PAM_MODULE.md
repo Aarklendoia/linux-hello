@@ -107,16 +107,27 @@ home directory directly (root can read any home) and checks
 `~/.local/share/linux-hello/users/<uid>/` for enrolled faces, without ever
 creating anything there.
 
-**This capability is opt-in only**, via `sudo ./install-pam.sh` (which
-inserts the `pam_linux_hello.so context=sddm` line into `/etc/pam.d/sddm`,
-enables `hello-daemon-system.service`, **and** installs a live status
-indicator into the configured SDDM greeter theme — see below) or reverted
-together via `install-pam.sh --remove`. It is deliberately **not** part of
-automatic activation (`linux-hello-pam-autoconfigure` never touches `sddm`
-or this service) — starting a new pre-authentication-reachable root
-listener is a large enough change to a machine's attack surface that it
-should never happen silently just because someone enrolled a face for
-sudo/screenlock.
+**This capability is opt-in only**, via `sudo install-pam.sh --enable-sddm`
+(which inserts the `pam_linux_hello.so context=sddm` line into
+`/etc/pam.d/sddm`, enables `hello-daemon-system.service`, **and** installs a
+live status indicator into the configured SDDM greeter theme — see below),
+reverted with `sudo install-pam.sh --disable-sddm` (or together with
+everything else via `install-pam.sh --remove`). It is deliberately **not**
+part of automatic activation (`linux-hello-pam-autoconfigure` never touches
+`sddm` or this service) and, since this session, **not** part of
+`install-pam.sh`'s bare/default invocation either (which only configures
+sudo/su/polkit) — starting a new pre-authentication-reachable root listener
+is a large enough change to a machine's attack surface that it must always
+be a separate, explicit opt-in.
+
+For packaged-install users, the easiest way to opt in is the GUI's home-screen
+toggle ("Login screen" card) — it shows the current state, and enabling or
+disabling it triggers `pkexec install-pam.sh --enable-sddm`/`--disable-sddm`
+under the hood, prompting for authentication via the desktop's normal polkit
+dialog (registered as the `com.linuxhello.pam-setup` action, so the prompt
+explains what's being changed instead of showing a generic "run this program
+as root" message). The GUI card disables itself if `libpam-linux-hello` isn't
+installed, since `install-pam.sh` wouldn't exist to invoke.
 
 ### Greeter status indicator
 

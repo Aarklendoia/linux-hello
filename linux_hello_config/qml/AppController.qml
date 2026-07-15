@@ -9,6 +9,10 @@ QtObject {
     property int progress: 0
     property var facesList: []
     property bool daemonActive: false
+    property bool sddmActive: false
+    property bool sddmAvailable: false
+    property bool sddmBusy: false
+    property string sddmError: ""
     property string ctrlPort: "0"
     property string lastRegisteredFaceId: ""
     property var uidNameCache: ({})
@@ -48,6 +52,7 @@ QtObject {
         });
         controller.uidNameCache = cache;
         checkDaemonStatus();
+        checkSddmStatus();
         loadFaces();
     }
 
@@ -75,6 +80,64 @@ QtObject {
             } else {
                 controller.daemonActive = false;
             }
+        };
+        xhr.send();
+    }
+
+    // SDDM (login screen) status — a plain file read on the backend, no
+    // elevation needed, safe to poll like checkDaemonStatus().
+    function checkSddmStatus() {
+        if (ctrlPort === "0")
+            return;
+        var xhr = new XMLHttpRequest();
+        xhr.open("GET", "http://127.0.0.1:" + ctrlPort + "/sddm-status", true);
+        xhr.onreadystatechange = function () {
+            if (xhr.readyState !== XMLHttpRequest.DONE)
+                return;
+            if (xhr.status === 200) {
+                try {
+                    var resp = JSON.parse(xhr.responseText);
+                    controller.sddmActive = !!resp.active;
+                    controller.sddmAvailable = !!resp.available;
+                } catch (e) {
+                    controller.sddmActive = false;
+                    controller.sddmAvailable = false;
+                }
+            } else {
+                controller.sddmActive = false;
+                controller.sddmAvailable = false;
+            }
+        };
+        xhr.send();
+    }
+
+    // Enables or disables SDDM login-screen face auth, depending on the
+    // last-known state. Triggers a real pkexec prompt on the backend — can
+    // take several seconds while the user interacts with it.
+    function toggleSddm() {
+        if (ctrlPort === "0" || sddmBusy)
+            return;
+        controller.sddmBusy = true;
+        controller.sddmError = "";
+        var route = sddmActive ? "/sddm-disable" : "/sddm-enable";
+        var xhr = new XMLHttpRequest();
+        xhr.open("GET", "http://127.0.0.1:" + ctrlPort + route, true);
+        xhr.onreadystatechange = function () {
+            if (xhr.readyState !== XMLHttpRequest.DONE)
+                return;
+            controller.sddmBusy = false;
+            if (xhr.status === 200) {
+                try {
+                    var resp = JSON.parse(xhr.responseText);
+                    if (!resp.ok)
+                        controller.sddmError = resp.error || "Erreur inconnue";
+                } catch (e) {
+                    controller.sddmError = "Réponse invalide du serveur";
+                }
+            } else {
+                controller.sddmError = "Erreur HTTP " + xhr.status;
+            }
+            controller.checkSddmStatus();
         };
         xhr.send();
     }
@@ -167,6 +230,7 @@ QtObject {
 
     function navigateToHomeImpl() {
         checkDaemonStatus();
+        checkSddmStatus();
         loadFaces();
         navigateToHomeSignal();
     }

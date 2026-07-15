@@ -146,3 +146,82 @@ PYEOF
         return 1
     fi
 }
+
+# ── SDDM (login screen) enable/disable ───────────────────────────────────────
+# Deliberately separate from lh_configure_service's sudo/su/polkit-1 callers:
+# SDDM starts hello-daemon-system.service, a root-owned, always-on,
+# pre-authentication-reachable listener — explicit opt-in only, never part of
+# automatic activation or the bare `install-pam.sh` default flow.
+#
+# lh_sddm_enable <sddm_qml_source>
+# <sddm_qml_source> is the patched Login.qml to divert-install into the
+# configured greeter theme (caller resolves the packaged-vs-checkout path).
+lh_sddm_enable() {
+    local sddm_qml_source="$1"
+
+    lh_configure_service "sddm" "sddm" "@include common-auth"
+    if systemctl enable --now hello-daemon-system.service 2>/dev/null; then
+        echo "Service hello-daemon-system: enabled"
+    else
+        echo "Could not enable hello-daemon-system.service (systemd unavailable?)" >&2
+    fi
+
+    local sddm_theme sddm_login_qml
+    sddm_theme="$(lh_sddm_theme_name)"
+    sddm_login_qml="/usr/share/sddm/themes/$sddm_theme/Login.qml"
+    if [[ ! -f "$sddm_login_qml" ]]; then
+        echo "SDDM theme '$sddm_theme' has no Login.qml — status indicator not installed (login via face still works, just without visual feedback)" >&2
+    elif [[ ! -f "$sddm_qml_source" ]]; then
+        echo "Status indicator source missing ($sddm_qml_source) — skipped" >&2
+    elif dpkg-divert --list "$sddm_login_qml" 2>/dev/null | grep -q linux-hello; then
+        echo "SDDM greeter status indicator: already installed (theme: $sddm_theme)"
+    else
+        dpkg-divert --package libpam-linux-hello --rename --add "$sddm_login_qml" 2>/dev/null || true
+        cp "$sddm_qml_source" "$sddm_login_qml"
+        echo "SDDM greeter status indicator installed (theme: $sddm_theme)"
+    fi
+}
+
+# lh_sddm_disable — reverses lh_sddm_enable. Leaves sudo/su/polkit alone.
+lh_sddm_disable() {
+    local f="$PAM_DIR/sddm"
+    local latest_bak
+    latest_bak=$(find "$PAM_DIR" -maxdepth 1 -name "sddm.pre-linuxhello-*" -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2- || true)
+    if [[ -n "$latest_bak" ]]; then
+        cp "$latest_bak" "$f"
+        echo "Restored: sddm ← $latest_bak"
+    elif [[ -f "$f" ]]; then
+        sed -i "/$LH_MARKER_START/,/$LH_MARKER_END/d" "$f"
+        sed -i '/pam_linux_hello/d' "$f"
+        echo "Cleaned: sddm (linux-hello lines removed)"
+    fi
+
+    if systemctl disable --now hello-daemon-system.service 2>/dev/null; then
+        echo "Service hello-daemon-system: disabled"
+    fi
+
+    local sddm_theme sddm_login_qml
+    sddm_theme="$(lh_sddm_theme_name)"
+    sddm_login_qml="/usr/share/sddm/themes/$sddm_theme/Login.qml"
+    if dpkg-divert --list "$sddm_login_qml" 2>/dev/null | grep -q linux-hello; then
+        rm -f "$sddm_login_qml"
+        dpkg-divert --package libpam-linux-hello --rename --remove "$sddm_login_qml" 2>/dev/null || true
+        echo "SDDM greeter status indicator removed (theme: $sddm_theme)"
+    fi
+}
+
+# Detects the SDDM greeter theme actually configured: last `Current=` wins,
+# matching SDDM's own config-merging order (/etc/sddm.conf, then
+# /etc/sddm.conf.d/*.conf in lexicographic order — the numeric prefixes
+# distros use, e.g. 20-kubuntu.conf, are designed to sort correctly here).
+# Falls back to "breeze", SDDM's own upstream default, if nothing is set.
+lh_sddm_theme_name() {
+    local theme="breeze"
+    local f found
+    for f in /etc/sddm.conf /etc/sddm.conf.d/*.conf; do
+        [[ -f "$f" ]] || continue
+        found=$(grep -E '^\s*Current\s*=' "$f" 2>/dev/null | tail -1 | cut -d'=' -f2- | xargs || true)
+        [[ -n "$found" ]] && theme="$found"
+    done
+    echo "$theme"
+}

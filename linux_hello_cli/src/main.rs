@@ -198,6 +198,11 @@ async fn command_enroll(user_id: u32, context: &str, samples: u32) -> anyhow::Re
         "✓ Face enrolled: face_id={} quality={:.2}",
         response.face_id, response.quality_score
     );
+    println!();
+    println!("sudo/su/polkit face-auth will activate automatically within a few minutes.");
+    println!(
+        "To also enable it for the SDDM login screen: sudo install-pam.sh --enable-sddm (or use the GUI's home-screen toggle)"
+    );
 
     Ok(())
 }
