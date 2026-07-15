@@ -200,10 +200,14 @@ SessionManagementScreen {
         id: lhLastMessage
         property string text: ""
 
+        // sddm has no separate errorMessage signal in this SDDM version
+        // (confirmed via a QML runtime warning when one was wired up here) —
+        // both PAM_TEXT_INFO and PAM_ERROR_MSG-style text arrive through
+        // informationMessage alone, matching what journalctl showed even
+        // for a plain password failure ("Échec de l'authentification").
         Connections {
             target: sddm
             function onInformationMessage(message) { lhLastMessage.text = message }
-            function onErrorMessage(message) { lhLastMessage.text = message }
         }
     }
 }
