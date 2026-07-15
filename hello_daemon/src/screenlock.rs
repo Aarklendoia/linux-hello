@@ -4,8 +4,10 @@
 //! locking. When the screen locks, triggers facial auth without the user
 //! having to press Enter. If the face is recognized, unlocks via loginctl.
 //!
-//! Polling is used instead of subscribing to the ActiveChanged signal to avoid
-//! a conflicting dependency on futures-util (pinned to 0.3.32 by sqlx).
+//! Polling is used instead of subscribing to the ActiveChanged signal —
+//! originally to avoid a futures-util version conflict pinned by sqlx; sqlx
+//! is no longer a dependency, so that constraint is gone, but switching to
+//! signal-based detection is a separate change, not done here.
 //!
 //! A face-recognition attempt only ever fired once, at the lock transition,
 //! with no way to retry if the user didn't come back within its timeout —
