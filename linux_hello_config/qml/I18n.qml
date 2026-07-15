@@ -11,10 +11,8 @@ QtObject {
         "home.youCan": "You can:",
         "home.action1": "Register a new face for authentication",
         "home.action2": "Manage your registered faces",
-        "home.action3": "Configure authentication settings",
         "home.registerBtn": "Register Face",
         "home.manageFacesBtn": "Manage Faces",
-        "home.settingsBtn": "Settings",
         "app.subtitle": "Advanced face recognition authentication for Linux",
         "enrollment.title": "Register New Face",
         "enrollment.registerNew": "Register a New Face",
@@ -32,11 +30,7 @@ QtObject {
         "manageFaces.deleteBtn": "Delete",
         "manageFaces.noFaces": "No faces registered yet",
         "manageFaces.registerNewBtn": "Register New Face",
-        "manageFaces.backBtn": "Back",
-        "settings.title": "Settings",
-        "settings.general": "General Settings",
-        "settings.language": "Language",
-        "settings.theme": "Theme"
+        "manageFaces.backBtn": "Back"
     })
     property string currentLanguage: "en"
 

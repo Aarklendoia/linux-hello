@@ -9,10 +9,8 @@
         "youCan": "Вы можете:",
         "action1": "• Зарегистрировать своё лицо для аутентификации",
         "action2": "• Управлять зарегистрированными лицами",
-        "action3": "• Настроить параметры безопасности",
         "registerBtn": "📷 Зарегистрировать Лицо",
-        "manageFacesBtn": "👤 Управлять Лицами",
-        "settingsBtn": "⚙️ Параметры"
+        "manageFacesBtn": "👤 Управлять Лицами"
     },
     "enrollment": {
         "title": "Регистрация Лица",
@@ -23,22 +21,6 @@
         "startBtn": "Начать Захват",
         "stopBtn": "Остановить",
         "cancelBtn": "Отменить"
-    },
-    "settings": {
-        "title": "Параметры",
-        "configuration": "Конфигурация",
-        "authentication": "Аутентификация",
-        "minConfidence": "Минимальная Уверенность:",
-        "timeout": "Время Ожидания (секунды):",
-        "camera": "Камера",
-        "resolution": "Разрешение:",
-        "fps": "FPS:",
-        "system": "Система",
-        "pamIntegrated": "PAM Интегрирован:",
-        "dbusActive": "DBus Активен:",
-        "language": "Язык:",
-        "saveBtn": "Сохранить",
-        "backBtn": "Назад"
     },
     "manageFaces": {
         "title": "Управлять Лицами",

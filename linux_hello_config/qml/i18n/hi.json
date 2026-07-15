@@ -9,10 +9,8 @@
         "youCan": "आप कर सकते हैं:",
         "action1": "• प्रमाणीकरण के लिए अपने चेहरे को पंजीकृत करें",
         "action2": "• पंजीकृत चेहरों को प्रबंधित करें",
-        "action3": "• सुरक्षा सेटिंग्स कॉन्फ़िगर करें",
         "registerBtn": "📷 चेहरा पंजीकृत करें",
-        "manageFacesBtn": "👤 चेहरों को प्रबंधित करें",
-        "settingsBtn": "⚙️ सेटिंग्स"
+        "manageFacesBtn": "👤 चेहरों को प्रबंधित करें"
     },
     "enrollment": {
         "title": "चेहरा पंजीकरण",
@@ -23,22 +21,6 @@
         "startBtn": "कैप्चर शुरू करें",
         "stopBtn": "रोकें",
         "cancelBtn": "रद्द करें"
-    },
-    "settings": {
-        "title": "सेटिंग्स",
-        "configuration": "कॉन्फ़िगरेशन",
-        "authentication": "प्रमाणीकरण",
-        "minConfidence": "न्यूनतम आत्मविश्वास:",
-        "timeout": "समय सीमा (सेकंड):",
-        "camera": "कैमरा",
-        "resolution": "संकल्प:",
-        "fps": "FPS:",
-        "system": "प्रणाली",
-        "pamIntegrated": "PAM एकीकृत:",
-        "dbusActive": "DBus सक्रिय:",
-        "language": "भाषा:",
-        "saveBtn": "सहेजें",
-        "backBtn": "वापस"
     },
     "manageFaces": {
         "title": "चेहरों को प्रबंधित करें",

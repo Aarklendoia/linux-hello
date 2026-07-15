@@ -49,10 +49,6 @@ Kirigami.ApplicationWindow {
             mainWindow.pageStack.replace(Qt.resolvedUrl("Enrollment.qml"));
         }
 
-        function onNavigateToSettingsSignal() {
-            mainWindow.pageStack.replace(Qt.resolvedUrl("Settings.qml"));
-        }
-
         function onNavigateToManageFacesSignal() {
             mainWindow.pageStack.replace(Qt.resolvedUrl("ManageFaces.qml"));
         }

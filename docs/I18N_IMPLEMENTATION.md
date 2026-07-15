@@ -50,13 +50,10 @@ Each language has a dedicated JSON file with ~30 translation keys:
     "youCan": "You can:",
     "action1": "• Register your face for authentication",
     "action2": "• Manage registered faces",
-    "action3": "• Configure security settings",
     "registerBtn": "📷 Register Face",
-    "manageFacesBtn": "👤 Manage Faces",
-    "settingsBtn": "⚙️ Settings"
+    "manageFacesBtn": "👤 Manage Faces"
   },
   "enrollment": { ... },
-  "settings": { ... },
   "manageFaces": { ... }
 }
 ```
@@ -127,11 +124,8 @@ Label {
    - Progress bar label now translatable
    - All 5 text elements now translatable
 
-4. **linux_hello_config/qml/Settings.qml**
-   - Updated section titles (Authentication, Camera, System)
-   - Updated all labels (Minimum Confidence, Timeout, Resolution, FPS, PAM, DBus)
-   - Updated buttons (Save, Back)
-   - All 13 text elements now translatable
+4. ~~linux_hello_config/qml/Settings.qml~~ — removed; the page never persisted
+   any of its settings (see the GUI simplification pass that dropped it)
 
 5. **linux_hello_config/qml/ManageFaces.qml**
    - Updated title and list labels
@@ -223,9 +217,7 @@ Each language was carefully translated to maintain:
 
 🔄 **In Progress**:
 
-1. 🔄 Add language selector ComboBox to Settings page
-2. 🔄 Implement language persistence (save selection to config file)
-3. 🔄 Runtime language switching with UI refresh
+1. 🔄 Runtime language switching with UI refresh
 
 🔜 **Pending**:
 
@@ -278,7 +270,6 @@ linux_hello_config/qml/
 ├── main.qml                    # Root window + i18n manager
 ├── Home.qml                    # Home screen (translated)
 ├── Enrollment.qml              # Face registration (translated)
-├── Settings.qml                # Settings panel (translated)
 ├── ManageFaces.qml             # Face management (translated)
 ├── icons/
 │   ├── app-icon.svg
@@ -299,38 +290,7 @@ linux_hello_config/qml/
 
 ## Next Steps
 
-### 1. Language Selector (Task 4)
-
-Add to Settings.qml:
-
-```qml
-RowLayout {
-    Label {
-        text: i18n.tr("settings.language")  // Need to add key
-    }
-    ComboBox {
-        model: i18n.languages
-        currentIndex: i18n.languages.indexOf(i18n.currentLanguage)
-        onCurrentIndexChanged: {
-            i18n.loadLanguage(i18n.languages[currentIndex])
-        }
-    }
-}
-```
-
-### 2. Config Persistence
-
-Store selected language in `~/.config/linux-hello/settings.json`:
-
-```json
-{
-    "language": "en",
-    "theme": "dark",
-    "minConfidence": 85
-}
-```
-
-### 3. Comprehensive Testing
+### 1. Comprehensive Testing
 
 - Verify all 10 languages display correctly
 - Test emoji rendering (📷, 👤, ⚙️, 🗑️)

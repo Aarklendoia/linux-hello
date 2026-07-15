@@ -9,10 +9,8 @@
         "youCan": "您可以：",
         "action1": "• 注册您的脸部以进行身份验证",
         "action2": "• 管理已注册的脸部",
-        "action3": "• 配置安全设置",
         "registerBtn": "📷 注册脸部",
-        "manageFacesBtn": "👤 管理脸部",
-        "settingsBtn": "⚙️ 设置"
+        "manageFacesBtn": "👤 管理脸部"
     },
     "enrollment": {
         "title": "脸部注册",
@@ -23,22 +21,6 @@
         "startBtn": "开始捕获",
         "stopBtn": "停止",
         "cancelBtn": "取消"
-    },
-    "settings": {
-        "title": "设置",
-        "configuration": "配置",
-        "authentication": "身份验证",
-        "minConfidence": "最低置信度：",
-        "timeout": "超时（秒）：",
-        "camera": "摄像头",
-        "resolution": "分辨率：",
-        "fps": "帧率：",
-        "system": "系统",
-        "pamIntegrated": "PAM 集成：",
-        "dbusActive": "DBus 活跃：",
-        "language": "语言:",
-        "saveBtn": "保存",
-        "backBtn": "返回"
     },
     "manageFaces": {
         "title": "管理脸部",

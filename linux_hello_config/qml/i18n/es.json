@@ -9,10 +9,8 @@
         "youCan": "Puedes:",
         "action1": "• Registrar tu rostro para la autenticación",
         "action2": "• Gestionar rostros registrados",
-        "action3": "• Configurar ajustes de seguridad",
         "registerBtn": "📷 Registrar Rostro",
-        "manageFacesBtn": "👤 Gestionar Rostros",
-        "settingsBtn": "⚙️ Configuración"
+        "manageFacesBtn": "👤 Gestionar Rostros"
     },
     "enrollment": {
         "title": "Registro de Rostro",
@@ -23,22 +21,6 @@
         "startBtn": "Iniciar Captura",
         "stopBtn": "Detener",
         "cancelBtn": "Cancelar"
-    },
-    "settings": {
-        "title": "Configuración",
-        "configuration": "Configuración",
-        "authentication": "Autenticación",
-        "minConfidence": "Confianza Mínima:",
-        "timeout": "Tiempo de Espera (segundos):",
-        "camera": "Cámara",
-        "resolution": "Resolución:",
-        "fps": "FPS:",
-        "system": "Sistema",
-        "pamIntegrated": "PAM Integrado:",
-        "dbusActive": "DBus Activo:",
-        "language": "Idioma:",
-        "saveBtn": "Guardar",
-        "backBtn": "Atrás"
     },
     "manageFaces": {
         "title": "Gestionar Rostros",
