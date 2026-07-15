@@ -314,7 +314,9 @@ fn handle_ctrl_connection(mut stream: TcpStream, uid: u32) {
                 "com.linuxhello.FaceAuth",
             ])
             .output()
-            .map(|out| out.status.success() && String::from_utf8_lossy(&out.stdout).contains("true"))
+            .map(|out| {
+                out.status.success() && String::from_utf8_lossy(&out.stdout).contains("true")
+            })
             .unwrap_or(false);
         ("200 OK", format!(r#"{{"active":{}}}"#, active))
     } else if req.contains("/list-faces") {
