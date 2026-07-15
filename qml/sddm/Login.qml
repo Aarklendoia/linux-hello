@@ -188,17 +188,22 @@ SessionManagementScreen {
     }
 
     // sessionManager's (root's) default property list only accepts
-    // QQuickItem children — a plain Item's default property accepts any
-    // QtObject, so it's a safe container for the Connections below (same
-    // reasoning as the Timer/DataSource container this replaced).
+    // QQuickItem children — Connections isn't one (same pitfall the
+    // Timer/DataSource container this replaced already had to work around;
+    // confirmed the hard way this time too — first attempt put Connections
+    // as a direct sibling here, which fails the whole component load with
+    // "Cannot assign object of type QQmlConnections... to list property
+    // _children; expected QQuickItem", falling back to SDDM's bare
+    // embedded theme on all monitors). A plain Item's default property
+    // accepts any QtObject, so it's a safe container for both.
     Item {
         id: lhLastMessage
         property string text: ""
-    }
 
-    Connections {
-        target: sddm
-        function onInformationMessage(message) { lhLastMessage.text = message }
-        function onErrorMessage(message) { lhLastMessage.text = message }
+        Connections {
+            target: sddm
+            function onInformationMessage(message) { lhLastMessage.text = message }
+            function onErrorMessage(message) { lhLastMessage.text = message }
+        }
     }
 }
