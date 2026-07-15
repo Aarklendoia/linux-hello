@@ -35,10 +35,16 @@ fn main() {
     }
     let _ = std::fs::write(&lock_path, std::process::id().to_string());
 
-    let ctrl_port = start_control_server(uid);
+    let ctrl_token = generate_ctrl_token();
+    let ctrl_port = start_control_server(uid, ctrl_token.clone());
     eprintln!("🔌 Control server on port {}", ctrl_port);
-    // Write the port to a file readable from QML (Qt.environmentVariable unavailable on this build)
-    let _ = std::fs::write("/tmp/linux-hello-ctrl.port", ctrl_port.to_string());
+    // Written to files readable from QML (Qt.environmentVariable unavailable
+    // on this build). 0600: the control server binds 127.0.0.1, reachable by
+    // any local process regardless of user — the port number alone isn't
+    // sensitive, but the token is what actually gates access to routes like
+    // /sddm-enable, which now triggers a real pkexec prompt.
+    let _ = write_owner_only_file("/tmp/linux-hello-ctrl.port", &ctrl_port.to_string());
+    let _ = write_owner_only_file("/tmp/linux-hello-ctrl.token", &ctrl_token);
 
     // Configure the QML import paths
     let qml_import_paths = [
@@ -179,6 +185,31 @@ fn get_current_uid() -> u32 {
         .unwrap_or(1000)
 }
 
+/// Generates a random 64-hex-char token for authenticating requests to the
+/// local control server. Reads exactly 32 bytes from /dev/urandom directly
+/// (`read_exact`, not `fs::read` — the latter would block forever on a
+/// character device that never returns EOF) rather than pulling in a `rand`
+/// crate: this binary is deliberately dependency-free (see the doc comment
+/// at the top of this file).
+fn generate_ctrl_token() -> String {
+    use std::fs::File;
+    let mut buf = [0u8; 32];
+    File::open("/dev/urandom")
+        .and_then(|mut f| f.read_exact(&mut buf))
+        .expect("Unable to read /dev/urandom for the control server token");
+    buf.iter().map(|b| format!("{:02x}", b)).collect()
+}
+
+/// Writes `contents` to `path` readable/writable only by the current user
+/// (mode 0600) — used for the control server's port and token files, both
+/// of which are otherwise reachable/discoverable by any local process
+/// regardless of user (the loopback socket has no per-user ACL of its own).
+fn write_owner_only_file(path: &str, contents: &str) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::write(path, contents)?;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+}
+
 /// Extracts the JSON content from a busctl output returning a string type.
 /// busctl format: s "[{\"face_id\":\"...\"}]"
 fn extract_busctl_json(output: &str) -> Option<String> {
@@ -220,226 +251,247 @@ fn sddm_pam_line_present(contents: &str) -> bool {
 /// Starts a multi-threaded HTTP server on 127.0.0.1 (port allocated by the OS).
 /// Each connection is handled in a dedicated thread.
 /// Returns the assigned port.
-fn start_control_server(uid: u32) -> u16 {
+fn start_control_server(uid: u32, token: String) -> u16 {
     let listener = TcpListener::bind("127.0.0.1:0").expect("Unable to start the control server");
     let port = listener.local_addr().unwrap().port();
 
     thread::spawn(move || {
         for stream in listener.incoming().flatten() {
-            thread::spawn(move || handle_ctrl_connection(stream, uid));
+            let token = token.clone();
+            thread::spawn(move || handle_ctrl_connection(stream, uid, &token));
         }
     });
 
     port
 }
 
+/// Extracts the `X-Linux-Hello-Token:` header's value from a raw HTTP
+/// request, if present. Manual line scan, matching this file's existing
+/// hand-rolled parsing style (no HTTP framework) — same approach as
+/// `extract_query_param`.
+fn extract_token_header(req: &str) -> Option<&str> {
+    req.lines().find_map(|line| {
+        line.to_ascii_lowercase()
+            .starts_with("x-linux-hello-token:")
+            .then(|| line["x-linux-hello-token:".len()..].trim())
+    })
+}
+
 /// Handles an incoming HTTP connection in its own thread.
-fn handle_ctrl_connection(mut stream: TcpStream, uid: u32) {
+fn handle_ctrl_connection(mut stream: TcpStream, uid: u32, expected_token: &str) {
     let mut buf = [0u8; 2048];
     let n = stream.read(&mut buf).unwrap_or(0);
     let req = String::from_utf8_lossy(&buf[..n]);
 
-    let (status, body): (&str, String) = if req.contains("/start-capture") {
-        // Non-blocking: launches the preview capture in the background
-        let _ = Command::new("busctl")
-            .args([
-                "--user",
-                "call",
-                "com.linuxhello.FaceAuth",
-                "/com/linuxhello/FaceAuth",
-                "com.linuxhello.FaceAuth",
-                "StartCaptureStream",
-                "uut",
-                &uid.to_string(),
-                "600",
-                "25000",
-            ])
-            .spawn();
-        ("200 OK", "OK".to_string())
-    } else if req.contains("/register-face") {
-        // Blocking: waits for the enrollment to finish and returns the face_id
-        let request_json = format!(
-            r#"{{"user_id":{},"context":"gui","timeout_ms":10000,"num_samples":5}}"#,
-            uid
-        );
-        match Command::new("busctl")
-            .args([
-                "--user",
-                "call",
-                "com.linuxhello.FaceAuth",
-                "/com/linuxhello/FaceAuth",
-                "com.linuxhello.FaceAuth",
-                "RegisterFace",
-                "s",
-                &request_json,
-            ])
-            .output()
-        {
-            Ok(out) if out.status.success() => {
-                let stdout = String::from_utf8_lossy(&out.stdout);
-                let face_id =
-                    extract_face_id_from_busctl(&stdout).unwrap_or_else(|| "unknown".to_string());
-                (
-                    "200 OK",
-                    format!(r#"{{"ok":true,"face_id":"{}"}}"#, face_id),
-                )
+    // Every route below reaches D-Bus, PAM config, or (for /sddm-enable)
+    // pkexec — gate all of them on the shared-secret token, except OPTIONS
+    // (a harmless empty-body 200, likely dead CORS-preflight handling real
+    // browsers would trigger but QML's XHR doesn't; nothing sensitive on
+    // that path).
+    let (status, body): (&str, String) =
+        if !req.contains("OPTIONS") && extract_token_header(&req) != Some(expected_token) {
+            ("403 Forbidden", String::new())
+        } else if req.contains("/start-capture") {
+            // Non-blocking: launches the preview capture in the background
+            let _ = Command::new("busctl")
+                .args([
+                    "--user",
+                    "call",
+                    "com.linuxhello.FaceAuth",
+                    "/com/linuxhello/FaceAuth",
+                    "com.linuxhello.FaceAuth",
+                    "StartCaptureStream",
+                    "uut",
+                    &uid.to_string(),
+                    "600",
+                    "25000",
+                ])
+                .spawn();
+            ("200 OK", "OK".to_string())
+        } else if req.contains("/register-face") {
+            // Blocking: waits for the enrollment to finish and returns the face_id
+            let request_json = format!(
+                r#"{{"user_id":{},"context":"gui","timeout_ms":10000,"num_samples":5}}"#,
+                uid
+            );
+            match Command::new("busctl")
+                .args([
+                    "--user",
+                    "call",
+                    "com.linuxhello.FaceAuth",
+                    "/com/linuxhello/FaceAuth",
+                    "com.linuxhello.FaceAuth",
+                    "RegisterFace",
+                    "s",
+                    &request_json,
+                ])
+                .output()
+            {
+                Ok(out) if out.status.success() => {
+                    let stdout = String::from_utf8_lossy(&out.stdout);
+                    let face_id = extract_face_id_from_busctl(&stdout)
+                        .unwrap_or_else(|| "unknown".to_string());
+                    (
+                        "200 OK",
+                        format!(r#"{{"ok":true,"face_id":"{}"}}"#, face_id),
+                    )
+                }
+                Ok(out) => {
+                    let err = String::from_utf8_lossy(&out.stderr)
+                        .replace('"', "\\\"")
+                        .replace('\n', " ");
+                    eprintln!("✗ RegisterFace busctl stderr: {}", err);
+                    (
+                        "500 Internal Server Error",
+                        format!(r#"{{"ok":false,"error":"{}"}}"#, err),
+                    )
+                }
+                Err(e) => {
+                    eprintln!("✗ RegisterFace spawn error: {}", e);
+                    (
+                        "500 Internal Server Error",
+                        format!(r#"{{"ok":false,"error":"{}"}}"#, e),
+                    )
+                }
             }
-            Ok(out) => {
-                let err = String::from_utf8_lossy(&out.stderr)
-                    .replace('"', "\\\"")
-                    .replace('\n', " ");
-                eprintln!("✗ RegisterFace busctl stderr: {}", err);
-                (
-                    "500 Internal Server Error",
-                    format!(r#"{{"ok":false,"error":"{}"}}"#, err),
-                )
+        } else if req.contains("/stop-capture") {
+            ("200 OK", "STOPPED".to_string())
+        } else if req.contains("/daemon-status") {
+            // Cheap D-Bus liveness check for the Home screen's status card: does
+            // the per-user session bus currently have an owner for
+            // com.linuxhello.FaceAuth? No RegisterFace/Verify call involved, so
+            // this can't trigger a camera capture or block on one.
+            let active = Command::new("busctl")
+                .args([
+                    "--user",
+                    "call",
+                    "org.freedesktop.DBus",
+                    "/org/freedesktop/DBus",
+                    "org.freedesktop.DBus",
+                    "NameHasOwner",
+                    "s",
+                    "com.linuxhello.FaceAuth",
+                ])
+                .output()
+                .map(|out| {
+                    out.status.success() && String::from_utf8_lossy(&out.stdout).contains("true")
+                })
+                .unwrap_or(false);
+            ("200 OK", format!(r#"{{"active":{}}}"#, active))
+        } else if req.contains("/sddm-status") {
+            // No elevation needed: /etc/pam.d/sddm is world-readable, and this
+            // is exactly what `install-pam.sh --status` itself checks. Also
+            // reports whether the SDDM toggle is even usable at all — the GUI
+            // package doesn't hard-depend on libpam-linux-hello (install-pam.sh
+            // lives there), so a GUI-only install must degrade gracefully
+            // instead of offering a button that can never work.
+            let available = std::path::Path::new("/usr/bin/install-pam.sh").exists();
+            let active = std::fs::read_to_string("/etc/pam.d/sddm")
+                .map(|contents| sddm_pam_line_present(&contents))
+                .unwrap_or(false);
+            (
+                "200 OK",
+                format!(r#"{{"active":{},"available":{}}}"#, active, available),
+            )
+        } else if req.contains("/sddm-enable") || req.contains("/sddm-disable") {
+            // Blocking is fine: each connection already runs on its own thread.
+            // pkexec shows the native polkit auth-agent dialog (matched to our
+            // action via install-pam.sh's exec-path annotation in
+            // com.linuxhello.pam-setup.policy) and waits for it — can take
+            // several seconds while the user actually looks at the prompt.
+            let flag = if req.contains("/sddm-enable") {
+                "--enable-sddm"
+            } else {
+                "--disable-sddm"
+            };
+            match Command::new("pkexec")
+                .args(["/usr/bin/install-pam.sh", flag])
+                .output()
+            {
+                Ok(out) if out.status.success() => ("200 OK", r#"{"ok":true}"#.to_string()),
+                Ok(out) => {
+                    let err = String::from_utf8_lossy(&out.stderr)
+                        .replace('"', "\\\"")
+                        .replace('\n', " ");
+                    eprintln!("✗ {} failed: {}", flag, err);
+                    ("200 OK", format!(r#"{{"ok":false,"error":"{}"}}"#, err))
+                }
+                Err(e) => {
+                    eprintln!("✗ {} spawn error: {}", flag, e);
+                    ("200 OK", format!(r#"{{"ok":false,"error":"{}"}}"#, e))
+                }
             }
-            Err(e) => {
-                eprintln!("✗ RegisterFace spawn error: {}", e);
-                (
-                    "500 Internal Server Error",
-                    format!(r#"{{"ok":false,"error":"{}"}}"#, e),
-                )
+        } else if req.contains("/list-faces") {
+            match Command::new("busctl")
+                .args([
+                    "--user",
+                    "call",
+                    "com.linuxhello.FaceAuth",
+                    "/com/linuxhello/FaceAuth",
+                    "com.linuxhello.FaceAuth",
+                    "ListFaces",
+                    "u",
+                    &uid.to_string(),
+                ])
+                .output()
+            {
+                Ok(out) if out.status.success() => {
+                    let stdout = String::from_utf8_lossy(&out.stdout);
+                    let json = extract_busctl_json(&stdout).unwrap_or_else(|| "[]".to_string());
+                    ("200 OK", json)
+                }
+                Ok(out) => {
+                    let err = String::from_utf8_lossy(&out.stderr)
+                        .replace('"', "\\\"")
+                        .replace('\n', " ");
+                    eprintln!("✗ ListFaces busctl stderr: {}", err);
+                    ("200 OK", "[]".to_string())
+                }
+                Err(e) => {
+                    eprintln!("✗ ListFaces spawn error: {}", e);
+                    ("200 OK", "[]".to_string())
+                }
             }
-        }
-    } else if req.contains("/stop-capture") {
-        ("200 OK", "STOPPED".to_string())
-    } else if req.contains("/daemon-status") {
-        // Cheap D-Bus liveness check for the Home screen's status card: does
-        // the per-user session bus currently have an owner for
-        // com.linuxhello.FaceAuth? No RegisterFace/Verify call involved, so
-        // this can't trigger a camera capture or block on one.
-        let active = Command::new("busctl")
-            .args([
-                "--user",
-                "call",
-                "org.freedesktop.DBus",
-                "/org/freedesktop/DBus",
-                "org.freedesktop.DBus",
-                "NameHasOwner",
-                "s",
-                "com.linuxhello.FaceAuth",
-            ])
-            .output()
-            .map(|out| {
-                out.status.success() && String::from_utf8_lossy(&out.stdout).contains("true")
-            })
-            .unwrap_or(false);
-        ("200 OK", format!(r#"{{"active":{}}}"#, active))
-    } else if req.contains("/sddm-status") {
-        // No elevation needed: /etc/pam.d/sddm is world-readable, and this
-        // is exactly what `install-pam.sh --status` itself checks. Also
-        // reports whether the SDDM toggle is even usable at all — the GUI
-        // package doesn't hard-depend on libpam-linux-hello (install-pam.sh
-        // lives there), so a GUI-only install must degrade gracefully
-        // instead of offering a button that can never work.
-        let available = std::path::Path::new("/usr/bin/install-pam.sh").exists();
-        let active = std::fs::read_to_string("/etc/pam.d/sddm")
-            .map(|contents| sddm_pam_line_present(&contents))
-            .unwrap_or(false);
-        (
-            "200 OK",
-            format!(r#"{{"active":{},"available":{}}}"#, active, available),
-        )
-    } else if req.contains("/sddm-enable") || req.contains("/sddm-disable") {
-        // Blocking is fine: each connection already runs on its own thread.
-        // pkexec shows the native polkit auth-agent dialog (matched to our
-        // action via install-pam.sh's exec-path annotation in
-        // com.linuxhello.pam-setup.policy) and waits for it — can take
-        // several seconds while the user actually looks at the prompt.
-        let flag = if req.contains("/sddm-enable") {
-            "--enable-sddm"
+        } else if req.contains("/delete-face") {
+            let face_id = extract_query_param(&req, "id").unwrap_or_default();
+            let request_json = format!(r#"{{"user_id":{},"face_id":"{}"}}"#, uid, face_id);
+            match Command::new("busctl")
+                .args([
+                    "--user",
+                    "call",
+                    "com.linuxhello.FaceAuth",
+                    "/com/linuxhello/FaceAuth",
+                    "com.linuxhello.FaceAuth",
+                    "DeleteFace",
+                    "s",
+                    &request_json,
+                ])
+                .output()
+            {
+                Ok(out) if out.status.success() => ("200 OK", r#"{"ok":true}"#.to_string()),
+                Ok(out) => {
+                    let err = String::from_utf8_lossy(&out.stderr)
+                        .replace('"', "\\\"")
+                        .replace('\n', " ");
+                    eprintln!("✗ DeleteFace busctl stderr: {}", err);
+                    (
+                        "500 Internal Server Error",
+                        format!(r#"{{"ok":false,"error":"{}"}}"#, err),
+                    )
+                }
+                Err(e) => {
+                    eprintln!("✗ DeleteFace spawn error: {}", e);
+                    (
+                        "500 Internal Server Error",
+                        format!(r#"{{"ok":false,"error":"{}"}}"#, e),
+                    )
+                }
+            }
+        } else if req.contains("OPTIONS") {
+            ("200 OK", String::new())
         } else {
-            "--disable-sddm"
+            ("404 Not Found", String::new())
         };
-        match Command::new("pkexec")
-            .args(["/usr/bin/install-pam.sh", flag])
-            .output()
-        {
-            Ok(out) if out.status.success() => ("200 OK", r#"{"ok":true}"#.to_string()),
-            Ok(out) => {
-                let err = String::from_utf8_lossy(&out.stderr)
-                    .replace('"', "\\\"")
-                    .replace('\n', " ");
-                eprintln!("✗ {} failed: {}", flag, err);
-                ("200 OK", format!(r#"{{"ok":false,"error":"{}"}}"#, err))
-            }
-            Err(e) => {
-                eprintln!("✗ {} spawn error: {}", flag, e);
-                ("200 OK", format!(r#"{{"ok":false,"error":"{}"}}"#, e))
-            }
-        }
-    } else if req.contains("/list-faces") {
-        match Command::new("busctl")
-            .args([
-                "--user",
-                "call",
-                "com.linuxhello.FaceAuth",
-                "/com/linuxhello/FaceAuth",
-                "com.linuxhello.FaceAuth",
-                "ListFaces",
-                "u",
-                &uid.to_string(),
-            ])
-            .output()
-        {
-            Ok(out) if out.status.success() => {
-                let stdout = String::from_utf8_lossy(&out.stdout);
-                let json = extract_busctl_json(&stdout).unwrap_or_else(|| "[]".to_string());
-                ("200 OK", json)
-            }
-            Ok(out) => {
-                let err = String::from_utf8_lossy(&out.stderr)
-                    .replace('"', "\\\"")
-                    .replace('\n', " ");
-                eprintln!("✗ ListFaces busctl stderr: {}", err);
-                ("200 OK", "[]".to_string())
-            }
-            Err(e) => {
-                eprintln!("✗ ListFaces spawn error: {}", e);
-                ("200 OK", "[]".to_string())
-            }
-        }
-    } else if req.contains("/delete-face") {
-        let face_id = extract_query_param(&req, "id").unwrap_or_default();
-        let request_json = format!(r#"{{"user_id":{},"face_id":"{}"}}"#, uid, face_id);
-        match Command::new("busctl")
-            .args([
-                "--user",
-                "call",
-                "com.linuxhello.FaceAuth",
-                "/com/linuxhello/FaceAuth",
-                "com.linuxhello.FaceAuth",
-                "DeleteFace",
-                "s",
-                &request_json,
-            ])
-            .output()
-        {
-            Ok(out) if out.status.success() => ("200 OK", r#"{"ok":true}"#.to_string()),
-            Ok(out) => {
-                let err = String::from_utf8_lossy(&out.stderr)
-                    .replace('"', "\\\"")
-                    .replace('\n', " ");
-                eprintln!("✗ DeleteFace busctl stderr: {}", err);
-                (
-                    "500 Internal Server Error",
-                    format!(r#"{{"ok":false,"error":"{}"}}"#, err),
-                )
-            }
-            Err(e) => {
-                eprintln!("✗ DeleteFace spawn error: {}", e);
-                (
-                    "500 Internal Server Error",
-                    format!(r#"{{"ok":false,"error":"{}"}}"#, e),
-                )
-            }
-        }
-    } else if req.contains("OPTIONS") {
-        ("200 OK", String::new())
-    } else {
-        ("404 Not Found", String::new())
-    };
 
     let response = format!(
         "HTTP/1.1 {}\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: {}\r\n\r\n{}",
@@ -476,5 +528,60 @@ mod tests {
     #[test]
     fn sddm_pam_line_present_false_for_empty_string() {
         assert!(!sddm_pam_line_present(""));
+    }
+
+    #[test]
+    fn extract_token_header_finds_value_case_insensitively() {
+        let req =
+            "GET /list-faces HTTP/1.1\r\nHost: 127.0.0.1\r\nX-Linux-Hello-Token: abc123\r\n\r\n";
+        assert_eq!(extract_token_header(req), Some("abc123"));
+
+        let req_lower = "GET /list-faces HTTP/1.1\r\nx-linux-hello-token: abc123\r\n\r\n";
+        assert_eq!(extract_token_header(req_lower), Some("abc123"));
+    }
+
+    #[test]
+    fn extract_token_header_preserves_value_case() {
+        // The header *name* match is case-insensitive, but the token
+        // *value* itself (hex, technically case-insensitive too, but the
+        // comparison must still be exact) must come through unmodified.
+        let req = "GET / HTTP/1.1\r\nX-Linux-Hello-Token: AbC123\r\n\r\n";
+        assert_eq!(extract_token_header(req), Some("AbC123"));
+    }
+
+    #[test]
+    fn extract_token_header_none_when_missing() {
+        let req = "GET /list-faces HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n";
+        assert_eq!(extract_token_header(req), None);
+    }
+
+    #[test]
+    fn generate_ctrl_token_is_64_lowercase_hex_chars_and_varies() {
+        let a = generate_ctrl_token();
+        let b = generate_ctrl_token();
+        assert_eq!(a.len(), 64);
+        assert!(a
+            .chars()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
+        assert_ne!(a, b, "two calls must not produce the same token");
+    }
+
+    #[test]
+    fn write_owner_only_file_sets_mode_0600() {
+        use std::os::unix::fs::PermissionsExt;
+        let path = std::env::temp_dir().join(format!(
+            "linux-hello-test-{}-{}.tmp",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let path_str = path.to_str().unwrap();
+        write_owner_only_file(path_str, "secret").unwrap();
+        let mode = std::fs::metadata(path_str).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
+        assert_eq!(std::fs::read_to_string(path_str).unwrap(), "secret");
+        let _ = std::fs::remove_file(path_str);
     }
 }

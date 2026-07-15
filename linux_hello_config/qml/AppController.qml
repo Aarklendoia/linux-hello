@@ -14,6 +14,7 @@ QtObject {
     property bool sddmBusy: false
     property string sddmError: ""
     property string ctrlPort: "0"
+    property string ctrlToken: ""
     property string lastRegisteredFaceId: ""
     property var uidNameCache: ({})
 
@@ -40,6 +41,19 @@ QtObject {
         } else {
             console.log("⚠ Unable to read the control port");
         }
+        // Control server routes require this token (0600 file, same
+        // owner-only protection as the port file above) — the loopback
+        // socket itself has no per-user ACL, so without it any local
+        // process could hit routes like /sddm-enable, which now triggers a
+        // real pkexec prompt.
+        var xhrToken = new XMLHttpRequest();
+        xhrToken.open("GET", "file:///tmp/linux-hello-ctrl.token", false);
+        xhrToken.send();
+        if (xhrToken.responseText !== "") {
+            ctrlToken = xhrToken.responseText.trim();
+        } else {
+            console.log("⚠ Unable to read the control token");
+        }
         // Build the UID → account name cache from /etc/passwd
         var px = new XMLHttpRequest();
         px.open("GET", "file:///etc/passwd", false);
@@ -60,6 +74,15 @@ QtObject {
         return controller.uidNameCache[uid] || ("UID " + uid);
     }
 
+    // Opens a request against the control server with the auth token
+    // attached — every route requires it now (see main.rs's
+    // handle_ctrl_connection), so this replaces every direct xhr.open(...)
+    // call to that server.
+    function openAuthedRequest(xhr, path, async) {
+        xhr.open("GET", "http://127.0.0.1:" + ctrlPort + path, async !== false);
+        xhr.setRequestHeader("X-Linux-Hello-Token", ctrlToken);
+    }
+
     // Cheap D-Bus liveness check (com.linuxhello.FaceAuth ownership) —
     // doesn't touch the camera. Re-run whenever Home becomes visible so the
     // status card reflects reality rather than a one-time startup snapshot.
@@ -67,7 +90,7 @@ QtObject {
         if (ctrlPort === "0")
             return;
         var xhr = new XMLHttpRequest();
-        xhr.open("GET", "http://127.0.0.1:" + ctrlPort + "/daemon-status", true);
+        openAuthedRequest(xhr, "/daemon-status");
         xhr.onreadystatechange = function () {
             if (xhr.readyState !== XMLHttpRequest.DONE)
                 return;
@@ -90,7 +113,7 @@ QtObject {
         if (ctrlPort === "0")
             return;
         var xhr = new XMLHttpRequest();
-        xhr.open("GET", "http://127.0.0.1:" + ctrlPort + "/sddm-status", true);
+        openAuthedRequest(xhr, "/sddm-status");
         xhr.onreadystatechange = function () {
             if (xhr.readyState !== XMLHttpRequest.DONE)
                 return;
@@ -121,7 +144,7 @@ QtObject {
         controller.sddmError = "";
         var route = sddmActive ? "/sddm-disable" : "/sddm-enable";
         var xhr = new XMLHttpRequest();
-        xhr.open("GET", "http://127.0.0.1:" + ctrlPort + route, true);
+        openAuthedRequest(xhr, route);
         xhr.onreadystatechange = function () {
             if (xhr.readyState !== XMLHttpRequest.DONE)
                 return;
@@ -146,7 +169,7 @@ QtObject {
         capturing = true;
         progress = 0;
         var xhr = new XMLHttpRequest();
-        xhr.open("GET", "http://127.0.0.1:" + ctrlPort + "/start-capture", true);
+        openAuthedRequest(xhr, "/start-capture");
         xhr.onreadystatechange = function () {
             if (xhr.readyState === XMLHttpRequest.DONE)
                 console.log("✓ start-capture HTTP response", xhr.status, ":", xhr.responseText);
@@ -158,7 +181,7 @@ QtObject {
     function registerFace() {
         console.log("📸 Sending /register-face to port:", ctrlPort);
         var xhr = new XMLHttpRequest();
-        xhr.open("GET", "http://127.0.0.1:" + ctrlPort + "/register-face", true);
+        openAuthedRequest(xhr, "/register-face");
         xhr.onreadystatechange = function () {
             if (xhr.readyState !== XMLHttpRequest.DONE)
                 return;
@@ -189,7 +212,7 @@ QtObject {
     function stopCapture() {
         capturing = false;
         var xhr = new XMLHttpRequest();
-        xhr.open("GET", "http://127.0.0.1:" + ctrlPort + "/stop-capture", true);
+        openAuthedRequest(xhr, "/stop-capture");
         xhr.send();
     }
 
@@ -198,7 +221,7 @@ QtObject {
         if (ctrlPort === "0")
             return;
         var xhr = new XMLHttpRequest();
-        xhr.open("GET", "http://127.0.0.1:" + ctrlPort + "/list-faces", true);
+        openAuthedRequest(xhr, "/list-faces");
         xhr.onreadystatechange = function () {
             if (xhr.readyState !== XMLHttpRequest.DONE)
                 return;
@@ -220,7 +243,7 @@ QtObject {
         if (ctrlPort === "0")
             return;
         var xhr = new XMLHttpRequest();
-        xhr.open("GET", "http://127.0.0.1:" + ctrlPort + "/delete-face?id=" + encodeURIComponent(faceId), true);
+        openAuthedRequest(xhr, "/delete-face?id=" + encodeURIComponent(faceId));
         xhr.onreadystatechange = function () {
             if (xhr.readyState === XMLHttpRequest.DONE && xhr.status === 200)
                 controller.loadFaces();
