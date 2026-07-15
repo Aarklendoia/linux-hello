@@ -70,8 +70,17 @@ Kirigami.Page {
             Rectangle {
                 anchors.fill: parent
                 radius: Kirigami.Units.smallSpacing * 1.4
-                color: "#12171c"
+                // Derived from the real Plasma background instead of a fixed
+                // hex: still reads as a dark viewfinder (camera previews are
+                // conventionally dark regardless of app theme, same as the
+                // approved mockup), but its hue now follows the actual
+                // color scheme instead of being identical in every theme.
+                color: Qt.darker(Kirigami.Theme.backgroundColor, 400)
                 border.width: 1
+                // Deliberately a plain white rim, not theme-derived: it's a
+                // highlight edge on what's always a dark surface above, the
+                // same in every Plasma theme (matches the mockup, which has
+                // no light/dark variant for this either).
                 border.color: Qt.rgba(1, 1, 1, 0.18)
                 clip: true
 
@@ -121,7 +130,11 @@ Kirigami.Page {
                 }
             }
 
-            // Live status chip
+            // Live status chip — a translucent dark HUD bubble over the video
+            // image itself, same convention as a camera app's on-screen text
+            // (always dark-on-video for legibility over any footage);
+            // deliberately not theme-derived, matching the approved mockup,
+            // which also keeps this fixed across light/dark.
             Rectangle {
                 visible: AppController.capturing
                 anchors.horizontalCenter: parent.horizontalCenter

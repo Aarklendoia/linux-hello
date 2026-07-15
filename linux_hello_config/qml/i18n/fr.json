@@ -21,13 +21,13 @@
         "manageFacesBtnDescOne": "1 profil enregistré"
     },
     "enrollment": {
-        "title": "Enregistrement du Visage",
-        "registerNew": "Enregistrer un Nouveau Visage",
-        "cameraPreview": "Aperçu de la Caméra",
+        "title": "Enregistrement du visage",
+        "registerNew": "Enregistrer un nouveau visage",
+        "cameraPreview": "Aperçu de la caméra",
         "capturing": "Capture en cours...",
         "progress": "Progression :",
         "instructions": "Présentez votre visage à la caméra. Le système capturera plusieurs angles pour une meilleure reconnaissance.",
-        "startBtn": "Démarrer la Capture",
+        "startBtn": "Démarrer la capture",
         "stopBtn": "Arrêter",
         "cancelBtn": "Annuler",
         "previewInactive": "Aperçu inactif",
@@ -39,14 +39,14 @@
         "previewError": "✗ Erreur :"
     },
     "manageFaces": {
-        "title": "Gérer les Visages",
-        "registeredFaces": "Visages Enregistrés",
+        "title": "Gérer les visages",
+        "registeredFaces": "Visages enregistrés",
         "noFaces": "Aucun visage enregistré",
         "confidence": "Confiance :",
         "registered": "Enregistré :",
         "unknown": "Inconnu",
         "deleteBtn": "Supprimer",
-        "registerNewBtn": "+ Enregistrer un Nouveau Visage",
+        "registerNewBtn": "+ Enregistrer un nouveau visage",
         "backBtn": "Retour",
         "sample": "échantillon",
         "anyFaceNote": "N'importe quel visage enregistré peut vous authentifier — pour sudo, le déverrouillage d'écran, et partout où Linux Hello est activé."
