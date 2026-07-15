@@ -48,7 +48,7 @@ Requirements: a Debian- or Ubuntu-based Linux distribution, a webcam, and a term
 
 3. **Try it**: open a terminal and run `sudo -k && sudo -v` — look at your webcam, and it should authenticate you without asking for a password.
 
-That's it. To also enable face unlock on your login/lock screen, or to manage enrolled faces through a graphical settings app, see [docs/QUICKSTART.md](docs/QUICKSTART.md) and the separate, optional `linux-hello-gui` package.
+That's it. To also enable face unlock on your login/lock screen, see [docs/QUICKSTART.md](docs/QUICKSTART.md); to manage enrolled faces through a graphical settings app instead of the CLI, see [Graphical app (GUI)](#graphical-app-gui) below.
 
 ## How it works
 
@@ -155,6 +155,24 @@ linux-hello verify <uid> --context sudo
 linux-hello list <uid>
 linux-hello delete <uid> [face_id]
 ```
+
+## Graphical app (GUI)
+
+For enrolling and managing faces without the terminal, there's an optional Kirigami/KDE settings app.
+
+1. **Install it** — it's a separate package (not pulled in by the `linux-hello` metapackage, since it depends on Qt6/Kirigami):
+
+   ```bash
+   sudo apt install linux-hello-gui
+   ```
+
+2. **Launch it** — either from your application launcher (search for **"Linux Hello"**), or from a terminal:
+
+   ```bash
+   linux_hello_config
+   ```
+
+From there you can enroll a new face, see how many faces are registered, and delete any of them — the daemon status shown on the home screen reflects whether `hello-daemon` is actually running.
 
 ## Security notes
 

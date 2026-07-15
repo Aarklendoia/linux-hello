@@ -80,11 +80,67 @@ fn main() {
 
     match cmd.spawn() {
         Ok(mut child) => {
+            // QT_QPA_DESKTOPFILENAME (set above) has no effect on this
+            // window: the stock `qml6` runtime stamps its own identity
+            // (_KDE_NET_WM_DESKTOP_FILE="org.qt-project.qml") on every
+            // window it creates, which is what routes KWin to the generic
+            // QML icon instead of ours. Best-effort fixup after the window
+            // maps — X11/XWayland only (matches QT_QPA_PLATFORM's "xcb"
+            // preference above), silently skipped if `xprop` isn't
+            // installed or under a pure-Wayland session.
+            thread::spawn(fix_window_desktop_file);
             let _ = child.wait();
         }
         Err(e) => {
             eprintln!("❌ Error while launching: {}", e);
             std::process::exit(1);
+        }
+    }
+}
+
+/// Overrides the `_KDE_NET_WM_DESKTOP_FILE` X property on our just-launched
+/// window so KWin resolves the icon via `linux-hello.desktop` (and its
+/// `Icon=linux-hello` entry) instead of the generic `qml6` tool's own.
+/// Polls briefly since the window isn't mapped the instant the process
+/// spawns.
+fn fix_window_desktop_file() {
+    for _ in 0..20 {
+        thread::sleep(std::time::Duration::from_millis(150));
+
+        let Ok(list) = Command::new("xprop")
+            .args(["-root", "_NET_CLIENT_LIST"])
+            .output()
+        else {
+            return; // xprop not installed — nothing we can do, not fatal
+        };
+        let list = String::from_utf8_lossy(&list.stdout);
+
+        for window_id in list.split_whitespace().filter(|s| s.starts_with("0x")) {
+            let window_id = window_id.trim_end_matches(',');
+            let Ok(class) = Command::new("xprop")
+                .args(["-id", window_id, "WM_CLASS"])
+                .output()
+            else {
+                return;
+            };
+            let class = String::from_utf8_lossy(&class.stdout);
+            if !class.contains("\"linux-hello\"") {
+                continue;
+            }
+
+            let _ = Command::new("xprop")
+                .args([
+                    "-id",
+                    window_id,
+                    "-f",
+                    "_KDE_NET_WM_DESKTOP_FILE",
+                    "8u",
+                    "-set",
+                    "_KDE_NET_WM_DESKTOP_FILE",
+                    "linux-hello",
+                ])
+                .status();
+            return;
         }
     }
 }
