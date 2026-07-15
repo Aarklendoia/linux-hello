@@ -25,6 +25,7 @@ QtObject {
         "home.sddmInactiveSub": "Disabled — tap to enable",
         "home.sddmUnavailableSub": "Unavailable (needs libpam-linux-hello)",
         "home.sddmBusySub": "Applying…",
+        "home.sddmHowToNote": "On the login screen, enter your username and press Enter to start face recognition — SDDM can't start it just by being on screen, only once a login attempt is actually submitted.",
         "home.fallbackNote": "If your face isn't recognized, your password always works — face recognition only ever adds a faster option, it never locks you out.",
         "app.subtitle": "Advanced face recognition authentication for Linux",
         "enrollment.title": "Register New Face",

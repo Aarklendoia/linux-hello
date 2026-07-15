@@ -357,6 +357,34 @@ Kirigami.Page {
             Layout.fillWidth: true
         }
 
+        // SDDM only starts checking once a login attempt is actually
+        // submitted (pressing Enter/clicking the login button) — it can't
+        // scan passively just from the greeter being on screen, since PAM
+        // itself only runs at that point. Not obvious from the greeter
+        // alone (confirmed: a real user tried it and asked "how do I
+        // explain this?"), so spell it out here rather than only in docs.
+        RowLayout {
+            visible: AppController.sddmActive
+            Layout.fillWidth: true
+            spacing: Kirigami.Units.smallSpacing
+
+            Kirigami.Icon {
+                source: "info-symbolic"
+                width: Kirigami.Units.gridUnit * 0.9
+                height: width
+                color: Kirigami.Theme.disabledTextColor
+                isMask: true
+                Layout.alignment: Qt.AlignTop
+            }
+            Label {
+                text: I18n.tr("home.sddmHowToNote")
+                font.pixelSize: 10
+                color: Kirigami.Theme.disabledTextColor
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+            }
+        }
+
         // Flexible spacer — only this gap is elastic, so the fallback note
         // below is pinned to the bottom of the window while everything
         // above it (hero, status, actions) keeps its natural top-down flow,

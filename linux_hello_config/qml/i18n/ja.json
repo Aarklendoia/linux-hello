@@ -20,6 +20,7 @@
         "sddmInactiveSub": "無効 — タップして有効化",
         "sddmUnavailableSub": "利用不可（libpam-linux-hello が必要）",
         "sddmBusySub": "適用中…",
+        "sddmHowToNote": "ログイン画面でユーザー名を入力し、Enterキーを押すと顔認証が開始されます — 画面が表示されているだけでは開始されず、実際にログイン試行が送信された時点で初めて開始されます。",
         "registerBtnDesc": "新しい生体認証プロファイルを追加",
         "manageFacesBtnDesc": "%1 件の顔を登録済み",
         "fallbackNote": "顔が認識されない場合でも、パスワードは常に使用できます — 顔認証はより速い選択肢を追加するだけで、アクセスをブロックすることはありません。",

@@ -20,6 +20,7 @@
         "sddmInactiveSub": "Disabled — tap to enable",
         "sddmUnavailableSub": "Unavailable (needs libpam-linux-hello)",
         "sddmBusySub": "Applying…",
+        "sddmHowToNote": "On the login screen, enter your username and press Enter to start face recognition — SDDM can't start it just by being on screen, only once a login attempt is actually submitted.",
         "registerBtnDesc": "Add a new biometric profile",
         "manageFacesBtnDesc": "%1 faces registered",
         "fallbackNote": "If your face isn't recognized, your password always works — face recognition only ever adds a faster option, it never locks you out.",

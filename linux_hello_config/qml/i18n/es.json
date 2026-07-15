@@ -20,6 +20,7 @@
         "sddmInactiveSub": "Desactivado — toca para activar",
         "sddmUnavailableSub": "No disponible (requiere libpam-linux-hello)",
         "sddmBusySub": "Aplicando…",
+        "sddmHowToNote": "En la pantalla de inicio de sesión, introduce tu nombre de usuario y pulsa Intro para iniciar el reconocimiento facial — SDDM no puede iniciarlo solo con que la pantalla esté visible, únicamente cuando se envía realmente un intento de inicio de sesión.",
         "registerBtnDesc": "Añadir un nuevo perfil biométrico",
         "manageFacesBtnDesc": "%1 rostros registrados",
         "fallbackNote": "Si no se reconoce su rostro, la contraseña siempre está disponible: el reconocimiento facial solo añade una opción más rápida, nunca le bloquea el acceso.",

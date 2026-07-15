@@ -20,6 +20,7 @@
         "sddmInactiveSub": "已禁用 — 点击启用",
         "sddmUnavailableSub": "不可用（需要 libpam-linux-hello）",
         "sddmBusySub": "正在应用…",
+        "sddmHowToNote": "在登录界面，输入用户名并按回车键以启动人脸识别——SDDM 不会仅因为屏幕显示就自动启动识别，只有在真正提交登录尝试后才会启动。",
         "registerBtnDesc": "添加新的生物识别配置",
         "manageFacesBtnDesc": "已注册 %1 张人脸",
         "fallbackNote": "如果未识别您的面部，密码始终可用——人脸识别只是增加了一个更快的选项，永远不会将您锁定在外。",
