@@ -9,8 +9,16 @@
         "youCan": "يمكنك:",
         "action1": "• تسجيل وجهك للمصادقة",
         "action2": "• إدارة الوجوه المسجلة",
-        "registerBtn": "📷 تسجيل الوجه",
-        "manageFacesBtn": "👤 إدارة الوجوه"
+        "registerBtn": "تسجيل الوجه",
+        "manageFacesBtn": "إدارة الوجوه",
+        "daemonActive": "الخدمة نشطة",
+        "daemonInactive": "الخدمة غير متوفرة",
+        "daemonActiveSub": "جاهز للمصادقة",
+        "daemonInactiveSub": "تحقق من خدمة hello-daemon",
+        "registerBtnDesc": "إضافة ملف تعريف بيومتري جديد",
+        "manageFacesBtnDesc": "%1 وجوه مسجّلة",
+        "fallbackNote": "إذا لم يتم التعرف على وجهك، تبقى كلمة المرور متاحة دائمًا — التعرف على الوجه يضيف خيارًا أسرع فقط، ولا يمنعك أبدًا من الدخول.",
+        "manageFacesBtnDescOne": "وجه واحد مسجّل"
     },
     "enrollment": {
         "title": "تسجيل الوجه",
@@ -20,7 +28,14 @@
         "instructions": "وجه وجهك نحو الكاميرا. سيقوم النظام بالتقاط عدة زوايا للتعرف بشكل أفضل.",
         "startBtn": "بدء الالتقاط",
         "stopBtn": "إيقاف",
-        "cancelBtn": "إلغاء"
+        "cancelBtn": "إلغاء",
+        "previewInactive": "المعاينة غير نشطة",
+        "previewCancelled": "تم إلغاء الالتقاط",
+        "previewStopped": "تم إيقاف الالتقاط",
+        "previewAnalyzing": "جارٍ تحليل الوجه…",
+        "previewValidating": "جارٍ التحقق…",
+        "previewSuccess": "✓ تم تسجيل الوجه بنجاح!",
+        "previewError": "✗ خطأ:"
     },
     "manageFaces": {
         "title": "إدارة الوجوه",
@@ -29,8 +44,10 @@
         "confidence": "الثقة:",
         "registered": "مسجل:",
         "unknown": "غير معروف",
-        "deleteBtn": "🗑️ حذف",
+        "deleteBtn": "حذف",
         "registerNewBtn": "+ تسجيل وجه جديد",
-        "backBtn": "رجوع"
+        "backBtn": "رجوع",
+        "sample": "عيّنة",
+        "anyFaceNote": "يمكن لأي وجه مسجّل أن يوثّق هويتك — لـ sudo، وإلغاء قفل الشاشة، وفي أي مكان آخر تم فيه تفعيل Linux Hello."
     }
 }

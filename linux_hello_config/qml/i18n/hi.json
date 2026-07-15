@@ -9,8 +9,16 @@
         "youCan": "आप कर सकते हैं:",
         "action1": "• प्रमाणीकरण के लिए अपने चेहरे को पंजीकृत करें",
         "action2": "• पंजीकृत चेहरों को प्रबंधित करें",
-        "registerBtn": "📷 चेहरा पंजीकृत करें",
-        "manageFacesBtn": "👤 चेहरों को प्रबंधित करें"
+        "registerBtn": "चेहरा पंजीकृत करें",
+        "manageFacesBtn": "चेहरों को प्रबंधित करें",
+        "daemonActive": "डेमॉन सक्रिय",
+        "daemonInactive": "डेमॉन अनुपलब्ध",
+        "daemonActiveSub": "प्रमाणीकरण के लिए तैयार",
+        "daemonInactiveSub": "hello-daemon सेवा जाँचें",
+        "registerBtnDesc": "नई बायोमेट्रिक प्रोफ़ाइल जोड़ें",
+        "manageFacesBtnDesc": "%1 चेहरे पंजीकृत",
+        "fallbackNote": "यदि आपका चेहरा पहचाना नहीं जाता, तो पासवर्ड हमेशा उपलब्ध रहता है — चेहरा पहचान केवल एक तेज़ विकल्प जोड़ता है, यह कभी भी आपको बाहर नहीं रोकता।",
+        "manageFacesBtnDescOne": "1 चेहरा पंजीकृत"
     },
     "enrollment": {
         "title": "चेहरा पंजीकरण",
@@ -20,7 +28,14 @@
         "instructions": "अपने चेहरे को कैमरे की ओर प्रस्तुत करें। सिस्टम बेहतर पहचान के लिए कई कोण से कैप्चर करेगा।",
         "startBtn": "कैप्चर शुरू करें",
         "stopBtn": "रोकें",
-        "cancelBtn": "रद्द करें"
+        "cancelBtn": "रद्द करें",
+        "previewInactive": "पूर्वावलोकन निष्क्रिय",
+        "previewCancelled": "कैप्चर रद्द किया गया",
+        "previewStopped": "कैप्चर रोका गया",
+        "previewAnalyzing": "चेहरे का विश्लेषण हो रहा है…",
+        "previewValidating": "सत्यापन हो रहा है…",
+        "previewSuccess": "✓ चेहरा सफलतापूर्वक पंजीकृत हुआ!",
+        "previewError": "✗ त्रुटि:"
     },
     "manageFaces": {
         "title": "चेहरों को प्रबंधित करें",
@@ -29,8 +44,10 @@
         "confidence": "आत्मविश्वास:",
         "registered": "पंजीकृत:",
         "unknown": "अज्ञात",
-        "deleteBtn": "🗑️ हटाएं",
+        "deleteBtn": "हटाएं",
         "registerNewBtn": "+ नया चेहरा पंजीकृत करें",
-        "backBtn": "वापस"
+        "backBtn": "वापस",
+        "sample": "नमूना",
+        "anyFaceNote": "कोई भी पंजीकृत चेहरा आपको प्रमाणित कर सकता है — sudo, स्क्रीन अनलॉक और जहाँ भी Linux Hello सक्षम है।"
     }
 }

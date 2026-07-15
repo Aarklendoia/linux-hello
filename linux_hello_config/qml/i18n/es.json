@@ -9,8 +9,16 @@
         "youCan": "Puedes:",
         "action1": "• Registrar tu rostro para la autenticación",
         "action2": "• Gestionar rostros registrados",
-        "registerBtn": "📷 Registrar Rostro",
-        "manageFacesBtn": "👤 Gestionar Rostros"
+        "registerBtn": "Registrar Rostro",
+        "manageFacesBtn": "Gestionar Rostros",
+        "daemonActive": "Demonio activo",
+        "daemonInactive": "Demonio no disponible",
+        "daemonActiveSub": "Listo para autenticar",
+        "daemonInactiveSub": "Compruebe el servicio hello-daemon",
+        "registerBtnDesc": "Añadir un nuevo perfil biométrico",
+        "manageFacesBtnDesc": "%1 rostros registrados",
+        "fallbackNote": "Si no se reconoce su rostro, la contraseña siempre está disponible: el reconocimiento facial solo añade una opción más rápida, nunca le bloquea el acceso.",
+        "manageFacesBtnDescOne": "1 rostro registrado"
     },
     "enrollment": {
         "title": "Registro de Rostro",
@@ -20,7 +28,14 @@
         "instructions": "Presenta tu rostro a la cámara. El sistema capturará múltiples ángulos para un mejor reconocimiento.",
         "startBtn": "Iniciar Captura",
         "stopBtn": "Detener",
-        "cancelBtn": "Cancelar"
+        "cancelBtn": "Cancelar",
+        "previewInactive": "Vista previa inactiva",
+        "previewCancelled": "Captura cancelada",
+        "previewStopped": "Captura detenida",
+        "previewAnalyzing": "Analizando el rostro…",
+        "previewValidating": "Validando…",
+        "previewSuccess": "✓ ¡Rostro registrado correctamente!",
+        "previewError": "✗ Error:"
     },
     "manageFaces": {
         "title": "Gestionar Rostros",
@@ -29,8 +44,10 @@
         "confidence": "Confianza:",
         "registered": "Registrado:",
         "unknown": "Desconocido",
-        "deleteBtn": "🗑️ Eliminar",
+        "deleteBtn": "Eliminar",
         "registerNewBtn": "+ Registrar Nuevo Rostro",
-        "backBtn": "Atrás"
+        "backBtn": "Atrás",
+        "sample": "muestra",
+        "anyFaceNote": "Cualquier rostro registrado puede autenticarle — para sudo, desbloqueo de pantalla y en cualquier otro lugar donde Linux Hello esté habilitado."
     }
 }

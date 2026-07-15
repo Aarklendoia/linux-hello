@@ -6,8 +6,10 @@ import Linux.Hello 1.0
 Kirigami.ApplicationWindow {
     id: mainWindow
     title: qsTr("Linux Hello - Configuration")
-    width: 800
-    height: 700
+    width: 480
+    height: 640
+    minimumWidth: 420
+    minimumHeight: 560
     visible: true
 
     // Signal for language changes

@@ -9,8 +9,16 @@
         "youCan": "您可以：",
         "action1": "• 注册您的脸部以进行身份验证",
         "action2": "• 管理已注册的脸部",
-        "registerBtn": "📷 注册脸部",
-        "manageFacesBtn": "👤 管理脸部"
+        "registerBtn": "注册脸部",
+        "manageFacesBtn": "管理脸部",
+        "daemonActive": "守护进程运行中",
+        "daemonInactive": "守护进程不可用",
+        "daemonActiveSub": "已准备好进行身份验证",
+        "daemonInactiveSub": "请检查 hello-daemon 服务",
+        "registerBtnDesc": "添加新的生物识别配置",
+        "manageFacesBtnDesc": "已注册 %1 张人脸",
+        "fallbackNote": "如果未识别您的面部，密码始终可用——人脸识别只是增加了一个更快的选项，永远不会将您锁定在外。",
+        "manageFacesBtnDescOne": "已注册 1 张人脸"
     },
     "enrollment": {
         "title": "脸部注册",
@@ -20,7 +28,14 @@
         "instructions": "将您的脸部对准摄像头。系统将从多个角度捕获以进行更好的识别。",
         "startBtn": "开始捕获",
         "stopBtn": "停止",
-        "cancelBtn": "取消"
+        "cancelBtn": "取消",
+        "previewInactive": "预览未启用",
+        "previewCancelled": "已取消采集",
+        "previewStopped": "已停止采集",
+        "previewAnalyzing": "正在分析人脸…",
+        "previewValidating": "正在验证…",
+        "previewSuccess": "✓ 人脸注册成功！",
+        "previewError": "✗ 错误："
     },
     "manageFaces": {
         "title": "管理脸部",
@@ -29,8 +44,10 @@
         "confidence": "置信度：",
         "registered": "注册时间：",
         "unknown": "未知",
-        "deleteBtn": "🗑️ 删除",
+        "deleteBtn": "删除",
         "registerNewBtn": "+ 注册新脸部",
-        "backBtn": "返回"
+        "backBtn": "返回",
+        "sample": "样本",
+        "anyFaceNote": "任何已注册的人脸都可以对您进行身份验证——适用于 sudo、解锁屏幕，以及启用了 Linux Hello 的任何地方。"
     }
 }
