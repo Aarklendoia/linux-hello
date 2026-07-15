@@ -12,6 +12,7 @@
 ### Bug Fixes
 
 * **gui:** remove the fake Settings page ([8d058c9](https://github.com/Aarklendoia/linux-hello/commit/8d058c95de8957722b078136721dfb0be2218586))
+* **gui:** derive camera preview color from the Plasma theme and drop mid-sentence capitals in fr/es/pt/ru/de translations ([19a401e](https://github.com/Aarklendoia/linux-hello/commit/19a401ec921306fedfc5b507c0302e13e98ee6e0))
 
 
 ### Performance Improvements
