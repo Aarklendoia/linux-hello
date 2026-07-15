@@ -41,40 +41,57 @@ Kirigami.Page {
                 spacing: Kirigami.Units.smallSpacing
                 clip: true
 
-                delegate: Kirigami.Card {
+                delegate: Rectangle {
                     id: faceItem
                     required property var modelData
                     required property int index
 
                     width: ListView.view.width
-                    padding: Kirigami.Units.mediumSpacing
+                    implicitHeight: faceRow.implicitHeight + Kirigami.Units.mediumSpacing * 2
+                    radius: Kirigami.Units.smallSpacing * 1.4
+                    color: Kirigami.Theme.backgroundColor
+                    border.width: 1
+                    border.color: Qt.rgba(Kirigami.Theme.textColor.r, Kirigami.Theme.textColor.g, Kirigami.Theme.textColor.b, 0.15)
 
-                    contentItem: RowLayout {
-                        spacing: Kirigami.Units.largeSpacing * 0.7
+                    // Avatar — anchored to the card directly (not laid out in a
+                    // RowLayout with the text): RowLayout kept producing a
+                    // horizontal offset on the text block that tracked the
+                    // date string's length despite fillWidth/alignment on every
+                    // level of nesting, so the text's left edge is now pinned
+                    // straight to this icon's right edge instead.
+                    Rectangle {
+                        id: avatarRect
+                        width: Kirigami.Units.gridUnit * 2
+                        height: Kirigami.Units.gridUnit * 2
+                        anchors.left: parent.left
+                        anchors.leftMargin: Kirigami.Units.mediumSpacing
+                        anchors.verticalCenter: parent.verticalCenter
+                        radius: Kirigami.Units.smallSpacing
+                        color: Qt.rgba(Kirigami.Theme.highlightColor.r, Kirigami.Theme.highlightColor.g, Kirigami.Theme.highlightColor.b, 0.15)
 
-                        // Avatar
-                        Rectangle {
-                            Layout.preferredWidth: Kirigami.Units.gridUnit * 2
-                            Layout.preferredHeight: Kirigami.Units.gridUnit * 2
-                            radius: Kirigami.Units.smallSpacing
-                            color: Qt.rgba(Kirigami.Theme.highlightColor.r, Kirigami.Theme.highlightColor.g, Kirigami.Theme.highlightColor.b, 0.15)
-
-                            Kirigami.Icon {
-                                anchors.centerIn: parent
-                                width: Kirigami.Units.gridUnit
-                                height: width
-                                source: "im-user-symbolic"
-                                color: Kirigami.Theme.highlightColor
-                                isMask: true
-                            }
+                        Kirigami.Icon {
+                            anchors.centerIn: parent
+                            width: Kirigami.Units.gridUnit
+                            height: width
+                            source: "im-user-symbolic"
+                            color: Kirigami.Theme.highlightColor
+                            isMask: true
                         }
+                    }
 
-                        // Meta
-                        ColumnLayout {
-                            Layout.fillWidth: true
-                            spacing: 3
+                    // Meta
+                    ColumnLayout {
+                        id: faceRow
+                        anchors.left: avatarRect.right
+                        anchors.leftMargin: Kirigami.Units.largeSpacing * 0.7
+                        anchors.right: parent.right
+                        anchors.rightMargin: Kirigami.Units.mediumSpacing * 2 + Kirigami.Units.gridUnit * 1.8
+                        anchors.verticalCenter: parent.verticalCenter
+                        spacing: 3
 
                             RowLayout {
+                                Layout.fillWidth: true
+                                Layout.alignment: Qt.AlignLeft
                                 spacing: Kirigami.Units.smallSpacing * 0.6
                                 Label {
                                     text: AppController.uidToName(faceItem.modelData.user_id)
@@ -95,6 +112,8 @@ Kirigami.Page {
                             }
 
                             RowLayout {
+                                Layout.fillWidth: true
+                                Layout.alignment: Qt.AlignLeft
                                 spacing: Kirigami.Units.largeSpacing * 0.7
 
                                 RowLayout {
@@ -129,17 +148,43 @@ Kirigami.Page {
                             }
                         }
 
-                        // Delete
-                        ToolButton {
-                            icon.name: "edit-delete-symbolic"
-                            display: AbstractButton.IconOnly
-                            Layout.preferredWidth: Kirigami.Units.gridUnit * 1.8
-                            Layout.preferredHeight: Kirigami.Units.gridUnit * 1.8
-                            onClicked: AppController.deleteFace(faceItem.modelData.face_id)
+                    // Delete — anchored straight to the card's right edge and
+                    // vertically centered on the card itself, not laid out
+                    // alongside the text: that kept coupling its position to
+                    // the (variable-height) text block instead of just sitting
+                    // put on the right. Plain Item + MouseArea, no styled
+                    // Control, so there's no implicit content padding to fight.
+                    Item {
+                        id: deleteBtn
+                        width: Kirigami.Units.gridUnit * 1.8
+                        height: Kirigami.Units.gridUnit * 1.8
+                        anchors.right: parent.right
+                        anchors.verticalCenter: parent.verticalCenter
+                        anchors.rightMargin: Kirigami.Units.mediumSpacing
 
-                            Accessible.name: I18n.tr("manageFaces.deleteBtn")
-                            ToolTip.visible: hovered
-                            ToolTip.text: I18n.tr("manageFaces.deleteBtn")
+                        Accessible.name: I18n.tr("manageFaces.deleteBtn")
+                        ToolTip.visible: deleteMouse.containsMouse
+                        ToolTip.text: I18n.tr("manageFaces.deleteBtn")
+
+                        Rectangle {
+                            anchors.fill: parent
+                            radius: width / 2
+                            color: deleteMouse.containsMouse ? Qt.rgba(Kirigami.Theme.negativeTextColor.r, Kirigami.Theme.negativeTextColor.g, Kirigami.Theme.negativeTextColor.b, 0.12) : "transparent"
+                        }
+                        Kirigami.Icon {
+                            anchors.centerIn: parent
+                            width: Kirigami.Units.gridUnit * 0.85
+                            height: width
+                            source: "edit-delete-symbolic"
+                            color: Kirigami.Theme.negativeTextColor
+                            isMask: true
+                        }
+                        MouseArea {
+                            id: deleteMouse
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: AppController.deleteFace(faceItem.modelData.face_id)
                         }
                     }
                 }

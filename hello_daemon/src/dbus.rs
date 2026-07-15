@@ -231,38 +231,6 @@ impl FaceAuthInterface {
         // Clone the signal emitter for use in the closure
         let _signal_emitter = self.signal_emitter.clone();
 
-        // DEBUG: create a test file to verify /tmp access
-        info!("📸 DEBUG: Attempting to write file /tmp/test.txt...");
-        use std::io::Write;
-        match std::fs::File::create("/tmp/test.txt") {
-            Ok(mut f) => {
-                let _ = f.write_all(b"TEST WRITE OK\n");
-                info!("✓ Test file written: /tmp/test.txt");
-            }
-            Err(e) => error!("✗ Test write error: {}", e),
-        }
-
-        // DEBUG: create a RED test image to verify that export works
-        info!("📸 DEBUG: Creating test image...");
-        {
-            use std::path::Path;
-            let test_path = Path::new("/tmp/linux-hello-test.jpg");
-            // Create a pure RED RGB image (R=255, G=0, B=0)
-            let mut dummy_rgb = vec![0u8; 640 * 480 * 3];
-            for i in (0..dummy_rgb.len()).step_by(3) {
-                dummy_rgb[i] = 255; // Red
-                dummy_rgb[i + 1] = 0; // Green
-                dummy_rgb[i + 2] = 0; // Blue
-            }
-            match crate::preview::write_frame_preview(&dummy_rgb, 640, 480, test_path) {
-                Ok(_) => info!(
-                    "✓ RED test image created: /tmp/linux-hello-test.jpg ({} bytes)",
-                    std::fs::metadata(test_path).map(|m| m.len()).unwrap_or(0)
-                ),
-                Err(e) => error!("✗ Test image creation error: {} (io/image error)", e),
-            }
-        }
-
         // Capture the frames with a callback that emits the signals
         let result = camera_manager
             .start_capture_stream(num_frames, timeout_ms, move |event| {

@@ -14,21 +14,35 @@ Kirigami.Page {
 
     padding: Kirigami.Units.largeSpacing
 
-    // Start polling snapshots on creation (page is only created when navigated to via URL)
-    Component.onCompleted: {
-        snapshotTimer.start();
-    }
-
-    Component.onDestruction: {
-        snapshotTimer.stop();
+    // The daemon only has a frame to serve while a capture-stream is
+    // actually running (start-capture ... stop-capture); outside that
+    // window /snapshot 503s. Polling unconditionally from page load meant
+    // constant failed requests before the user even clicked "Démarrer",
+    // which reads as the preview blinking. Tie the timer directly to
+    // AppController.capturing instead, and clear the image the moment
+    // capture stops so no broken/stale frame lingers on screen.
+    Connections {
+        target: AppController
+        function onCapturingChanged() {
+            if (!AppController.capturing) {
+                cameraPreview.source = "";
+            }
+        }
     }
 
     // Polls a single JPEG per tick instead of playing the daemon's MJPEG feed:
-    // QtMultimedia's MediaPlayer cannot demux a raw multipart/x-mixed-replace stream.
+    // QtMultimedia's MediaPlayer cannot demux a raw multipart/x-mixed-replace
+    // stream. 150ms was arbitrary; the daemon's V4L2 capture actually runs at
+    // ~30fps (~33ms/frame, confirmed from hello-daemon's own frame logs), so
+    // polling at 150ms was silently dropping 4 out of every 5 real frames —
+    // that's what read as choppy. Poll close to the real source cadence
+    // instead; the broadcast channel's capacity is 1, so polling faster than
+    // the source just re-fetches the same frame, never wasted beyond that.
     Timer {
         id: snapshotTimer
-        interval: 150
+        interval: 40
         repeat: true
+        running: AppController.capturing
         onTriggered: cameraPreview.source = "http://127.0.0.1:17823/snapshot?t=" + Date.now()
     }
 
