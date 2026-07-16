@@ -220,6 +220,13 @@ lh_configure_service "su-l"   "sudo"   "@include common-auth" "confirm"
 # home-screen toggle) to opt in.
 
 # ── 5. polkit-1 ("Authentication required" graphical dialogs) ─────────────────
+# No `nullok` on the pam_unix.so fallback line: nullok makes pam_unix.so
+# treat an empty password hash as authenticated on an empty input, which
+# would silently defeat the "password is always the real fallback"
+# guarantee this whole script is built around for any account that ends up
+# with one (e.g. `passwd -d`, or a misconfigured account). Stock
+# Debian/Ubuntu common-auth doesn't use nullok either — don't reintroduce it
+# here.
 POLKIT_FILE="$PAM_DIR/polkit-1"
 if [[ ! -f "$POLKIT_FILE" ]]; then
     cat > "$POLKIT_FILE" << 'EOF'
@@ -228,7 +235,7 @@ if [[ ! -f "$POLKIT_FILE" ]]; then
 # auth sufficient = if biometrics OK → access granted; otherwise → password fallback
 
 auth       sufficient   pam_linux_hello.so context=polkit
-auth       required     pam_unix.so nullok
+auth       required     pam_unix.so
 @include common-account
 EOF
     ok "Service polkit-1: created with linux-hello + password fallback"
