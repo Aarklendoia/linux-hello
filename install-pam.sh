@@ -51,10 +51,15 @@ if [[ ! -f "$SDDM_QML_SOURCE" ]]; then
 fi
 
 # ── Colors ───────────────────────────────────────────────────────────────────
+# warn()/err() write to stderr, not stdout: linux_hello_config's GUI toggle
+# invokes this script via `pkexec ... --enable-sddm`/`--disable-sddm` and
+# surfaces failures to the user by reading the child process's stderr only
+# (see handle_ctrl_connection in linux_hello_config/src/main.rs) — a warning
+# or error written to stdout would silently never reach that error message.
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
 ok()   { echo -e "${GREEN}✓${NC} $*"; }
-warn() { echo -e "${YELLOW}⚠${NC}  $*"; }
-err()  { echo -e "${RED}✗${NC} $*"; }
+warn() { echo -e "${YELLOW}⚠${NC}  $*" >&2; }
+err()  { echo -e "${RED}✗${NC} $*" >&2; }
 
 # ── Root check ───────────────────────────────────────────────────────────────
 if [[ "$EUID" -ne 0 && -z "${LH_SKIP_ROOT_CHECK:-}" ]]; then
