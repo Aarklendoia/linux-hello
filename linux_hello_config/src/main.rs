@@ -338,6 +338,26 @@ fn request_method(req: &str) -> &str {
         .unwrap_or("")
 }
 
+/// Compares two strings in time that doesn't depend on *where* they first
+/// differ — unlike `==`/`!=`, which short-circuits at the first mismatching
+/// byte. Used to compare the request's token against the expected one: a
+/// naive comparison could in principle let a co-resident local process
+/// (without the token, but able to reach the loopback port) recover it
+/// faster than brute force by timing repeated guesses. The length check
+/// still returns early, but the token's length isn't secret — it's always
+/// exactly 64 hex chars by construction (`generate_ctrl_token`).
+fn constant_time_eq(a: &str, b: &str) -> bool {
+    let (a, b) = (a.as_bytes(), b.as_bytes());
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
 /// Handles an incoming HTTP connection in its own thread.
 fn handle_ctrl_connection(
     mut stream: TcpStream,
@@ -359,215 +379,217 @@ fn handle_ctrl_connection(
     // having that literal text anywhere in its path/query/headers, bypassing
     // the token check entirely.
     let is_options = request_method(&req) == "OPTIONS";
-    let (status, body): (&str, String) =
-        if !is_options && extract_token_header(&req) != Some(expected_token) {
-            ("403 Forbidden", String::new())
-        } else if is_options {
-            ("200 OK", String::new())
-        } else if req.contains("/start-capture") {
-            // Non-blocking: launches the preview capture in the background
-            let _ = Command::new("busctl")
-                .args([
-                    "--user",
-                    "call",
-                    "com.linuxhello.FaceAuth",
-                    "/com/linuxhello/FaceAuth",
-                    "com.linuxhello.FaceAuth",
-                    "StartCaptureStream",
-                    "uut",
-                    &uid.to_string(),
-                    "600",
-                    "25000",
-                ])
-                .spawn();
-            ("200 OK", "OK".to_string())
-        } else if req.contains("/register-face") {
-            // Blocking: waits for the enrollment to finish and returns the face_id
-            let request_json = format!(
-                r#"{{"user_id":{},"context":"gui","timeout_ms":10000,"num_samples":5}}"#,
-                uid
-            );
-            match Command::new("busctl")
-                .args([
-                    "--user",
-                    "call",
-                    "com.linuxhello.FaceAuth",
-                    "/com/linuxhello/FaceAuth",
-                    "com.linuxhello.FaceAuth",
-                    "RegisterFace",
-                    "s",
-                    &request_json,
-                ])
-                .output()
-            {
-                Ok(out) if out.status.success() => {
-                    let stdout = String::from_utf8_lossy(&out.stdout);
-                    let face_id = extract_face_id_from_busctl(&stdout)
-                        .unwrap_or_else(|| "unknown".to_string());
-                    (
-                        "200 OK",
-                        format!(r#"{{"ok":true,"face_id":"{}"}}"#, face_id),
-                    )
-                }
-                Ok(out) => {
-                    let err = String::from_utf8_lossy(&out.stderr)
-                        .replace('"', "\\\"")
-                        .replace('\n', " ");
-                    eprintln!("✗ RegisterFace busctl stderr: {}", err);
-                    (
-                        "500 Internal Server Error",
-                        format!(r#"{{"ok":false,"error":"{}"}}"#, err),
-                    )
-                }
-                Err(e) => {
-                    eprintln!("✗ RegisterFace spawn error: {}", e);
-                    (
-                        "500 Internal Server Error",
-                        format!(r#"{{"ok":false,"error":"{}"}}"#, e),
-                    )
-                }
+    let token_ok = extract_token_header(&req)
+        .map(|t| constant_time_eq(t, expected_token))
+        .unwrap_or(false);
+    let (status, body): (&str, String) = if !is_options && !token_ok {
+        ("403 Forbidden", String::new())
+    } else if is_options {
+        ("200 OK", String::new())
+    } else if req.contains("/start-capture") {
+        // Non-blocking: launches the preview capture in the background
+        let _ = Command::new("busctl")
+            .args([
+                "--user",
+                "call",
+                "com.linuxhello.FaceAuth",
+                "/com/linuxhello/FaceAuth",
+                "com.linuxhello.FaceAuth",
+                "StartCaptureStream",
+                "uut",
+                &uid.to_string(),
+                "600",
+                "25000",
+            ])
+            .spawn();
+        ("200 OK", "OK".to_string())
+    } else if req.contains("/register-face") {
+        // Blocking: waits for the enrollment to finish and returns the face_id
+        let request_json = format!(
+            r#"{{"user_id":{},"context":"gui","timeout_ms":10000,"num_samples":5}}"#,
+            uid
+        );
+        match Command::new("busctl")
+            .args([
+                "--user",
+                "call",
+                "com.linuxhello.FaceAuth",
+                "/com/linuxhello/FaceAuth",
+                "com.linuxhello.FaceAuth",
+                "RegisterFace",
+                "s",
+                &request_json,
+            ])
+            .output()
+        {
+            Ok(out) if out.status.success() => {
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                let face_id =
+                    extract_face_id_from_busctl(&stdout).unwrap_or_else(|| "unknown".to_string());
+                (
+                    "200 OK",
+                    format!(r#"{{"ok":true,"face_id":"{}"}}"#, face_id),
+                )
             }
-        } else if req.contains("/stop-capture") {
-            ("200 OK", "STOPPED".to_string())
-        } else if req.contains("/daemon-status") {
-            // Cheap D-Bus liveness check for the Home screen's status card: does
-            // the per-user session bus currently have an owner for
-            // com.linuxhello.FaceAuth? No RegisterFace/Verify call involved, so
-            // this can't trigger a camera capture or block on one.
-            let active = Command::new("busctl")
-                .args([
-                    "--user",
-                    "call",
-                    "org.freedesktop.DBus",
-                    "/org/freedesktop/DBus",
-                    "org.freedesktop.DBus",
-                    "NameHasOwner",
-                    "s",
-                    "com.linuxhello.FaceAuth",
-                ])
-                .output()
-                .map(|out| {
-                    out.status.success() && String::from_utf8_lossy(&out.stdout).contains("true")
-                })
-                .unwrap_or(false);
-            ("200 OK", format!(r#"{{"active":{}}}"#, active))
-        } else if req.contains("/sddm-status") {
-            // No elevation needed: /etc/pam.d/sddm is world-readable, and this
-            // is exactly what `install-pam.sh --status` itself checks. Also
-            // reports whether the SDDM toggle is even usable at all — the GUI
-            // package doesn't hard-depend on libpam-linux-hello (install-pam.sh
-            // lives there), so a GUI-only install must degrade gracefully
-            // instead of offering a button that can never work. `available`
-            // is computed once at startup (see `main`), not re-derived here
-            // on every request — unlike `active`, it can't change over this
-            // process's lifetime.
-            let active = std::fs::read_to_string("/etc/pam.d/sddm")
-                .map(|contents| sddm_pam_line_present(&contents))
-                .unwrap_or(false);
-            (
-                "200 OK",
-                format!(
-                    r#"{{"active":{},"available":{}}}"#,
-                    active, install_pam_available
-                ),
-            )
-        } else if req.contains("/sddm-enable") || req.contains("/sddm-disable") {
-            // Blocking is fine: each connection already runs on its own thread.
-            // pkexec shows the native polkit auth-agent dialog (matched to our
-            // action via install-pam.sh's exec-path annotation in
-            // com.linuxhello.pam-setup.policy) and waits for it — can take
-            // several seconds while the user actually looks at the prompt.
-            let flag = if req.contains("/sddm-enable") {
-                "--enable-sddm"
-            } else {
-                "--disable-sddm"
-            };
-            match Command::new("pkexec")
-                .args(["/usr/bin/install-pam.sh", flag])
-                .output()
-            {
-                Ok(out) if out.status.success() => ("200 OK", r#"{"ok":true}"#.to_string()),
-                Ok(out) => {
-                    let err = String::from_utf8_lossy(&out.stderr)
-                        .replace('"', "\\\"")
-                        .replace('\n', " ");
-                    eprintln!("✗ {} failed: {}", flag, err);
-                    ("200 OK", format!(r#"{{"ok":false,"error":"{}"}}"#, err))
-                }
-                Err(e) => {
-                    eprintln!("✗ {} spawn error: {}", flag, e);
-                    ("200 OK", format!(r#"{{"ok":false,"error":"{}"}}"#, e))
-                }
+            Ok(out) => {
+                let err = String::from_utf8_lossy(&out.stderr)
+                    .replace('"', "\\\"")
+                    .replace('\n', " ");
+                eprintln!("✗ RegisterFace busctl stderr: {}", err);
+                (
+                    "500 Internal Server Error",
+                    format!(r#"{{"ok":false,"error":"{}"}}"#, err),
+                )
             }
-        } else if req.contains("/list-faces") {
-            match Command::new("busctl")
-                .args([
-                    "--user",
-                    "call",
-                    "com.linuxhello.FaceAuth",
-                    "/com/linuxhello/FaceAuth",
-                    "com.linuxhello.FaceAuth",
-                    "ListFaces",
-                    "u",
-                    &uid.to_string(),
-                ])
-                .output()
-            {
-                Ok(out) if out.status.success() => {
-                    let stdout = String::from_utf8_lossy(&out.stdout);
-                    let json = extract_busctl_json(&stdout).unwrap_or_else(|| "[]".to_string());
-                    ("200 OK", json)
-                }
-                Ok(out) => {
-                    let err = String::from_utf8_lossy(&out.stderr)
-                        .replace('"', "\\\"")
-                        .replace('\n', " ");
-                    eprintln!("✗ ListFaces busctl stderr: {}", err);
-                    ("200 OK", "[]".to_string())
-                }
-                Err(e) => {
-                    eprintln!("✗ ListFaces spawn error: {}", e);
-                    ("200 OK", "[]".to_string())
-                }
+            Err(e) => {
+                eprintln!("✗ RegisterFace spawn error: {}", e);
+                (
+                    "500 Internal Server Error",
+                    format!(r#"{{"ok":false,"error":"{}"}}"#, e),
+                )
             }
-        } else if req.contains("/delete-face") {
-            let face_id = extract_query_param(&req, "id").unwrap_or_default();
-            let request_json = format!(r#"{{"user_id":{},"face_id":"{}"}}"#, uid, face_id);
-            match Command::new("busctl")
-                .args([
-                    "--user",
-                    "call",
-                    "com.linuxhello.FaceAuth",
-                    "/com/linuxhello/FaceAuth",
-                    "com.linuxhello.FaceAuth",
-                    "DeleteFace",
-                    "s",
-                    &request_json,
-                ])
-                .output()
-            {
-                Ok(out) if out.status.success() => ("200 OK", r#"{"ok":true}"#.to_string()),
-                Ok(out) => {
-                    let err = String::from_utf8_lossy(&out.stderr)
-                        .replace('"', "\\\"")
-                        .replace('\n', " ");
-                    eprintln!("✗ DeleteFace busctl stderr: {}", err);
-                    (
-                        "500 Internal Server Error",
-                        format!(r#"{{"ok":false,"error":"{}"}}"#, err),
-                    )
-                }
-                Err(e) => {
-                    eprintln!("✗ DeleteFace spawn error: {}", e);
-                    (
-                        "500 Internal Server Error",
-                        format!(r#"{{"ok":false,"error":"{}"}}"#, e),
-                    )
-                }
-            }
+        }
+    } else if req.contains("/stop-capture") {
+        ("200 OK", "STOPPED".to_string())
+    } else if req.contains("/daemon-status") {
+        // Cheap D-Bus liveness check for the Home screen's status card: does
+        // the per-user session bus currently have an owner for
+        // com.linuxhello.FaceAuth? No RegisterFace/Verify call involved, so
+        // this can't trigger a camera capture or block on one.
+        let active = Command::new("busctl")
+            .args([
+                "--user",
+                "call",
+                "org.freedesktop.DBus",
+                "/org/freedesktop/DBus",
+                "org.freedesktop.DBus",
+                "NameHasOwner",
+                "s",
+                "com.linuxhello.FaceAuth",
+            ])
+            .output()
+            .map(|out| {
+                out.status.success() && String::from_utf8_lossy(&out.stdout).contains("true")
+            })
+            .unwrap_or(false);
+        ("200 OK", format!(r#"{{"active":{}}}"#, active))
+    } else if req.contains("/sddm-status") {
+        // No elevation needed: /etc/pam.d/sddm is world-readable, and this
+        // is exactly what `install-pam.sh --status` itself checks. Also
+        // reports whether the SDDM toggle is even usable at all — the GUI
+        // package doesn't hard-depend on libpam-linux-hello (install-pam.sh
+        // lives there), so a GUI-only install must degrade gracefully
+        // instead of offering a button that can never work. `available`
+        // is computed once at startup (see `main`), not re-derived here
+        // on every request — unlike `active`, it can't change over this
+        // process's lifetime.
+        let active = std::fs::read_to_string("/etc/pam.d/sddm")
+            .map(|contents| sddm_pam_line_present(&contents))
+            .unwrap_or(false);
+        (
+            "200 OK",
+            format!(
+                r#"{{"active":{},"available":{}}}"#,
+                active, install_pam_available
+            ),
+        )
+    } else if req.contains("/sddm-enable") || req.contains("/sddm-disable") {
+        // Blocking is fine: each connection already runs on its own thread.
+        // pkexec shows the native polkit auth-agent dialog (matched to our
+        // action via install-pam.sh's exec-path annotation in
+        // com.linuxhello.pam-setup.policy) and waits for it — can take
+        // several seconds while the user actually looks at the prompt.
+        let flag = if req.contains("/sddm-enable") {
+            "--enable-sddm"
         } else {
-            ("404 Not Found", String::new())
+            "--disable-sddm"
         };
+        match Command::new("pkexec")
+            .args(["/usr/bin/install-pam.sh", flag])
+            .output()
+        {
+            Ok(out) if out.status.success() => ("200 OK", r#"{"ok":true}"#.to_string()),
+            Ok(out) => {
+                let err = String::from_utf8_lossy(&out.stderr)
+                    .replace('"', "\\\"")
+                    .replace('\n', " ");
+                eprintln!("✗ {} failed: {}", flag, err);
+                ("200 OK", format!(r#"{{"ok":false,"error":"{}"}}"#, err))
+            }
+            Err(e) => {
+                eprintln!("✗ {} spawn error: {}", flag, e);
+                ("200 OK", format!(r#"{{"ok":false,"error":"{}"}}"#, e))
+            }
+        }
+    } else if req.contains("/list-faces") {
+        match Command::new("busctl")
+            .args([
+                "--user",
+                "call",
+                "com.linuxhello.FaceAuth",
+                "/com/linuxhello/FaceAuth",
+                "com.linuxhello.FaceAuth",
+                "ListFaces",
+                "u",
+                &uid.to_string(),
+            ])
+            .output()
+        {
+            Ok(out) if out.status.success() => {
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                let json = extract_busctl_json(&stdout).unwrap_or_else(|| "[]".to_string());
+                ("200 OK", json)
+            }
+            Ok(out) => {
+                let err = String::from_utf8_lossy(&out.stderr)
+                    .replace('"', "\\\"")
+                    .replace('\n', " ");
+                eprintln!("✗ ListFaces busctl stderr: {}", err);
+                ("200 OK", "[]".to_string())
+            }
+            Err(e) => {
+                eprintln!("✗ ListFaces spawn error: {}", e);
+                ("200 OK", "[]".to_string())
+            }
+        }
+    } else if req.contains("/delete-face") {
+        let face_id = extract_query_param(&req, "id").unwrap_or_default();
+        let request_json = format!(r#"{{"user_id":{},"face_id":"{}"}}"#, uid, face_id);
+        match Command::new("busctl")
+            .args([
+                "--user",
+                "call",
+                "com.linuxhello.FaceAuth",
+                "/com/linuxhello/FaceAuth",
+                "com.linuxhello.FaceAuth",
+                "DeleteFace",
+                "s",
+                &request_json,
+            ])
+            .output()
+        {
+            Ok(out) if out.status.success() => ("200 OK", r#"{"ok":true}"#.to_string()),
+            Ok(out) => {
+                let err = String::from_utf8_lossy(&out.stderr)
+                    .replace('"', "\\\"")
+                    .replace('\n', " ");
+                eprintln!("✗ DeleteFace busctl stderr: {}", err);
+                (
+                    "500 Internal Server Error",
+                    format!(r#"{{"ok":false,"error":"{}"}}"#, err),
+                )
+            }
+            Err(e) => {
+                eprintln!("✗ DeleteFace spawn error: {}", e);
+                (
+                    "500 Internal Server Error",
+                    format!(r#"{{"ok":false,"error":"{}"}}"#, e),
+                )
+            }
+        }
+    } else {
+        ("404 Not Found", String::new())
+    };
 
     let response = format!(
         "HTTP/1.1 {}\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: {}\r\n\r\n{}",
@@ -629,6 +651,23 @@ mod tests {
     fn extract_token_header_none_when_missing() {
         let req = "GET /list-faces HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n";
         assert_eq!(extract_token_header(req), None);
+    }
+
+    #[test]
+    fn constant_time_eq_matches_regular_equality() {
+        assert!(constant_time_eq("abc123", "abc123"));
+        assert!(constant_time_eq("", ""));
+        assert!(!constant_time_eq("abc123", "abc124"));
+        assert!(!constant_time_eq("abc123", "abc12"));
+        assert!(!constant_time_eq("abc12", "abc123"));
+        assert!(!constant_time_eq("abc123", ""));
+    }
+
+    #[test]
+    fn constant_time_eq_is_case_sensitive() {
+        // The token is hex but stored/compared verbatim — this must not
+        // silently accept a case-differing guess.
+        assert!(!constant_time_eq("AbC123", "abc123"));
     }
 
     #[test]
