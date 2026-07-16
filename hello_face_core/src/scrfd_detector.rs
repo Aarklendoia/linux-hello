@@ -96,8 +96,25 @@ impl FaceDetector for ScrfdDetector {
         height: u32,
         channels: u32,
     ) -> Result<Vec<FaceRegion>, FaceError> {
-        if frame_data.is_empty() || channels != 3 {
+        if frame_data.is_empty() || width == 0 || height == 0 || channels != 3 {
             return Ok(vec![]);
+        }
+
+        // letterbox_rgb indexes frame_data assuming it holds exactly
+        // width*height*channels bytes, with no bounds check of its own —
+        // width/height come from the caller (ultimately the V4L2-negotiated
+        // capture format), while frame_data is a separately-produced buffer
+        // that can legitimately be shorter (e.g. a truncated read, or a
+        // driver/format mismatch — see yuyv_to_rgb_strided's early `break`
+        // on a short row in hello_camera). Reject rather than read past the
+        // end, matching the same check StubDetector already does.
+        let expected_size = (width as usize) * (height as usize) * (channels as usize);
+        if frame_data.len() < expected_size {
+            return Err(FaceError::InvalidFrame(format!(
+                "Invalid frame size: {} < {}",
+                frame_data.len(),
+                expected_size
+            )));
         }
 
         let (tensor_data, scale, pad_x, pad_y) = self.letterbox_rgb(frame_data, width, height);
@@ -319,5 +336,53 @@ impl FaceDetector for ScrfdFallback {
 
     fn model_version(&self) -> &str {
         "stub-0.1"
+    }
+}
+
+#[cfg(all(test, feature = "tract"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn detect_rejects_a_truncated_frame_buffer_instead_of_reading_out_of_bounds() {
+        let model_path = crate::default_models_dir().join("det_500m.onnx");
+        let Ok(detector) = ScrfdDetector::load(&model_path) else {
+            // Real model not available in this environment (e.g. CI run
+            // with LINUX_HELLO_NO_MODEL_DOWNLOAD=1) — nothing to test here,
+            // don't fail the suite over an environment gap.
+            eprintln!(
+                "Skipping: SCRFD model not available at {}",
+                model_path.display()
+            );
+            return;
+        };
+
+        // Declares a 640x480x3 frame but only actually supplies 10 bytes —
+        // exactly the mismatch a truncated capture or a driver reporting a
+        // larger format than it delivers would produce.
+        let truncated = vec![128u8; 10];
+        let result = detector.detect(&truncated, 640, 480, 3);
+        assert!(
+            result.is_err(),
+            "must reject a too-short buffer rather than read past its end"
+        );
+    }
+
+    #[test]
+    fn detect_still_works_on_a_correctly_sized_frame() {
+        let model_path = crate::default_models_dir().join("det_500m.onnx");
+        let Ok(detector) = ScrfdDetector::load(&model_path) else {
+            eprintln!(
+                "Skipping: SCRFD model not available at {}",
+                model_path.display()
+            );
+            return;
+        };
+        let frame = vec![128u8; 640 * 480 * 3];
+        let result = detector.detect(&frame, 640, 480, 3);
+        assert!(
+            result.is_ok(),
+            "a correctly sized frame must not be rejected"
+        );
     }
 }
