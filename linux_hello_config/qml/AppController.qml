@@ -32,8 +32,17 @@ QtObject {
     signal restartTimerNeeded
 
     Component.onCompleted: {
+        // The port/token files are namespaced per UID (so two different
+        // users each launching the GUI, e.g. during fast user switching,
+        // don't clobber each other's files in /tmp) — main.rs passes our
+        // own UID as the last qml6 argument (Qt.environmentVariable is
+        // unavailable on this build, so LINUX_HELLO_UID isn't readable
+        // directly; Qt.application.arguments is).
+        var args = Qt.application.arguments;
+        var myUid = args[args.length - 1];
+
         var xhr = new XMLHttpRequest();
-        xhr.open("GET", "file:///tmp/linux-hello-ctrl.port", false);
+        xhr.open("GET", "file:///tmp/linux-hello-ctrl-" + myUid + ".port", false);
         xhr.send();
         if (xhr.responseText !== "") {
             ctrlPort = xhr.responseText.trim();
@@ -47,7 +56,7 @@ QtObject {
         // process could hit routes like /sddm-enable, which now triggers a
         // real pkexec prompt.
         var xhrToken = new XMLHttpRequest();
-        xhrToken.open("GET", "file:///tmp/linux-hello-ctrl.token", false);
+        xhrToken.open("GET", "file:///tmp/linux-hello-ctrl-" + myUid + ".token", false);
         xhrToken.send();
         if (xhrToken.responseText !== "") {
             ctrlToken = xhrToken.responseText.trim();
