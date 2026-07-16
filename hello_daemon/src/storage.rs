@@ -156,6 +156,21 @@ impl FaceStorage {
 
     /// Delete a face
     pub fn delete_face(&self, user_id: u32, face_id: &str) -> Result<(), DaemonError> {
+        // face_id is attacker-controlled (it comes straight from the D-Bus
+        // DeleteFace request body) and, unlike user_id (a plain u32),
+        // wasn't validated before being joined onto a path — user_dir()
+        // guards against user_id escaping base_path, but a face_id like
+        // "../../../../etc/cron.d/x" would still escape *this* user's own
+        // directory once appended below. Real face_ids are always
+        // "face_<uid>_<timestamp>" (see register_face), so anything outside
+        // that safe character set can only be a traversal attempt.
+        if !is_safe_face_id(face_id) {
+            return Err(DaemonError::AccessDenied(format!(
+                "Invalid face_id: {}",
+                face_id
+            )));
+        }
+
         let user_dir = self.user_dir(user_id)?;
 
         let meta_path = user_dir.join(format!("{}.meta.json", face_id));
@@ -223,6 +238,17 @@ impl FaceStorage {
 
         Ok(user_dir)
     }
+}
+
+/// Whether `face_id` is safe to join onto a filesystem path. Real face_ids
+/// are always `face_<uid>_<timestamp>` (see `register_face`), so this is
+/// deliberately narrow — alphanumeric, `_`, and `-` only, non-empty — rather
+/// than trying to blocklist `/`/`..`/etc, which is easy to get wrong.
+fn is_safe_face_id(face_id: &str) -> bool {
+    !face_id.is_empty()
+        && face_id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
 }
 
 #[cfg(test)]
@@ -358,5 +384,74 @@ mod tests {
         let faces = reopened.list_user_faces(1000).unwrap();
         assert_eq!(faces.len(), 1);
         assert_eq!(faces[0].face_id, "face_1");
+    }
+
+    #[test]
+    fn test_is_safe_face_id() {
+        assert!(is_safe_face_id("face_1000_1735036800"));
+        assert!(is_safe_face_id("face_1"));
+        assert!(!is_safe_face_id(""));
+        assert!(!is_safe_face_id("../../../etc/cron.d/x"));
+        assert!(!is_safe_face_id("../x"));
+        assert!(!is_safe_face_id("a/b"));
+        assert!(!is_safe_face_id("a.b"));
+        assert!(!is_safe_face_id("/etc/passwd"));
+    }
+
+    #[test]
+    fn test_delete_face_still_works_for_a_legitimate_face_id() {
+        let temp = TempDir::new().unwrap();
+        let storage = FaceStorage::new(temp.path()).unwrap();
+        let record = FaceRecord {
+            face_id: "face_1000_1735036800".to_string(),
+            user_id: 1000,
+            embedding_json: "{}".to_string(),
+            quality_score: 0.95,
+            registered_at: 0,
+            context: "test".to_string(),
+        };
+        let embedding = Embedding {
+            vector: vec![0.1, 0.2, 0.3],
+            metadata: hello_face_core::EmbeddingMetadata {
+                model: "test".to_string(),
+                model_version: "0.1.0".to_string(),
+                extracted_at: 0,
+                quality_score: 0.95,
+            },
+        };
+        storage.save_face(&record, &embedding).unwrap();
+
+        storage
+            .delete_face(1000, "face_1000_1735036800")
+            .expect("a real, well-formed face_id must still delete successfully");
+
+        assert!(storage
+            .load_face_embedding(1000, "face_1000_1735036800")
+            .is_err());
+    }
+
+    #[test]
+    fn test_delete_face_rejects_a_path_traversal_face_id() {
+        // Regression test for the path-traversal fix: a crafted face_id
+        // must not be able to reach a file outside this user's own
+        // directory, even though the file it targets genuinely exists and
+        // is genuinely reachable via that many "../" segments.
+        let temp = TempDir::new().unwrap();
+        let storage = FaceStorage::new(temp.path()).unwrap();
+
+        // A file outside any user's directory that a traversal could target.
+        let canary = temp.path().join("canary.meta.json");
+        std::fs::write(&canary, "should not be deleted").unwrap();
+
+        // "users/1000/" is 2 levels deep under temp.path(), so "../../.."
+        // reaches temp.path() itself, landing on "canary" once the code
+        // appends ".meta.json".
+        let result = storage.delete_face(1000, "../../../canary");
+
+        assert!(result.is_err(), "traversal face_id must be rejected");
+        assert!(
+            canary.exists(),
+            "the file outside the user dir must survive"
+        );
     }
 }
