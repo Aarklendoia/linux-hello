@@ -18,6 +18,7 @@ static ALLOCATOR: std::alloc::System = std::alloc::System;
 use serde::{Deserialize, Serialize};
 use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_int};
+use std::os::unix::net::UnixStream;
 
 // Basic C bindings
 #[repr(C)]
@@ -659,13 +660,42 @@ enum PamHelperResponse {
     },
 }
 
+/// Returns the UID of the process on the other end of `stream`, via
+/// `SO_PEERCRED` (`getsockopt`, Linux-specific — matches this project's
+/// Linux-only scope). Implemented by hand rather than via
+/// `std::os::unix::net::UnixStream::peer_cred` because that method is not
+/// yet stable on this toolchain.
+fn unix_socket_peer_uid(stream: &UnixStream) -> std::io::Result<u32> {
+    use std::os::unix::io::AsRawFd;
+    let mut cred: libc::ucred = unsafe { std::mem::zeroed() };
+    let mut len = std::mem::size_of::<libc::ucred>() as libc::socklen_t;
+    let ret = unsafe {
+        libc::getsockopt(
+            stream.as_raw_fd(),
+            libc::SOL_SOCKET,
+            libc::SO_PEERCRED,
+            &mut cred as *mut libc::ucred as *mut libc::c_void,
+            &mut len,
+        )
+    };
+    if ret != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(cred.uid)
+}
+
 /// Call the PAM helper via a Unix socket.
 ///
 /// For most contexts this is the per-user socket created by that user's own
 /// running `hello-daemon` session (`/run/hello-pam/<uid>.socket`, /run/hello-pam/
 /// is created by systemd-tmpfiles, mode 1777, sticky — /run is not affected
-/// by polkitd's PrivateTmp=yes unlike /tmp). Security relies on peer_cred on
-/// the daemon side (not on path permissions).
+/// by polkitd's PrivateTmp=yes unlike /tmp). Security relies on peer_cred
+/// checks on *both* ends: the daemon side validates its caller (see
+/// `hello_daemon::pam_helper::handle_pam_request`), and this side validates
+/// the daemon itself (see `unix_socket_peer_uid`'s use below) — the shared
+/// directory being mode 1777 means a different-uid local attacker could
+/// otherwise squat this path before the real daemon starts and have this
+/// module trust whatever response they send back.
 ///
 /// For `context=sddm`, no per-user session/daemon exists yet at the login
 /// screen — instead this connects to the fixed system-wide socket served by
@@ -674,7 +704,6 @@ enum PamHelperResponse {
 /// docs/PAM_MODULE.md). Same request/response wire format either way.
 fn call_pam_helper_sync(req: &PamHelperRequest) -> Result<PamHelperResponse, String> {
     use std::io::{Read, Write};
-    use std::os::unix::net::UnixStream;
 
     let socket_path = if req.context == "sddm" {
         "/run/hello-pam/system.socket".to_string()
@@ -689,6 +718,43 @@ fn call_pam_helper_sync(req: &PamHelperRequest) -> Result<PamHelperResponse, Str
     // instant success otherwise. No need for a connection timeout.
     let mut stream = UnixStream::connect(&socket_path)
         .map_err(|e| format!("Socket {} unreachable: {}", socket_path, e))?;
+
+    // Verify we're actually talking to the legitimate daemon, not a rogue
+    // process that squatted this path before the real one started.
+    // `/run/hello-pam/` is mode 1777 (world-writable, sticky — see
+    // `hello_daemon::pam_helper::start_pam_helper`'s own comment): a
+    // different-uid local attacker can't remove a socket the real daemon
+    // already owns, but they *can* get there first if the real daemon
+    // hasn't started yet (fresh boot, crashed and not yet restarted), and
+    // the sticky bit would then block the real daemon from ever reclaiming
+    // the path. Without this check, this module would unconditionally
+    // trust whatever `PamHelperResponse` such a rogue listener sends back —
+    // including a fabricated `Success` — for every context. The legitimate
+    // peer is always a specific, known uid: root for the pre-login
+    // `context=sddm` system socket (`hello_daemon_system` runs as root),
+    // or the exact target user for the per-user socket (`hello-daemon` is
+    // a systemd `--user` unit — it runs as the account it serves, never as
+    // anyone else, so no other uid, root included, is ever legitimate here).
+    let expected_peer_uid = if req.context == "sddm" {
+        0
+    } else {
+        req.user_id
+    };
+    match unix_socket_peer_uid(&stream) {
+        Ok(uid) if uid == expected_peer_uid => {}
+        Ok(uid) => {
+            return Err(format!(
+                "Refusing untrusted socket peer at {}: expected uid {}, got {}",
+                socket_path, expected_peer_uid, uid
+            ));
+        }
+        Err(e) => {
+            return Err(format!(
+                "Could not verify socket peer credentials for {}: {}",
+                socket_path, e
+            ));
+        }
+    }
 
     // Read timeout = recognition duration + 2s margin.
     // If the daemon crashes during verify(), the stream closes and read_to_end
@@ -791,6 +857,21 @@ enum VerifyResponse {
 mod tests {
     use super::*;
     use std::ffi::CString;
+
+    #[test]
+    fn unix_socket_peer_uid_reports_our_own_uid_for_a_local_connection() {
+        // Regression test for the socket-squatting fix: both ends of this
+        // pair are this test process itself, so the kernel-reported peer
+        // uid must equal our own real uid — confirming the SO_PEERCRED
+        // plumbing (getsockopt call, struct layout, field access) actually
+        // works, not just that it compiles.
+        let (a, b) = UnixStream::pair().expect("socketpair");
+        let peer_uid_of_a = unix_socket_peer_uid(&a).expect("peer_cred on a");
+        let peer_uid_of_b = unix_socket_peer_uid(&b).expect("peer_cred on b");
+        let our_uid = unsafe { libc::getuid() };
+        assert_eq!(peer_uid_of_a, our_uid);
+        assert_eq!(peer_uid_of_b, our_uid);
+    }
 
     #[test]
     fn test_parse_options() {
