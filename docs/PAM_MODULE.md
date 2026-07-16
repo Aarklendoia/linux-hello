@@ -138,10 +138,11 @@ password), but with no on-screen cue, the user couldn't tell and typed their
 password anyway "just in case." `pam_linux_hello`'s PAM_TEXT_INFO/
 PAM_ERROR_MSG messages (already localized into 10 languages and
 emoji-prefixed — see `pam_linux_hello::pam_t`) do reach the greeter — `sddm`'s
-own `informationMessage`/`errorMessage` QML signals fire, confirmed via
-`journalctl` to arrive within milliseconds of `pam_linux_hello` sending them
-— but no SDDM theme (stock Breeze/Kubuntu included) actually has a handler
-for those signals, so the text was silently dropped.
+own `informationMessage` QML signal fires for both message types on this
+SDDM version (confirmed via `journalctl` to arrive within milliseconds of
+`pam_linux_hello` sending them) — but no SDDM theme (stock Breeze/Kubuntu
+included) actually has a handler for that signal, so the text was silently
+dropped.
 
 `install-pam.sh` fixes this by detecting the configured greeter theme (last
 `Current=` across `/etc/sddm.conf`/`/etc/sddm.conf.d/*.conf`, falling back
@@ -149,9 +150,13 @@ to `breeze`) and `dpkg-divert`-installing a patched `Login.qml`
 (`qml/sddm/Login.qml` in this repo, shipped at
 `/usr/share/linux-hello/sddm/Login.qml`) that adds exactly that: a
 `Connections { target: sddm; function onInformationMessage(message) { ... } }`
-(and `onErrorMessage`) wired to a `PlasmaComponents3.Label`, cleared at the
-start of each new login attempt so a stale message from a previous one can't
-be mistaken for feedback on the current one.
+wired to a `PlasmaComponents3.Label`, cleared at the start of each new login
+attempt so a stale message from a previous one can't be mistaken for
+feedback on the current one. Only `onInformationMessage` is wired — this
+SDDM version has no separate `errorMessage` signal (confirmed via a QML
+runtime warning when one was wired up during development), and both
+PAM_TEXT_INFO and PAM_ERROR_MSG-style text (e.g. a plain password failure)
+were confirmed via `journalctl` to arrive through `informationMessage` alone.
 
 An earlier version of this patch instead polled a purpose-built HTTP status
 endpoint on `hello-daemon-system` every 1000ms via a
