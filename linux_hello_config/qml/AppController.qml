@@ -32,17 +32,23 @@ QtObject {
     signal restartTimerNeeded
 
     Component.onCompleted: {
-        // The port/token files are namespaced per UID (so two different
-        // users each launching the GUI, e.g. during fast user switching,
-        // don't clobber each other's files in /tmp) — main.rs passes our
-        // own UID as the last qml6 argument (Qt.environmentVariable is
-        // unavailable on this build, so LINUX_HELLO_UID isn't readable
-        // directly; Qt.application.arguments is).
+        // The port/token files live under /run/user/<uid> (the standard
+        // $XDG_RUNTIME_DIR location) — not /tmp, which is shared with every
+        // other local user. /tmp's sticky bit only stops other users from
+        // deleting files *we* own; it does nothing to stop a different-UID
+        // attacker from pre-planting our expected filename first, which we
+        // could then never remove or replace ourselves (see main.rs's
+        // `runtime_dir` doc comment). /run/user/<uid> is mode 0700, owned
+        // solely by this UID, so that planting attack has no foothold there.
+        // main.rs passes our own UID as the last qml6 argument
+        // (Qt.environmentVariable is unavailable on this build, so
+        // LINUX_HELLO_UID isn't readable directly; Qt.application.arguments is).
         var args = Qt.application.arguments;
         var myUid = args[args.length - 1];
+        var runtimeDir = "/run/user/" + myUid;
 
         var xhr = new XMLHttpRequest();
-        xhr.open("GET", "file:///tmp/linux-hello-ctrl-" + myUid + ".port", false);
+        xhr.open("GET", "file://" + runtimeDir + "/linux-hello-ctrl.port", false);
         xhr.send();
         if (xhr.responseText !== "") {
             ctrlPort = xhr.responseText.trim();
@@ -56,7 +62,7 @@ QtObject {
         // process could hit routes like /sddm-enable, which now triggers a
         // real pkexec prompt.
         var xhrToken = new XMLHttpRequest();
-        xhrToken.open("GET", "file:///tmp/linux-hello-ctrl-" + myUid + ".token", false);
+        xhrToken.open("GET", "file://" + runtimeDir + "/linux-hello-ctrl.token", false);
         xhrToken.send();
         if (xhrToken.responseText !== "") {
             ctrlToken = xhrToken.responseText.trim();
