@@ -6,9 +6,6 @@
     "home": {
         "title": "Home",
         "welcome": "Welcome to Linux Hello, the biometric authentication system for KDE.",
-        "youCan": "You can:",
-        "action1": "• Register your face for authentication",
-        "action2": "• Manage registered faces",
         "registerBtn": "Register Face",
         "manageFacesBtn": "Manage Faces",
         "daemonActive": "Daemon active",

@@ -4,60 +4,14 @@ import QtQuick
 QtObject {
     id: i18n
 
-    // Hardcoded English translations (fallback)
-    property var translations: ({
-        "home.title": "Home",
-        "home.welcome": "Welcome to Linux Hello",
-        "home.youCan": "You can:",
-        "home.action1": "Register a new face for authentication",
-        "home.action2": "Manage your registered faces",
-        "home.registerBtn": "Register Face",
-        "home.registerBtnDesc": "Add a new biometric profile",
-        "home.manageFacesBtn": "Manage Faces",
-        "home.manageFacesBtnDesc": "%1 faces registered",
-        "home.manageFacesBtnDescOne": "1 face registered",
-        "home.daemonActive": "Daemon active",
-        "home.daemonInactive": "Daemon unavailable",
-        "home.daemonActiveSub": "Ready to authenticate",
-        "home.daemonInactiveSub": "Check the hello-daemon service",
-        "home.sddmTitle": "Login screen",
-        "home.sddmActiveSub": "Enabled",
-        "home.sddmInactiveSub": "Disabled — tap to enable",
-        "home.sddmUnavailableSub": "Unavailable (needs libpam-linux-hello)",
-        "home.sddmBusySub": "Applying…",
-        "home.sddmHowToNote": "On the login screen, enter your username and press Enter to start face recognition — SDDM can't start it just by being on screen, only once a login attempt is actually submitted.",
-        "home.sddmErrorUnknown": "Unknown error",
-        "home.sddmErrorInvalidResponse": "Invalid response from the server",
-        "home.sddmErrorHttp": "HTTP error %1",
-        "home.fallbackNote": "If your face isn't recognized, your password always works — face recognition only ever adds a faster option, it never locks you out.",
-        "app.subtitle": "Advanced face recognition authentication for Linux",
-        "enrollment.title": "Register New Face",
-        "enrollment.registerNew": "Register a New Face",
-        "enrollment.cameraPreview": "Camera Preview",
-        "enrollment.progress": "Progress",
-        "enrollment.instructions": "Position your face in front of the camera and look towards it",
-        "enrollment.startBtn": "Start Capture",
-        "enrollment.stopBtn": "Stop Capture",
-        "enrollment.cancelBtn": "Cancel",
-        "enrollment.previewInactive": "Preview inactive",
-        "enrollment.previewCancelled": "Capture cancelled",
-        "enrollment.previewStopped": "Capture stopped",
-        "enrollment.previewAnalyzing": "Analyzing face…",
-        "enrollment.previewValidating": "Validating…",
-        "enrollment.previewSuccess": "✓ Face registered successfully!",
-        "enrollment.previewError": "✗ Error:",
-        "manageFaces.title": "Manage Faces",
-        "manageFaces.registeredFaces": "Registered Faces",
-        "manageFaces.confidence": "Confidence",
-        "manageFaces.registered": "Registered",
-        "manageFaces.unknown": "Unknown",
-        "manageFaces.deleteBtn": "Delete",
-        "manageFaces.noFaces": "No faces registered yet",
-        "manageFaces.registerNewBtn": "Register New Face",
-        "manageFaces.backBtn": "Back",
-        "manageFaces.sample": "sample",
-        "manageFaces.anyFaceNote": "Any registered face can authenticate you — for sudo, screen unlock, and anywhere else Linux Hello is enabled."
-    })
+    // Populated by loadLanguage() from i18n/<lang>.json, including for
+    // English — en.json is this app's single source of truth for English
+    // strings, not duplicated here. If loading ever fails (e.g. a packaging
+    // issue that ships the QML without its i18n/ directory), tr() below
+    // already has its own fallback: it returns the raw key string rather
+    // than crashing, which is a more honest failure mode than silently
+    // serving a second, easily-drifting copy of every English string.
+    property var translations: ({})
     property string currentLanguage: "en"
 
     // List of available languages
@@ -76,38 +30,27 @@ QtObject {
     })
 
     function loadLanguage(lang) {
-        // In Qt6 with XMLHttpRequest, loading local files is blocked
-        // We use the hardcoded translations as a fallback
+        // Requires QML_XHR_ALLOW_FILE_READ=1 (set by linux_hello_config's
+        // main.rs when launching qml6) — XMLHttpRequest on a local file is
+        // blocked by default otherwise.
+        var qmlPath = Qt.resolvedUrl("./i18n/" + lang + ".json")
+        var xhr = new XMLHttpRequest()
+        xhr.open("GET", qmlPath, false)
         try {
-            var paths = [
-                "file:///usr/share/linux-hello/qml-modules/Linux/Hello/i18n/" + lang + ".json",
-                Qt.resolvedUrl("./i18n/" + lang + ".json"),
-                "qrc:/i18n/" + lang + ".json"
-            ]
-            
-            // Try via Qt first
-            var qmlPath = Qt.resolvedUrl("./i18n/" + lang + ".json")
-            var xhr = new XMLHttpRequest()
-            xhr.open("GET", qmlPath, false)
-            try {
-                xhr.send()
-                if (xhr.status === 200) {
-                    var loaded = JSON.parse(xhr.responseText)
-                    if (loaded && typeof loaded === 'object') {
-                        translations = loaded
-                        currentLanguage = lang
-                        return true
-                    }
+            xhr.send()
+            if (xhr.status === 200) {
+                var loaded = JSON.parse(xhr.responseText)
+                if (loaded && typeof loaded === 'object') {
+                    translations = loaded
+                    currentLanguage = lang
+                    return true
                 }
-            } catch (e) {
-                // Silent fallback
             }
         } catch (e) {
-            // Silent
+            // Silent fallback — tr() returns raw keys for anything missing.
         }
 
-        // If there is no JSON file, use the hardcoded English translations
-        currentLanguage = "en"
+        currentLanguage = lang
         return true
     }
 

@@ -6,9 +6,6 @@
     "home": {
         "title": "الرئيسية",
         "welcome": "مرحباً بك في Linux Hello، نظام المصادقة البيومترية لـ KDE.",
-        "youCan": "يمكنك:",
-        "action1": "• تسجيل وجهك للمصادقة",
-        "action2": "• إدارة الوجوه المسجلة",
         "registerBtn": "تسجيل الوجه",
         "manageFacesBtn": "إدارة الوجوه",
         "daemonActive": "الخدمة نشطة",
