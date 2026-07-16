@@ -142,144 +142,34 @@ Kirigami.Page {
         // Action cards — same neutral card style for both; only the icon
         // badge is accent-filled on the primary one. A solid-blue card here
         // used to read as a permanently "selected" list row rather than a
-        // normal button.
+        // normal button. Shared shape factored into ActionCard.qml.
         ColumnLayout {
             spacing: Kirigami.Units.smallSpacing * 1.3
             Layout.fillWidth: true
 
-            AbstractButton {
-                id: enrollCard
-                Layout.fillWidth: true
-                implicitHeight: enrollRow.implicitHeight + Kirigami.Units.largeSpacing * 1.6
+            ActionCard {
+                iconSource: "camera-photo-symbolic"
+                iconColor: Kirigami.Theme.highlightedTextColor
+                badgeColor: Kirigami.Theme.highlightColor
+                title: I18n.tr("home.registerBtn")
+                subtitle: I18n.tr("home.registerBtnDesc")
                 onClicked: AppController.navigateToEnrollImpl()
-
-                background: Rectangle {
-                    radius: Kirigami.Units.smallSpacing * 1.4
-                    color: enrollCard.hovered ? Kirigami.Theme.hoverColor : Kirigami.Theme.backgroundColor
-                    border.width: 1
-                    border.color: Qt.rgba(Kirigami.Theme.textColor.r, Kirigami.Theme.textColor.g, Kirigami.Theme.textColor.b, 0.15)
-                    Behavior on color { ColorAnimation { duration: 120 } }
-                }
-
-                contentItem: RowLayout {
-                    id: enrollRow
-                    anchors.fill: parent
-                    anchors.margins: Kirigami.Units.largeSpacing * 0.8
-                    spacing: Kirigami.Units.largeSpacing * 0.8
-
-                    Rectangle {
-                        Layout.preferredWidth: Kirigami.Units.gridUnit * 2.1
-                        Layout.preferredHeight: Kirigami.Units.gridUnit * 2.1
-                        radius: width * 0.26
-                        color: Kirigami.Theme.highlightColor
-
-                        Kirigami.Icon {
-                            anchors.centerIn: parent
-                            width: Kirigami.Units.gridUnit * 1.05
-                            height: width
-                            source: "camera-photo-symbolic"
-                            color: Kirigami.Theme.highlightedTextColor
-                            isMask: true
-                        }
-                    }
-                    ColumnLayout {
-                        spacing: 1
-                        Layout.fillWidth: true
-                        Label {
-                            text: I18n.tr("home.registerBtn")
-                            font.weight: Font.DemiBold
-                            font.pixelSize: 14
-                            color: Kirigami.Theme.textColor
-                            Layout.fillWidth: true
-                            elide: Text.ElideRight
-                        }
-                        Label {
-                            text: I18n.tr("home.registerBtnDesc")
-                            font.pixelSize: 11
-                            color: Kirigami.Theme.disabledTextColor
-                            Layout.fillWidth: true
-                            elide: Text.ElideRight
-                        }
-                    }
-                    Kirigami.Icon {
-                        source: "go-next-symbolic"
-                        Layout.preferredWidth: Kirigami.Units.gridUnit
-                        Layout.preferredHeight: Kirigami.Units.gridUnit
-                        color: Kirigami.Theme.disabledTextColor
-                        isMask: true
-                    }
-                }
             }
 
-            AbstractButton {
-                id: manageCard
-                Layout.fillWidth: true
-                implicitHeight: manageRow.implicitHeight + Kirigami.Units.largeSpacing * 1.6
+            ActionCard {
+                iconSource: "system-users-symbolic"
+                iconColor: Kirigami.Theme.highlightColor
+                badgeColor: Qt.rgba(Kirigami.Theme.highlightColor.r, Kirigami.Theme.highlightColor.g, Kirigami.Theme.highlightColor.b, 0.15)
+                title: I18n.tr("home.manageFacesBtn")
+                subtitle: {
+                    var n = AppController.facesList.length;
+                    if (n === 0)
+                        return I18n.tr("manageFaces.noFaces");
+                    if (n === 1)
+                        return I18n.tr("home.manageFacesBtnDescOne");
+                    return I18n.tr("home.manageFacesBtnDesc").replace("%1", n);
+                }
                 onClicked: AppController.navigateToManageFacesImpl()
-
-                background: Rectangle {
-                    radius: Kirigami.Units.smallSpacing * 1.4
-                    color: manageCard.hovered ? Kirigami.Theme.hoverColor : Kirigami.Theme.backgroundColor
-                    border.width: 1
-                    border.color: Qt.rgba(Kirigami.Theme.textColor.r, Kirigami.Theme.textColor.g, Kirigami.Theme.textColor.b, 0.15)
-                    Behavior on color { ColorAnimation { duration: 120 } }
-                }
-
-                contentItem: RowLayout {
-                    id: manageRow
-                    anchors.fill: parent
-                    anchors.margins: Kirigami.Units.largeSpacing * 0.8
-                    spacing: Kirigami.Units.largeSpacing * 0.8
-
-                    Rectangle {
-                        Layout.preferredWidth: Kirigami.Units.gridUnit * 2.1
-                        Layout.preferredHeight: Kirigami.Units.gridUnit * 2.1
-                        radius: width * 0.26
-                        color: Qt.rgba(Kirigami.Theme.highlightColor.r, Kirigami.Theme.highlightColor.g, Kirigami.Theme.highlightColor.b, 0.15)
-
-                        Kirigami.Icon {
-                            anchors.centerIn: parent
-                            width: Kirigami.Units.gridUnit * 1.05
-                            height: width
-                            source: "system-users-symbolic"
-                            color: Kirigami.Theme.highlightColor
-                            isMask: true
-                        }
-                    }
-                    ColumnLayout {
-                        spacing: 1
-                        Layout.fillWidth: true
-                        Label {
-                            text: I18n.tr("home.manageFacesBtn")
-                            font.weight: Font.DemiBold
-                            font.pixelSize: 14
-                            color: Kirigami.Theme.textColor
-                            Layout.fillWidth: true
-                            elide: Text.ElideRight
-                        }
-                        Label {
-                            text: {
-                                var n = AppController.facesList.length;
-                                if (n === 0)
-                                    return I18n.tr("manageFaces.noFaces");
-                                if (n === 1)
-                                    return I18n.tr("home.manageFacesBtnDescOne");
-                                return I18n.tr("home.manageFacesBtnDesc").replace("%1", n);
-                            }
-                            font.pixelSize: 11
-                            color: Kirigami.Theme.disabledTextColor
-                            Layout.fillWidth: true
-                            elide: Text.ElideRight
-                        }
-                    }
-                    Kirigami.Icon {
-                        source: "go-next-symbolic"
-                        Layout.preferredWidth: Kirigami.Units.gridUnit
-                        Layout.preferredHeight: Kirigami.Units.gridUnit
-                        color: Kirigami.Theme.disabledTextColor
-                        isMask: true
-                    }
-                }
             }
 
             // SDDM (login screen) toggle — unlike the two cards above, this
@@ -287,70 +177,24 @@ Kirigami.Page {
             // it enables/disables face auth on the SDDM login screen right
             // away, via a real pkexec prompt on the backend (can take
             // several seconds — the user has to interact with the dialog).
-            AbstractButton {
-                id: sddmCard
-                Layout.fillWidth: true
-                implicitHeight: sddmRow.implicitHeight + Kirigami.Units.largeSpacing * 1.6
+            // Its trailing element is a busy spinner instead of the default
+            // chevron, since there's no sub-page to navigate to.
+            ActionCard {
                 enabled: AppController.sddmAvailable && !AppController.sddmBusy
-                onClicked: AppController.toggleSddm()
-
-                background: Rectangle {
-                    radius: Kirigami.Units.smallSpacing * 1.4
-                    color: sddmCard.hovered ? Kirigami.Theme.hoverColor : Kirigami.Theme.backgroundColor
-                    border.width: 1
-                    border.color: Qt.rgba(Kirigami.Theme.textColor.r, Kirigami.Theme.textColor.g, Kirigami.Theme.textColor.b, 0.15)
-                    opacity: sddmCard.enabled ? 1 : 0.6
-                    Behavior on color { ColorAnimation { duration: 120 } }
+                iconSource: "system-switch-user-symbolic"
+                iconColor: AppController.sddmActive ? Kirigami.Theme.positiveTextColor : Kirigami.Theme.highlightColor
+                badgeColor: AppController.sddmActive
+                    ? Qt.rgba(Kirigami.Theme.positiveTextColor.r, Kirigami.Theme.positiveTextColor.g, Kirigami.Theme.positiveTextColor.b, 0.15)
+                    : Qt.rgba(Kirigami.Theme.highlightColor.r, Kirigami.Theme.highlightColor.g, Kirigami.Theme.highlightColor.b, 0.15)
+                title: I18n.tr("home.sddmTitle")
+                subtitle: {
+                    if (!AppController.sddmAvailable)
+                        return I18n.tr("home.sddmUnavailableSub");
+                    if (AppController.sddmBusy)
+                        return I18n.tr("home.sddmBusySub");
+                    return AppController.sddmActive ? I18n.tr("home.sddmActiveSub") : I18n.tr("home.sddmInactiveSub");
                 }
-
-                contentItem: RowLayout {
-                    id: sddmRow
-                    anchors.fill: parent
-                    anchors.margins: Kirigami.Units.largeSpacing * 0.8
-                    spacing: Kirigami.Units.largeSpacing * 0.8
-
-                    Rectangle {
-                        Layout.preferredWidth: Kirigami.Units.gridUnit * 2.1
-                        Layout.preferredHeight: Kirigami.Units.gridUnit * 2.1
-                        radius: width * 0.26
-                        color: AppController.sddmActive
-                            ? Qt.rgba(Kirigami.Theme.positiveTextColor.r, Kirigami.Theme.positiveTextColor.g, Kirigami.Theme.positiveTextColor.b, 0.15)
-                            : Qt.rgba(Kirigami.Theme.highlightColor.r, Kirigami.Theme.highlightColor.g, Kirigami.Theme.highlightColor.b, 0.15)
-
-                        Kirigami.Icon {
-                            anchors.centerIn: parent
-                            width: Kirigami.Units.gridUnit * 1.05
-                            height: width
-                            source: "system-switch-user-symbolic"
-                            color: AppController.sddmActive ? Kirigami.Theme.positiveTextColor : Kirigami.Theme.highlightColor
-                            isMask: true
-                        }
-                    }
-                    ColumnLayout {
-                        spacing: 1
-                        Layout.fillWidth: true
-                        Label {
-                            text: I18n.tr("home.sddmTitle")
-                            font.weight: Font.DemiBold
-                            font.pixelSize: 14
-                            color: Kirigami.Theme.textColor
-                            Layout.fillWidth: true
-                            elide: Text.ElideRight
-                        }
-                        Label {
-                            text: {
-                                if (!AppController.sddmAvailable)
-                                    return I18n.tr("home.sddmUnavailableSub");
-                                if (AppController.sddmBusy)
-                                    return I18n.tr("home.sddmBusySub");
-                                return AppController.sddmActive ? I18n.tr("home.sddmActiveSub") : I18n.tr("home.sddmInactiveSub");
-                            }
-                            font.pixelSize: 11
-                            color: Kirigami.Theme.disabledTextColor
-                            Layout.fillWidth: true
-                            elide: Text.ElideRight
-                        }
-                    }
+                trailingComponent: Component {
                     BusyIndicator {
                         Layout.preferredWidth: Kirigami.Units.gridUnit
                         Layout.preferredHeight: Kirigami.Units.gridUnit
@@ -358,6 +202,7 @@ Kirigami.Page {
                         running: AppController.sddmBusy
                     }
                 }
+                onClicked: AppController.toggleSddm()
             }
         }
 
