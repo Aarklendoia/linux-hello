@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.4.0](https://github.com/Aarklendoia/linux-hello/compare/v1.3.0...v1.4.0) (2026-07-16)
+
+
+### Features
+
+* **gui:** explain SDDM's press-Enter requirement when the toggle is active ([1aab086](https://github.com/Aarklendoia/linux-hello/commit/1aab08614b424e4490c6ea6ebd27922946a2b3e8))
+* **gui:** one-click SDDM login-screen face auth from the home screen ([b597c80](https://github.com/Aarklendoia/linux-hello/commit/b597c8023a8752ffc7db94bf0475d747da13b6f1))
+* **gui:** one-click SDDM login-screen face auth from the home screen ([7e94543](https://github.com/Aarklendoia/linux-hello/commit/7e94543ab59dddedf9dda40023e561eb5a19a7fb))
+
+
+### Bug Fixes
+
+* **gui:** authenticate the local control server ([68cb169](https://github.com/Aarklendoia/linux-hello/commit/68cb16985b4efcbffe2f7a5a56cc7b4e5d49c6a3))
+* **gui:** depend on pkexec not obsolete policykit-1, add unit test, clarify README ([c2a0246](https://github.com/Aarklendoia/linux-hello/commit/c2a02468b1eaf715cc1ac7a28aa1742f03613964))
+* **sddm:** drop the nonexistent errorMessage signal handler ([dca622f](https://github.com/Aarklendoia/linux-hello/commit/dca622fe3637442c2adf44d9cb45c57086ebb3cb))
+* **sddm:** use sddm.informationMessage instead of curl-polling for the greeter status indicator ([7aa1abe](https://github.com/Aarklendoia/linux-hello/commit/7aa1abecc374843c99ac052ae8483b3456a5fc0c))
+* **sddm:** wrap Connections in an Item, not a direct SessionManagementScreen child ([1da845e](https://github.com/Aarklendoia/linux-hello/commit/1da845e7a9f38a9ff4387957a5fd8d3ad72e795f))
+
 ## [1.3.0](https://github.com/Aarklendoia/linux-hello/compare/v1.2.1...v1.3.0) (2026-07-15)
 
 
