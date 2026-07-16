@@ -232,7 +232,6 @@ auth [sufficient|required] /path/to/libpam_linux_hello.so [options]
   single fixed 5-frame capture that always finished in ~1-2s regardless of
   the value configured — raising it now actually extends the engagement
   window.)
-- `similarity_threshold=<0.0-1.0>`: Similarity threshold [default: 0.6]
 - `confirm`: After a face match, prompt "Confirm? [y/N]" and require an
   explicit `y` before granting access, instead of granting immediately.
   Guards against an accidental grant from someone merely being visible to
@@ -284,17 +283,24 @@ auth required pam_permit.so
 - `PAM_SYSTEM_ERR`: System error (daemon unavailable, etc.)
 - `PAM_IGNORE`: Module cannot authenticate (debug mode)
 
-## Recommended Contexts and Thresholds
+## Contexts and Thresholds
 
-Similarity thresholds vary depending on the context:
+Similarity thresholds vary by context, but this isn't PAM-line configuration
+(there's no `similarity_threshold=` option — an earlier version of this doc
+documented one, but it never actually reached the daemon and has been
+removed). The threshold for each context is fixed in the daemon itself
+(`hello_daemon::matcher::FaceMatcher::new`), deliberately stricter for more
+sensitive contexts:
 
-| Context | Default Threshold | Recommendation |
-| ---------- | ------------------ | --- |
-| login | 0.65 | Strict |
-| sddm | 0.65 | Strict |
-| sudo | 0.70 | Very strict |
-| screenlock | 0.60 | Moderate |
-| test | 0.50 | Permissive (test) |
+| Context | Threshold |
+| ---------- | ------------------ |
+| sudo | 0.62 |
+| login | 0.60 |
+| polkit | 0.60 |
+| sddm | 0.60 |
+| screenlock | 0.55 |
+| test | 0.50 |
+| *(anything else)* | 0.58 |
 
 ## System Dependencies
 
