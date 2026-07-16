@@ -152,13 +152,20 @@ QtObject {
             if (xhr.status === 200) {
                 try {
                     var resp = JSON.parse(xhr.responseText);
+                    // resp.error, when present, is free-form text from
+                    // install-pam.sh's stderr — not a translation key, shown
+                    // as-is. The two fallbacks below are untranslated error
+                    // codes; Home.qml resolves them to localized text via
+                    // I18n.tr() at display time (this singleton doesn't
+                    // import Linux.Hello itself, to avoid a self-referential
+                    // module import).
                     if (!resp.ok)
-                        controller.sddmError = resp.error || "Erreur inconnue";
+                        controller.sddmError = resp.error || "sddm-error:unknown";
                 } catch (e) {
-                    controller.sddmError = "Réponse invalide du serveur";
+                    controller.sddmError = "sddm-error:invalid-response";
                 }
             } else {
-                controller.sddmError = "Erreur HTTP " + xhr.status;
+                controller.sddmError = "sddm-error:http:" + xhr.status;
             }
             controller.checkSddmStatus();
         };

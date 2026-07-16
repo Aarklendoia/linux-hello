@@ -16,6 +16,22 @@ Kirigami.Page {
     padding: Kirigami.Units.largeSpacing
     topPadding: Kirigami.Units.largeSpacing * 5
 
+    // Resolves AppController.sddmError for display. Most of that property's
+    // possible values are untranslated error *codes* set by AppController
+    // (which can't import I18n itself without a self-referential module
+    // import) — this maps them to localized text. `resp.error` (free-form
+    // text from install-pam.sh's stderr, passed straight through) doesn't
+    // match any of these prefixes and falls through unchanged.
+    function sddmErrorText(code) {
+        if (code === "sddm-error:unknown")
+            return I18n.tr("home.sddmErrorUnknown");
+        if (code === "sddm-error:invalid-response")
+            return I18n.tr("home.sddmErrorInvalidResponse");
+        if (code.indexOf("sddm-error:http:") === 0)
+            return I18n.tr("home.sddmErrorHttp").replace("%1", code.substring("sddm-error:http:".length));
+        return code;
+    }
+
     ColumnLayout {
         anchors.fill: parent
         spacing: Kirigami.Units.largeSpacing * 1.5
@@ -350,7 +366,7 @@ Kirigami.Page {
         // failed/cancelled pkexec attempt.
         Label {
             visible: AppController.sddmError !== ""
-            text: AppController.sddmError
+            text: sddmErrorText(AppController.sddmError)
             font.pixelSize: 10
             color: Kirigami.Theme.negativeTextColor
             wrapMode: Text.WordWrap
