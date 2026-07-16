@@ -204,10 +204,28 @@ fn generate_ctrl_token() -> String {
 /// (mode 0600) — used for the control server's port and token files, both
 /// of which are otherwise reachable/discoverable by any local process
 /// regardless of user (the loopback socket has no per-user ACL of its own).
+///
+/// These are fixed, predictable paths in world-writable `/tmp`, so a local
+/// attacker could pre-create one (e.g. as a symlink elsewhere, or a regular
+/// file with permissive permissions) before this process ever runs. Two
+/// things guard against that: removing whatever is at `path` first, then
+/// creating fresh with `create_new` (`O_CREAT|O_EXCL`), which fails rather
+/// than following a symlink or reusing a file we don't control if something
+/// wins the (now much narrower) race to recreate it in between. The mode is
+/// passed to `open()` itself rather than applied via a separate
+/// `set_permissions` call afterward — the latter would leave a window, file
+/// existing but not yet locked down, during which another local process
+/// could read the freshly-written token.
 fn write_owner_only_file(path: &str, contents: &str) -> std::io::Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::write(path, contents)?;
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+    use std::fs::OpenOptions;
+    use std::os::unix::fs::OpenOptionsExt;
+    let _ = std::fs::remove_file(path);
+    let mut f = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(path)?;
+    f.write_all(contents.as_bytes())
 }
 
 /// Extracts the JSON content from a busctl output returning a string type.
@@ -615,6 +633,34 @@ mod tests {
         ));
         let path_str = path.to_str().unwrap();
         write_owner_only_file(path_str, "secret").unwrap();
+        let mode = std::fs::metadata(path_str).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o600);
+        assert_eq!(std::fs::read_to_string(path_str).unwrap(), "secret");
+        let _ = std::fs::remove_file(path_str);
+    }
+
+    #[test]
+    fn write_owner_only_file_replaces_a_preexisting_permissive_file() {
+        // Simulates a local attacker (or a stale file from a crashed prior
+        // run) pre-planting the path with loose permissions before this
+        // process starts — a real risk since these are fixed, predictable
+        // paths in world-writable /tmp. The new content and 0600 mode must
+        // win regardless of what was there before.
+        use std::os::unix::fs::PermissionsExt;
+        let path = std::env::temp_dir().join(format!(
+            "linux-hello-test-preexisting-{}-{}.tmp",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let path_str = path.to_str().unwrap();
+        std::fs::write(path_str, "planted content").unwrap();
+        std::fs::set_permissions(path_str, std::fs::Permissions::from_mode(0o666)).unwrap();
+
+        write_owner_only_file(path_str, "secret").unwrap();
+
         let mode = std::fs::metadata(path_str).unwrap().permissions().mode();
         assert_eq!(mode & 0o777, 0o600);
         assert_eq!(std::fs::read_to_string(path_str).unwrap(), "secret");
