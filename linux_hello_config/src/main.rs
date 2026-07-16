@@ -277,6 +277,19 @@ fn extract_token_header(req: &str) -> Option<&str> {
     })
 }
 
+/// Extracts the HTTP method from the request line (e.g. "GET" from
+/// "GET /list-faces HTTP/1.1"). Used to decide the OPTIONS exemption on the
+/// actual method rather than a substring match against the whole request —
+/// `req.contains("OPTIONS")` would also match that literal text appearing
+/// anywhere in a path, query string, or header, letting it smuggle any
+/// request past the token check below.
+fn request_method(req: &str) -> &str {
+    req.lines()
+        .next()
+        .and_then(|line| line.split_whitespace().next())
+        .unwrap_or("")
+}
+
 /// Handles an incoming HTTP connection in its own thread.
 fn handle_ctrl_connection(mut stream: TcpStream, uid: u32, expected_token: &str) {
     let mut buf = [0u8; 2048];
@@ -287,10 +300,17 @@ fn handle_ctrl_connection(mut stream: TcpStream, uid: u32, expected_token: &str)
     // pkexec — gate all of them on the shared-secret token, except OPTIONS
     // (a harmless empty-body 200, likely dead CORS-preflight handling real
     // browsers would trigger but QML's XHR doesn't; nothing sensitive on
-    // that path).
+    // that path). Gated on the actual request method (`request_method`),
+    // not a substring match against the raw buffer — a prior version used
+    // `req.contains("OPTIONS")` here, which any request could satisfy by
+    // having that literal text anywhere in its path/query/headers, bypassing
+    // the token check entirely.
+    let is_options = request_method(&req) == "OPTIONS";
     let (status, body): (&str, String) =
-        if !req.contains("OPTIONS") && extract_token_header(&req) != Some(expected_token) {
+        if !is_options && extract_token_header(&req) != Some(expected_token) {
             ("403 Forbidden", String::new())
+        } else if is_options {
+            ("200 OK", String::new())
         } else if req.contains("/start-capture") {
             // Non-blocking: launches the preview capture in the background
             let _ = Command::new("busctl")
@@ -487,8 +507,6 @@ fn handle_ctrl_connection(mut stream: TcpStream, uid: u32, expected_token: &str)
                     )
                 }
             }
-        } else if req.contains("OPTIONS") {
-            ("200 OK", String::new())
         } else {
             ("404 Not Found", String::new())
         };
@@ -553,6 +571,24 @@ mod tests {
     fn extract_token_header_none_when_missing() {
         let req = "GET /list-faces HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n";
         assert_eq!(extract_token_header(req), None);
+    }
+
+    #[test]
+    fn request_method_extracts_the_real_method() {
+        assert_eq!(request_method("GET /list-faces HTTP/1.1\r\n\r\n"), "GET");
+        assert_eq!(request_method("OPTIONS / HTTP/1.1\r\n\r\n"), "OPTIONS");
+        assert_eq!(request_method(""), "");
+    }
+
+    #[test]
+    fn request_method_is_not_fooled_by_options_appearing_elsewhere() {
+        // A prior version gated the token check on `req.contains("OPTIONS")`
+        // against the whole raw request, which this exact input would have
+        // bypassed: the literal text "OPTIONS" appears in the query string
+        // of a GET request, but the method itself is GET, not OPTIONS.
+        let req = "GET /sddm-enable?x=OPTIONS HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n";
+        assert_eq!(request_method(req), "GET");
+        assert_ne!(request_method(req), "OPTIONS");
     }
 
     #[test]
