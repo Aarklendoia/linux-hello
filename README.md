@@ -184,9 +184,41 @@ sudo apt install libpam-linux-hello
 
 ## Security notes
 
-- Storage: `~/.local/share/linux-hello/faces.db` (user mode) or `/var/lib/linux-hello/` (root/system mode), restricted permissions.
-- A user can only manage their own face over D-Bus; root can manage any user.
-- PAM calls are bounded by a timeout and always degrade to password authentication on failure.
+**You can never be locked out.** Every PAM line this project installs uses
+`auth sufficient` — if the camera fails, the face isn't recognized, or
+anything else goes wrong, PAM falls through to the normal password prompt.
+Face recognition only ever adds a faster option; it never replaces or gates
+your existing login. Calls are also bounded by a timeout, so a stuck camera
+can't hang a login attempt.
+
+**Nothing leaves the machine.** All processing (face detection, embedding
+extraction, matching) runs locally via ONNX Runtime — no cloud service, no
+telemetry, no network calls involved in authentication itself.
+
+- **Storage**: `~/.local/share/linux-hello/faces.db` (user mode) or
+  `/var/lib/linux-hello/` (root/system mode), restricted permissions. A user
+  can only enroll/manage their own face over D-Bus; root can manage any
+  user's.
+- **`sudo`/`su`**: activates automatically once you enroll a face, with a
+  `confirm` prompt — a successful face match still requires an explicit
+  `[y/N]` before access is granted, guarding against an accidental grant
+  from just being visible to the camera.
+- **SDDM (login screen)**: deliberately **not** part of automatic
+  activation, and off by default even after installing everything. Enabling
+  it starts a new root-owned, always-on, pre-authentication-reachable
+  listener (`hello-daemon-system.service`) — a meaningfully larger change to
+  the machine's attack surface than the on-demand `sudo`/screenlock path, so
+  it's always an explicit, separate opt-in: `sudo install-pam.sh --enable-sddm`,
+  or the GUI's home-screen toggle (itself gated behind a real `pkexec`
+  prompt). See [docs/PAM_MODULE.md](docs/PAM_MODULE.md#sddm-login-screen)
+  for the full reasoning and its documented residual risks (e.g. a minor
+  response-timing side channel).
+- **GUI ↔ backend channel**: the configuration GUI talks to its own backend
+  over a local HTTP server on loopback. Every request must carry a random
+  token (generated fresh per launch, written to a `0600` file only the
+  launching user can read) — without it, any other local process could
+  otherwise read your enrolled-face list or, worse, trigger the SDDM
+  `pkexec` prompt on your behalf.
 
 ## Documentation
 
