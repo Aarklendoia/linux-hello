@@ -107,47 +107,72 @@ home directory directly (root can read any home) and checks
 `~/.local/share/linux-hello/users/<uid>/` for enrolled faces, without ever
 creating anything there.
 
-**This capability is opt-in only**, via `sudo ./install-pam.sh` (which
-inserts the `pam_linux_hello.so context=sddm` line into `/etc/pam.d/sddm`,
-enables `hello-daemon-system.service`, **and** installs a live status
-indicator into the configured SDDM greeter theme — see below) or reverted
-together via `install-pam.sh --remove`. It is deliberately **not** part of
-automatic activation (`linux-hello-pam-autoconfigure` never touches `sddm`
-or this service) — starting a new pre-authentication-reachable root
-listener is a large enough change to a machine's attack surface that it
-should never happen silently just because someone enrolled a face for
-sudo/screenlock.
+**This capability is opt-in only**, via `sudo install-pam.sh --enable-sddm`
+(which inserts the `pam_linux_hello.so context=sddm` line into
+`/etc/pam.d/sddm`, enables `hello-daemon-system.service`, **and** installs a
+live status indicator into the configured SDDM greeter theme — see below),
+reverted with `sudo install-pam.sh --disable-sddm` (or together with
+everything else via `install-pam.sh --remove`). It is deliberately **not**
+part of automatic activation (`linux-hello-pam-autoconfigure` never touches
+`sddm` or this service) and, since this session, **not** part of
+`install-pam.sh`'s bare/default invocation either (which only configures
+sudo/su/polkit) — starting a new pre-authentication-reachable root listener
+is a large enough change to a machine's attack surface that it must always
+be a separate, explicit opt-in.
+
+For packaged-install users, the easiest way to opt in is the GUI's home-screen
+toggle ("Login screen" card) — it shows the current state, and enabling or
+disabling it triggers `pkexec install-pam.sh --enable-sddm`/`--disable-sddm`
+under the hood, prompting for authentication via the desktop's normal polkit
+dialog (registered as the `com.linuxhello.pam-setup` action, so the prompt
+explains what's being changed instead of showing a generic "run this program
+as root" message). The GUI card disables itself if `libpam-linux-hello` isn't
+installed, since `install-pam.sh` wouldn't exist to invoke.
 
 ### Greeter status indicator
 
 Without any visual feedback, a successful face-based login is
-indistinguishable from nothing happening at all — confirmed on a real login
-this session: it completed via face recognition alone (`sddm-helper` never
-checked a password), but with no on-screen cue, the user couldn't tell and
-typed their password anyway "just in case." `pam_linux_hello`'s PAM_TEXT_INFO
-messages do reach the greeter (`sddm`'s own `informationMessage` QML signal
-fires), but no SDDM theme actually handles that signal — it was silently
-dropped.
+indistinguishable from nothing happening at all — confirmed on a real login:
+it completed via face recognition alone (`sddm-helper` never checked a
+password), but with no on-screen cue, the user couldn't tell and typed their
+password anyway "just in case." `pam_linux_hello`'s PAM_TEXT_INFO/
+PAM_ERROR_MSG messages (already localized into 10 languages and
+emoji-prefixed — see `pam_linux_hello::pam_t`) do reach the greeter — `sddm`'s
+own `informationMessage`/`errorMessage` QML signals fire, confirmed via
+`journalctl` to arrive within milliseconds of `pam_linux_hello` sending them
+— but no SDDM theme (stock Breeze/Kubuntu included) actually has a handler
+for those signals, so the text was silently dropped.
 
 `install-pam.sh` fixes this by detecting the configured greeter theme (last
 `Current=` across `/etc/sddm.conf`/`/etc/sddm.conf.d/*.conf`, falling back
 to `breeze`) and `dpkg-divert`-installing a patched `Login.qml`
 (`qml/sddm/Login.qml` in this repo, shipped at
-`/usr/share/linux-hello/sddm/Login.qml`) that polls `hello-daemon-system`'s
-new status control server — `GET http://127.0.0.1:17825/status`, JSON
-`{"state": "idle"|"recognizing"|"success"|"failed"}` — and shows "🔍
-Reconnaissance en cours…" / "✓ Visage reconnu" / "✗ Non reconnu…"
-accordingly. No per-user session exists pre-login (no `$XDG_RUNTIME_DIR` to
-discover a port from, unlike the screenlock control server), so this uses a
-fixed, well-known loopback port instead — same rationale as
-`preview::MJPEG_PORT`/`screenlock::SCREENLOCK_CTRL_PORT`. Like the lock
-screen's equivalent, `Login.qml`'s QML engine is expected to block
-`XMLHttpRequest`'s real network access, so it shells out to `curl` via a
-`Plasma5Support.DataSource` instead. No retry button: selecting the account
-or pressing Enter again already starts a fresh PAM attempt.
-`install-pam.sh --remove` reverts the diversion; if the theme has no
-`Login.qml` (a non-Breeze-derived theme), the indicator is skipped with a
-warning — login still works via PAM, just without the visual cue.
+`/usr/share/linux-hello/sddm/Login.qml`) that adds exactly that: a
+`Connections { target: sddm; function onInformationMessage(message) { ... } }`
+(and `onErrorMessage`) wired to a `PlasmaComponents3.Label`, cleared at the
+start of each new login attempt so a stale message from a previous one can't
+be mistaken for feedback on the current one.
+
+An earlier version of this patch instead polled a purpose-built HTTP status
+endpoint on `hello-daemon-system` every 1000ms via a
+`Plasma5Support.DataSource` shelling out to `curl` (the same technique
+`qml/lockscreen/MainBlock.qml` uses, since that QML engine really does block
+`XMLHttpRequest`'s real network access) — confirmed on real hardware to be
+the wrong approach: a full recognition attempt (prompt → matched →
+`LoginSucceeded`) completes in well under a second, so a 1-second poll
+interval routinely never fired even once before the greeter had already
+moved on. The status endpoint (`hello-daemon-system`'s `SDDM_CTRL_PORT`,
+17825) and its polling client have both been removed — the direct signal
+connection is simpler and was already proven reliable by the very
+`journalctl` evidence that diagnosed the polling approach's failure, and
+dropping the now-unused endpoint also removes an otherwise-pointless
+pre-authentication-reachable listener.
+
+No retry button: selecting the account or pressing Enter again already
+starts a fresh PAM attempt. `install-pam.sh --remove` reverts the diversion;
+if the theme has no `Login.qml` (a non-Breeze-derived theme), the indicator
+is skipped with a warning — login still works via PAM, just without the
+visual cue.
 
 Security notes:
 

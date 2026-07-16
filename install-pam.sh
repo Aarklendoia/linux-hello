@@ -3,9 +3,11 @@
 # Run with sudo
 #
 # Usage:
-#   sudo ./install-pam.sh            # install
-#   sudo ./install-pam.sh --remove   # disable and restore backups
-#   sudo ./install-pam.sh --status   # show current status
+#   sudo ./install-pam.sh                 # configure sudo/su/polkit (idempotent; SDDM NOT touched)
+#   sudo ./install-pam.sh --enable-sddm   # additionally opt in to SDDM login-screen support
+#   sudo ./install-pam.sh --disable-sddm  # turn SDDM support back off (sudo/su/polkit untouched)
+#   sudo ./install-pam.sh --remove        # disable everything, restore backups
+#   sudo ./install-pam.sh --status        # show current status
 #
 # SECURITY: This script always uses "auth sufficient" — the password
 # remains ALWAYS available as a fallback. You cannot be locked out.
@@ -14,17 +16,30 @@
 # NOTE: since libpam-linux-hello ships linux-hello-pam-autoconfigure (a
 # systemd timer that automatically configures sudo once any user has
 # enrolled a face — screenlock unlocking doesn't use PAM, see
-# hello_daemon/src/screenlock.rs), running this script manually is normally only
-# needed for development (it copies the freshly built .so from this repo
-# checkout) or to explicitly opt back in after running --remove.
+# hello_daemon/src/screenlock.rs), running the bare form of this script is
+# normally only needed for development or to explicitly opt back in after
+# running --remove. SDDM is never touched by the default flow or by the
+# automatic timer — it starts a root-owned, always-on, pre-authentication-
+# reachable listener (hello-daemon-system.service), which is enough of a
+# change to a machine's attack surface that it must always be an explicit,
+# separate opt-in (--enable-sddm), whether run by hand or via the GUI's
+# home-screen toggle (which invokes this script through pkexec).
 
 set -euo pipefail
 
 # ── Constants ────────────────────────────────────────────────────────────────
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 SOURCE_SO="$SCRIPT_DIR/target/release/libpam_linux_hello.so"
-# shellcheck source=pam-lib.sh
-source "$SCRIPT_DIR/pam-lib.sh"
+# Packaged location first (installed by libpam-linux-hello), falling back to
+# a source checkout — same dual-lookup convention linux-hello-pam-autoconfigure
+# already uses, so this script works both installed and from a dev checkout.
+if [[ -f /usr/lib/linux-hello/pam-lib.sh ]]; then
+    # shellcheck source=pam-lib.sh
+    source /usr/lib/linux-hello/pam-lib.sh
+else
+    # shellcheck source=pam-lib.sh
+    source "$SCRIPT_DIR/pam-lib.sh"
+fi
 PAM_MODULE="$(lh_module_path)"
 
 # Packaged location first (usr/share/linux-hello/sddm/Login.qml via
@@ -34,22 +49,6 @@ SDDM_QML_SOURCE="/usr/share/linux-hello/sddm/Login.qml"
 if [[ ! -f "$SDDM_QML_SOURCE" ]]; then
     SDDM_QML_SOURCE="$SCRIPT_DIR/qml/sddm/Login.qml"
 fi
-
-# Detects the SDDM greeter theme actually configured: last `Current=` wins,
-# matching SDDM's own config-merging order (/etc/sddm.conf, then
-# /etc/sddm.conf.d/*.conf in lexicographic order — the numeric prefixes
-# distros use, e.g. 20-kubuntu.conf, are designed to sort correctly here).
-# Falls back to "breeze", SDDM's own upstream default, if nothing is set.
-lh_sddm_theme_name() {
-    local theme="breeze"
-    local f found
-    for f in /etc/sddm.conf /etc/sddm.conf.d/*.conf; do
-        [[ -f "$f" ]] || continue
-        found=$(grep -E '^\s*Current\s*=' "$f" 2>/dev/null | tail -1 | cut -d'=' -f2- | xargs || true)
-        [[ -n "$found" ]] && theme="$found"
-    done
-    echo "$theme"
-}
 
 # ── Colors ───────────────────────────────────────────────────────────────────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
@@ -122,7 +121,7 @@ if [[ "${1:-}" == "--remove" ]]; then
     lh_pam_autoconfig_set_disabled
     ok "Automatic activation disabled ($LH_OPTOUT_MARKER)"
 
-    for svc in sudo sudo-i su su-l sddm polkit-1; do
+    for svc in sudo sudo-i su su-l polkit-1; do
         f="$PAM_DIR/$svc"
         # Look for the most recent backup for this service
         latest_bak=$(find "$PAM_DIR" -maxdepth 1 -name "$svc.pre-linuxhello-*" -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2- || true)
@@ -141,26 +140,41 @@ if [[ "${1:-}" == "--remove" ]]; then
         rm -f "$PAM_DIR/polkit-1"
         ok "Removed: polkit-1 (created by this script)"
     fi
-    # SDDM system listener: stop it too — no point leaving a root, pre-auth
-    # listener running once its only caller (the sddm PAM line) is gone.
-    if systemctl disable --now hello-daemon-system.service 2>/dev/null; then
-        ok "Service hello-daemon-system: disabled"
-    fi
-    # SDDM greeter status indicator: revert the theme's Login.qml if we diverted it.
-    sddm_theme="$(lh_sddm_theme_name)"
-    SDDM_LOGIN_QML="/usr/share/sddm/themes/$sddm_theme/Login.qml"
-    if dpkg-divert --list "$SDDM_LOGIN_QML" 2>/dev/null | grep -q linux-hello; then
-        rm -f "$SDDM_LOGIN_QML"
-        dpkg-divert --package libpam-linux-hello --rename --remove "$SDDM_LOGIN_QML" 2>/dev/null || true
-        ok "SDDM greeter status indicator removed (theme: $sddm_theme)"
-    fi
+    lh_sddm_disable
     echo ""
     ok "Linux Hello disabled. The password takes back control."
     exit 0
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════
-# MODE install (default)
+# MODE --enable-sddm / --disable-sddm
+# ═══════════════════════════════════════════════════════════════════════════
+# Explicit opt-in/opt-out for SDDM login-screen support, separate from the
+# default install/--remove flows — see the header comment for why. Leaves
+# sudo/su/polkit entirely untouched either way.
+if [[ "${1:-}" == "--enable-sddm" ]]; then
+    echo "=== Enabling Linux Hello for the SDDM login screen ==="
+    if [[ ! -f "$PAM_MODULE" ]]; then
+        err "PAM module not installed: $PAM_MODULE"
+        echo "Run 'sudo $0' first (or install libpam-linux-hello)."
+        exit 1
+    fi
+    lh_sddm_enable "$SDDM_QML_SOURCE"
+    lh_pam_autoconfig_clear_disabled
+    ok "SDDM login screen: linux-hello enabled"
+    exit 0
+fi
+
+if [[ "${1:-}" == "--disable-sddm" ]]; then
+    echo "=== Disabling Linux Hello for the SDDM login screen ==="
+    lh_sddm_disable
+    ok "SDDM login screen: linux-hello disabled"
+    exit 0
+fi
+
+# ═══════════════════════════════════════════════════════════════════════════
+# MODE install (default) — sudo/su/polkit only. SDDM is never touched here;
+# use --enable-sddm/--disable-sddm explicitly.
 # ═══════════════════════════════════════════════════════════════════════════
 echo "=== Linux Hello PAM Module Installation ==="
 echo ""
@@ -170,15 +184,22 @@ echo "In case of problems: sudo $0 --remove"
 echo ""
 
 # ── 1. Install the .so ───────────────────────────────────────────────────────
-if [[ ! -f "$SOURCE_SO" ]]; then
+# A dev checkout build (fresh $SOURCE_SO) always wins, so local changes get
+# tested. Otherwise, if the module's already there (a packaged install placed
+# it via dpkg), there's nothing to do — only a genuinely fresh machine with
+# neither is an error.
+if [[ -f "$SOURCE_SO" ]]; then
+    mkdir -p "$(dirname "$PAM_MODULE")"
+    cp "$SOURCE_SO" "$PAM_MODULE"
+    chmod 644 "$PAM_MODULE"
+    ok "PAM module installed: $PAM_MODULE"
+elif [[ -f "$PAM_MODULE" ]]; then
+    ok "PAM module already installed: $PAM_MODULE"
+else
     err "Module not built: $SOURCE_SO"
-    echo "Build it first: cargo build --release"
+    echo "Build it first (cargo build --release) or install libpam-linux-hello."
     exit 1
 fi
-mkdir -p "$(dirname "$PAM_MODULE")"
-cp "$SOURCE_SO" "$PAM_MODULE"
-chmod 644 "$PAM_MODULE"
-ok "PAM module installed: $PAM_MODULE"
 
 # ── 2. sudo and sudo-i ───────────────────────────────────────────────────────
 # sudo uses @include common-auth → insert BEFORE it so biometrics run first
@@ -189,39 +210,9 @@ lh_configure_service "sudo-i" "sudo"   "@include common-auth" "confirm"
 lh_configure_service "su"     "sudo"   "@include common-auth" "confirm"
 lh_configure_service "su-l"   "sudo"   "@include common-auth" "confirm"
 
-# ── 4. SDDM (login screen) ───────────────────────────────────────────────────
-# Insert before @include common-auth (after the nologin/pam_succeed_if checks).
-# Backed by hello-daemon-system.service, a root-owned, always-on listener
-# started at boot — a new pre-authentication-reachable attack surface, so it
-# is enabled here (opt-in, alongside the PAM line itself) rather than
-# unconditionally at package install time. Not part of automatic activation
-# (linux-hello-pam-autoconfigure never touches this file or this service).
-lh_configure_service "sddm"   "sddm"   "@include common-auth"
-if systemctl enable --now hello-daemon-system.service 2>/dev/null; then
-    ok "Service hello-daemon-system: enabled"
-else
-    warn "Could not enable hello-daemon-system.service (systemd unavailable?)"
-fi
-
-# SDDM greeter status indicator: without it, the greeter shows nothing at
-# all while a face is being checked — pam_linux_hello's PAM_TEXT_INFO
-# messages do reach the greeter's `sddm` QML object, but no theme actually
-# has a handler for that signal, so they're silently dropped (confirmed on
-# a real login this session: it succeeded via face recognition alone, with
-# no visible cue, leaving the user unsure and typing a password anyway).
-sddm_theme="$(lh_sddm_theme_name)"
-SDDM_LOGIN_QML="/usr/share/sddm/themes/$sddm_theme/Login.qml"
-if [[ ! -f "$SDDM_LOGIN_QML" ]]; then
-    warn "SDDM theme '$sddm_theme' has no Login.qml — status indicator not installed (login via face still works, just without visual feedback)"
-elif [[ ! -f "$SDDM_QML_SOURCE" ]]; then
-    warn "Status indicator source missing ($SDDM_QML_SOURCE) — skipped"
-elif dpkg-divert --list "$SDDM_LOGIN_QML" 2>/dev/null | grep -q linux-hello; then
-    ok "SDDM greeter status indicator: already installed (theme: $sddm_theme)"
-else
-    dpkg-divert --package libpam-linux-hello --rename --add "$SDDM_LOGIN_QML" 2>/dev/null || true
-    cp "$SDDM_QML_SOURCE" "$SDDM_LOGIN_QML"
-    ok "SDDM greeter status indicator installed (theme: $sddm_theme)"
-fi
+# ── 4. SDDM (login screen) — NOT done here, see header comment ──────────────
+# Run 'sudo install-pam.sh --enable-sddm' explicitly (or use the GUI's
+# home-screen toggle) to opt in.
 
 # ── 5. polkit-1 ("Authentication required" graphical dialogs) ─────────────────
 POLKIT_FILE="$PAM_DIR/polkit-1"

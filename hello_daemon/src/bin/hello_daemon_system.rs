@@ -9,8 +9,8 @@
 
 use hello_daemon::camera::CameraManager;
 use hello_daemon::matcher::FaceMatcher;
-use hello_daemon::pam_helper::{start_sddm_control_server, start_system_pam_helper, SddmStatus};
-use std::sync::{Arc, Mutex};
+use hello_daemon::pam_helper::start_system_pam_helper;
+use std::sync::Arc;
 use tracing::{error, info, warn};
 
 const DEFAULT_TIMEOUT_MS: u64 = 5000;
@@ -37,22 +37,12 @@ async fn main() -> anyhow::Result<()> {
 
     let camera = Arc::new(CameraManager::new(DEFAULT_TIMEOUT_MS));
     let matcher = Arc::new(FaceMatcher::new(DEFAULT_SIMILARITY_THRESHOLD));
-    let sddm_status = Arc::new(Mutex::new(SddmStatus::Idle));
 
-    if let Err(e) = start_system_pam_helper(camera, matcher, Arc::clone(&sddm_status)).await {
+    if let Err(e) = start_system_pam_helper(camera, matcher).await {
         error!("Failed to start the system PAM listener: {}", e);
         return Err(anyhow::anyhow!(e.to_string()));
     }
     info!("✓ System PAM listener ready for context=sddm");
-
-    if let Err(e) = start_sddm_control_server(sddm_status).await {
-        warn!(
-            "SDDM control server not started: {} (status indicator in the greeter unavailable)",
-            e
-        );
-    } else {
-        info!("✓ SDDM greeter control server active");
-    }
 
     tokio::signal::ctrl_c().await?;
     info!("Stopping system listener");

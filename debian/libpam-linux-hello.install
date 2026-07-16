@@ -1,8 +1,10 @@
 lib/*/security/pam_linux_hello.so
 usr/bin/linux-hello-pam-autoconfigure
+usr/bin/install-pam.sh
 usr/lib/linux-hello/pam-lib.sh
 usr/lib/systemd/system/linux-hello-pam-autoconfigure.service
 usr/lib/systemd/system/linux-hello-pam-autoconfigure.timer
 usr/bin/hello-daemon-system
 usr/lib/systemd/system/hello-daemon-system.service
 usr/share/linux-hello/sddm/Login.qml
+usr/share/polkit-1/actions/com.linuxhello.pam-setup.policy

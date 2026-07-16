@@ -265,6 +265,124 @@ Kirigami.Page {
                     }
                 }
             }
+
+            // SDDM (login screen) toggle — unlike the two cards above, this
+            // one is a direct action, not navigation to a sub-page: clicking
+            // it enables/disables face auth on the SDDM login screen right
+            // away, via a real pkexec prompt on the backend (can take
+            // several seconds — the user has to interact with the dialog).
+            AbstractButton {
+                id: sddmCard
+                Layout.fillWidth: true
+                implicitHeight: sddmRow.implicitHeight + Kirigami.Units.largeSpacing * 1.6
+                enabled: AppController.sddmAvailable && !AppController.sddmBusy
+                onClicked: AppController.toggleSddm()
+
+                background: Rectangle {
+                    radius: Kirigami.Units.smallSpacing * 1.4
+                    color: sddmCard.hovered ? Kirigami.Theme.hoverColor : Kirigami.Theme.backgroundColor
+                    border.width: 1
+                    border.color: Qt.rgba(Kirigami.Theme.textColor.r, Kirigami.Theme.textColor.g, Kirigami.Theme.textColor.b, 0.15)
+                    opacity: sddmCard.enabled ? 1 : 0.6
+                    Behavior on color { ColorAnimation { duration: 120 } }
+                }
+
+                contentItem: RowLayout {
+                    id: sddmRow
+                    anchors.fill: parent
+                    anchors.margins: Kirigami.Units.largeSpacing * 0.8
+                    spacing: Kirigami.Units.largeSpacing * 0.8
+
+                    Rectangle {
+                        Layout.preferredWidth: Kirigami.Units.gridUnit * 2.1
+                        Layout.preferredHeight: Kirigami.Units.gridUnit * 2.1
+                        radius: width * 0.26
+                        color: AppController.sddmActive
+                            ? Qt.rgba(Kirigami.Theme.positiveTextColor.r, Kirigami.Theme.positiveTextColor.g, Kirigami.Theme.positiveTextColor.b, 0.15)
+                            : Qt.rgba(Kirigami.Theme.highlightColor.r, Kirigami.Theme.highlightColor.g, Kirigami.Theme.highlightColor.b, 0.15)
+
+                        Kirigami.Icon {
+                            anchors.centerIn: parent
+                            width: Kirigami.Units.gridUnit * 1.05
+                            height: width
+                            source: "system-switch-user-symbolic"
+                            color: AppController.sddmActive ? Kirigami.Theme.positiveTextColor : Kirigami.Theme.highlightColor
+                            isMask: true
+                        }
+                    }
+                    ColumnLayout {
+                        spacing: 1
+                        Layout.fillWidth: true
+                        Label {
+                            text: I18n.tr("home.sddmTitle")
+                            font.weight: Font.DemiBold
+                            font.pixelSize: 14
+                            color: Kirigami.Theme.textColor
+                            Layout.fillWidth: true
+                            elide: Text.ElideRight
+                        }
+                        Label {
+                            text: {
+                                if (!AppController.sddmAvailable)
+                                    return I18n.tr("home.sddmUnavailableSub");
+                                if (AppController.sddmBusy)
+                                    return I18n.tr("home.sddmBusySub");
+                                return AppController.sddmActive ? I18n.tr("home.sddmActiveSub") : I18n.tr("home.sddmInactiveSub");
+                            }
+                            font.pixelSize: 11
+                            color: Kirigami.Theme.disabledTextColor
+                            Layout.fillWidth: true
+                            elide: Text.ElideRight
+                        }
+                    }
+                    BusyIndicator {
+                        Layout.preferredWidth: Kirigami.Units.gridUnit
+                        Layout.preferredHeight: Kirigami.Units.gridUnit
+                        visible: AppController.sddmBusy
+                        running: AppController.sddmBusy
+                    }
+                }
+            }
+        }
+
+        // SDDM toggle error — no toast/notification system in this app yet,
+        // so a plain inline line is the simplest honest feedback for a
+        // failed/cancelled pkexec attempt.
+        Label {
+            visible: AppController.sddmError !== ""
+            text: AppController.sddmError
+            font.pixelSize: 10
+            color: Kirigami.Theme.negativeTextColor
+            wrapMode: Text.WordWrap
+            Layout.fillWidth: true
+        }
+
+        // SDDM only starts checking once a login attempt is actually
+        // submitted (pressing Enter/clicking the login button) — it can't
+        // scan passively just from the greeter being on screen, since PAM
+        // itself only runs at that point. Not obvious from the greeter
+        // alone (confirmed: a real user tried it and asked "how do I
+        // explain this?"), so spell it out here rather than only in docs.
+        RowLayout {
+            visible: AppController.sddmActive
+            Layout.fillWidth: true
+            spacing: Kirigami.Units.smallSpacing
+
+            Kirigami.Icon {
+                source: "info-symbolic"
+                width: Kirigami.Units.gridUnit * 0.9
+                height: width
+                color: Kirigami.Theme.disabledTextColor
+                isMask: true
+                Layout.alignment: Qt.AlignTop
+            }
+            Label {
+                text: I18n.tr("home.sddmHowToNote")
+                font.pixelSize: 10
+                color: Kirigami.Theme.disabledTextColor
+                wrapMode: Text.WordWrap
+                Layout.fillWidth: true
+            }
         }
 
         // Flexible spacer — only this gap is elastic, so the fallback note

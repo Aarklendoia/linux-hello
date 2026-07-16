@@ -88,7 +88,14 @@ override_dh_auto_install:
 	chmod 0755 $(CURDIR)/debian/tmp/usr/bin/linux-hello-pam-autoconfigure
 	mkdir -p $(CURDIR)/debian/tmp/usr/lib/linux-hello
 	cp $(CURDIR)/pam-lib.sh $(CURDIR)/debian/tmp/usr/lib/linux-hello/
-	
+	cp $(CURDIR)/install-pam.sh $(CURDIR)/debian/tmp/usr/bin/
+	chmod 0755 $(CURDIR)/debian/tmp/usr/bin/install-pam.sh
+
+	# Polkit action so the GUI's SDDM toggle (pkexec install-pam.sh --enable-sddm
+	# / --disable-sddm) shows a branded prompt instead of the generic pkexec one.
+	mkdir -p $(CURDIR)/debian/tmp/usr/share/polkit-1/actions
+	cp $(CURDIR)/debian/polkit/com.linuxhello.pam-setup.policy $(CURDIR)/debian/tmp/usr/share/polkit-1/actions/
+
 	# Install documentation
 	mkdir -p $(CURDIR)/debian/tmp/usr/share/doc/linux-hello
 	cp $(CURDIR)/README.md $(CURDIR)/debian/tmp/usr/share/doc/linux-hello/
