@@ -36,7 +36,13 @@ fn main() {
     let _ = std::fs::write(&lock_path, std::process::id().to_string());
 
     let ctrl_token = generate_ctrl_token();
-    let ctrl_port = start_control_server(uid, ctrl_token.clone());
+    // Whether the SDDM toggle is even usable at all (the GUI package doesn't
+    // hard-depend on libpam-linux-hello, which is where install-pam.sh lives)
+    // — computed once here rather than on every /sddm-status request, since
+    // it can't change over this process's lifetime (installing the package
+    // mid-run isn't a case worth handling).
+    let install_pam_available = std::path::Path::new("/usr/bin/install-pam.sh").exists();
+    let ctrl_port = start_control_server(uid, ctrl_token.clone(), install_pam_available);
     eprintln!("🔌 Control server on port {}", ctrl_port);
     // Written to files readable from QML (Qt.environmentVariable unavailable
     // on this build). Namespaced per UID, like the instance lock above —
@@ -291,14 +297,16 @@ fn sddm_pam_line_present(contents: &str) -> bool {
 /// Starts a multi-threaded HTTP server on 127.0.0.1 (port allocated by the OS).
 /// Each connection is handled in a dedicated thread.
 /// Returns the assigned port.
-fn start_control_server(uid: u32, token: String) -> u16 {
+fn start_control_server(uid: u32, token: String, install_pam_available: bool) -> u16 {
     let listener = TcpListener::bind("127.0.0.1:0").expect("Unable to start the control server");
     let port = listener.local_addr().unwrap().port();
 
     thread::spawn(move || {
         for stream in listener.incoming().flatten() {
             let token = token.clone();
-            thread::spawn(move || handle_ctrl_connection(stream, uid, &token));
+            thread::spawn(move || {
+                handle_ctrl_connection(stream, uid, &token, install_pam_available)
+            });
         }
     });
 
@@ -331,7 +339,12 @@ fn request_method(req: &str) -> &str {
 }
 
 /// Handles an incoming HTTP connection in its own thread.
-fn handle_ctrl_connection(mut stream: TcpStream, uid: u32, expected_token: &str) {
+fn handle_ctrl_connection(
+    mut stream: TcpStream,
+    uid: u32,
+    expected_token: &str,
+    install_pam_available: bool,
+) {
     let mut buf = [0u8; 2048];
     let n = stream.read(&mut buf).unwrap_or(0);
     let req = String::from_utf8_lossy(&buf[..n]);
@@ -444,14 +457,19 @@ fn handle_ctrl_connection(mut stream: TcpStream, uid: u32, expected_token: &str)
             // reports whether the SDDM toggle is even usable at all — the GUI
             // package doesn't hard-depend on libpam-linux-hello (install-pam.sh
             // lives there), so a GUI-only install must degrade gracefully
-            // instead of offering a button that can never work.
-            let available = std::path::Path::new("/usr/bin/install-pam.sh").exists();
+            // instead of offering a button that can never work. `available`
+            // is computed once at startup (see `main`), not re-derived here
+            // on every request — unlike `active`, it can't change over this
+            // process's lifetime.
             let active = std::fs::read_to_string("/etc/pam.d/sddm")
                 .map(|contents| sddm_pam_line_present(&contents))
                 .unwrap_or(false);
             (
                 "200 OK",
-                format!(r#"{{"active":{},"available":{}}}"#, active, available),
+                format!(
+                    r#"{{"active":{},"available":{}}}"#,
+                    active, install_pam_available
+                ),
             )
         } else if req.contains("/sddm-enable") || req.contains("/sddm-disable") {
             // Blocking is fine: each connection already runs on its own thread.
