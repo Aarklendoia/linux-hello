@@ -91,9 +91,6 @@ struct PamOptions {
     /// Timeout in ms for capture
     timeout_ms: u64,
 
-    /// Similarity threshold (0.0-1.0)
-    similarity_threshold: f32,
-
     /// If true, ask for confirmation before success
     confirm: bool,
 
@@ -106,7 +103,6 @@ impl Default for PamOptions {
         Self {
             context: "default".to_string(),
             timeout_ms: 30000,
-            similarity_threshold: 0.6,
             confirm: false,
             debug: false,
         }
@@ -138,11 +134,21 @@ fn parse_options(argc: c_int, argv: *const *const c_char) -> PamOptions {
                                 opts.timeout_ms = ms;
                             }
                         }
-                        "similarity_threshold" => {
-                            if let Ok(threshold) = value.parse::<f32>() {
-                                opts.similarity_threshold = threshold;
-                            }
-                        }
+                        // similarity_threshold was previously documented and
+                        // parsed here but never actually reached the daemon
+                        // (PamHelperRequest had no field for it, so it was
+                        // silently discarded) — an admin who set e.g.
+                        // similarity_threshold=0.85 for sudo believed they'd
+                        // tightened the false-accept rate, when in reality
+                        // the daemon's own per-context defaults
+                        // (hello_daemon::matcher::FaceMatcher, already
+                        // stricter for sudo/login than the default) applied
+                        // unconditionally instead. Removed rather than wired
+                        // through: falls into the `_ => {}` catch-all below
+                        // like any other unrecognized key, so an existing
+                        // /etc/pam.d line that still mentions it keeps
+                        // working (silently ignored) instead of breaking
+                        // authentication.
                         "debug" => opts.debug = true,
                         // Matches "debug"'s own key=value handling: the value
                         // is irrelevant, presence is what counts (accepts the
@@ -907,6 +913,17 @@ mod tests {
         // what matters.
         assert!(parse_argv(&["confirm=true"]).confirm);
         assert!(parse_argv(&["confirm=false"]).confirm);
+    }
+
+    #[test]
+    fn test_parse_options_ignores_the_removed_similarity_threshold_key() {
+        // An existing /etc/pam.d line from before this option was removed
+        // (it never actually reached the daemon — see the comment at its
+        // former parse site) must not break parsing of the rest of the
+        // line, or authentication for a service that still has it.
+        let opts = parse_argv(&["context=sudo", "similarity_threshold=0.85", "confirm"]);
+        assert_eq!(opts.context, "sudo");
+        assert!(opts.confirm);
     }
 
     #[test]

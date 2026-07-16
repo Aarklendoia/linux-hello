@@ -161,7 +161,6 @@ auth   [module_path] [service_name] [module_name] [arguments...]
 | ------ | ----- | ------- | ----------- |
 | `context` | string | "default" | Authentication context |
 | `timeout_ms` | u64 | 30000 | How long the camera stays continuously engaged, retrying until a match or the deadline (see PAM_MODULE.md) |
-| `similarity_threshold` | f32 | 0.6 | Similarity threshold (0.0-1.0) |
 | `confirm` | (flag) | false | Ask for confirmation before success |
 | `debug` | (flag) | false | Debug mode |
 

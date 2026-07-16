@@ -137,7 +137,7 @@ auth   sufficient   pam_linux_hello.so context=screenlock timeout_ms=3000
 auth   include      system-login
 ```
 
-Module options: `context`, `timeout_ms`, `similarity_threshold`, `confirm`, `debug`. Full reference in [docs/PAM_MODULE.md](docs/PAM_MODULE.md) and [docs/INTEGRATION_GUIDE.md](docs/INTEGRATION_GUIDE.md).
+Module options: `context`, `timeout_ms`, `confirm`, `debug`. Full reference in [docs/PAM_MODULE.md](docs/PAM_MODULE.md) and [docs/INTEGRATION_GUIDE.md](docs/INTEGRATION_GUIDE.md).
 
 ## CLI usage
 
