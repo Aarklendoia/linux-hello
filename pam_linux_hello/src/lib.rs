@@ -16,12 +16,8 @@
 static ALLOCATOR: std::alloc::System = std::alloc::System;
 
 use serde::{Deserialize, Serialize};
-use std::ffi::CStr;
-use std::fs::OpenOptions;
-use std::io::Write;
+use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_int};
-use std::os::unix::fs::OpenOptionsExt;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 // Basic C bindings
 #[repr(C)]
@@ -727,29 +723,43 @@ fn call_pam_helper_sync(req: &PamHelperRequest) -> Result<PamHelperResponse, Str
     })
 }
 
+/// Logs via syslog (LOG_AUTHPRIV), not a raw file write. Two problems with
+/// the previous approach (a fixed `/tmp/pam_linux_hello.log`, opened with
+/// `create(true)` and no `O_NOFOLLOW`): this module runs inside privileged
+/// callers (root `su`/`sudo`, `sddm-helper`) on every authentication
+/// attempt, and `/tmp` is world-writable — any local user could
+/// `ln -s /some/root/owned/target /tmp/pam_linux_hello.log` and have the
+/// next privileged PAM call create/append to that target as root (a
+/// textbook CWE-59 symlink attack). Worse, messages embed the raw PAM
+/// username *before* it's validated as a real account (see the
+/// `pam_sm_authenticate` call site) — a crafted username containing a
+/// newline could inject an attacker-chosen line into whatever file the
+/// symlink pointed at (e.g. a cron table), turning the symlink write into
+/// arbitrary root command execution. `syslog(3)` has no analogous
+/// predictable-path/symlink surface: there's no file path for a local
+/// attacker to redirect, so this closes the underlying issue rather than
+/// just relocating it. `LOG_AUTHPRIV` is the standard facility for
+/// authentication events — routed by the system's syslog config to a
+/// root/adm-only destination (e.g. `/var/log/auth.log`), not a
+/// world-readable one.
 fn log_pam(message: &str) {
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default();
-    let line = format!(
-        "{}.{:03} pam_linux_hello: {}",
-        timestamp.as_secs(),
-        timestamp.subsec_millis(),
-        message
-    );
-    let mut file = match OpenOptions::new()
-        .create(true)
-        .append(true)
-        .mode(0o644)
-        .open("/tmp/pam_linux_hello.log")
-    {
-        Ok(f) => f,
-        Err(e) => {
-            eprintln!("pam log failed: {}", e);
-            return;
-        }
+    // A fixed "%s" format string with `message` passed as the vararg (not
+    // interpolated into the format string itself) avoids a printf-style
+    // format-string bug if `message` ever contains a literal `%`.
+    // CString::new fails (and we just skip that line) if `message`
+    // contains an embedded NUL — a crafted username could in principle
+    // include one, so failing closed here rather than truncating/panicking
+    // is the safe choice.
+    let Ok(msg_c) = CString::new(message.replace(['\n', '\r'], " ")) else {
+        return;
     };
-    let _ = writeln!(file, "{}", line);
+    unsafe {
+        libc::syslog(
+            libc::LOG_AUTHPRIV | libc::LOG_INFO,
+            c"pam_linux_hello: %s".as_ptr(),
+            msg_c.as_ptr(),
+        );
+    }
 }
 
 // The old functions remain for compatibility (unused)
@@ -816,5 +826,50 @@ mod tests {
         // what matters.
         assert!(parse_argv(&["confirm=true"]).confirm);
         assert!(parse_argv(&["confirm=false"]).confirm);
+    }
+
+    #[test]
+    fn log_pam_does_not_write_to_the_old_predictable_tmp_path() {
+        // Regression test for the /tmp symlink-attack fix: log_pam must go
+        // through syslog only, never touch a file at this path. Doesn't
+        // assert the path is absent — a real, root-owned instance of this
+        // exact file can be left over on a dev/test machine from *before*
+        // this fix landed (privileged PAM calls made under the old,
+        // vulnerable code), and an unprivileged test process can't remove
+        // a file it doesn't own. Instead: record the file's state (or
+        // absence) beforehand, call log_pam, and confirm nothing changed —
+        // this still fails if log_pam ever creates the file fresh (the
+        // common case, and what CI will actually exercise) or appends to
+        // an existing one.
+        let legacy_path = "/tmp/pam_linux_hello.log";
+        let before = std::fs::metadata(legacy_path).ok().map(|m| m.len());
+        log_pam("test message, should only go to syslog, not this file");
+        let after = std::fs::metadata(legacy_path).ok().map(|m| m.len());
+        assert_eq!(
+            before, after,
+            "log_pam must not create or append to {}",
+            legacy_path
+        );
+    }
+
+    #[test]
+    fn log_pam_handles_a_message_with_an_embedded_nul_without_panicking() {
+        // CString::new rejects embedded NULs; log_pam must fail closed
+        // (skip the line) rather than panic — a crafted PAM username could
+        // contain one.
+        log_pam("contains a nul: \0 right there");
+    }
+
+    #[test]
+    fn log_pam_strips_embedded_newlines() {
+        // Defense in depth: even though routing through syslog (rather than
+        // a file this process controls the path of) already closes the
+        // log-injection escalation described in the original finding,
+        // embedded newlines are still stripped so a single log_pam call
+        // can't be split into multiple syslog lines.
+        // (No direct way to assert syslog's own output from a unit test;
+        // this just confirms the call doesn't panic on newline-bearing
+        // input, matching what a crafted PAM username could contain.)
+        log_pam("line one\nline two\r\nline three");
     }
 }
