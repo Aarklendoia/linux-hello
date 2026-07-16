@@ -6,9 +6,6 @@
     "home": {
         "title": "主页",
         "welcome": "欢迎使用 Linux Hello，这是 KDE 的生物识别身份验证系统。",
-        "youCan": "您可以：",
-        "action1": "• 注册您的脸部以进行身份验证",
-        "action2": "• 管理已注册的脸部",
         "registerBtn": "注册脸部",
         "manageFacesBtn": "管理脸部",
         "daemonActive": "守护进程运行中",

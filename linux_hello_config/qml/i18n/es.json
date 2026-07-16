@@ -6,9 +6,6 @@
     "home": {
         "title": "Inicio",
         "welcome": "Bienvenido a Linux Hello, el sistema de autenticación biométrica para KDE.",
-        "youCan": "Puedes:",
-        "action1": "• Registrar tu rostro para la autenticación",
-        "action2": "• Gestionar rostros registrados",
         "registerBtn": "Registrar rostro",
         "manageFacesBtn": "Gestionar rostros",
         "daemonActive": "Demonio activo",

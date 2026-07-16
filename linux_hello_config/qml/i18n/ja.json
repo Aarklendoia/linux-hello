@@ -6,9 +6,6 @@
     "home": {
         "title": "ホーム",
         "welcome": "Linux Helloへようこそ。KDE用のバイオメトリック認証システムです。",
-        "youCan": "以下のことができます:",
-        "action1": "• 認証用に顔を登録する",
-        "action2": "• 登録済みの顔を管理する",
         "registerBtn": "顔を登録",
         "manageFacesBtn": "顔を管理",
         "daemonActive": "デーモン稼働中",
