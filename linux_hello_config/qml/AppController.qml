@@ -15,6 +15,7 @@ QtObject {
     property string sddmError: ""
     property string ctrlPort: "0"
     property string ctrlToken: ""
+    property string mjpegToken: ""
     property string lastRegisteredFaceId: ""
     property var uidNameCache: ({})
 
@@ -68,6 +69,20 @@ QtObject {
             ctrlToken = xhrToken.responseText.trim();
         } else {
             console.log("⚠ Unable to read the control token");
+        }
+        // hello-daemon's own MJPEG preview server (127.0.0.1:17823) gates
+        // every request on this separate token — written by the daemon
+        // itself (see hello_daemon::preview::start_mjpeg_server), not by
+        // this process, so it lives in the same runtime dir but isn't
+        // guaranteed to exist yet if the daemon hasn't started (Enrollment.qml
+        // treats a missing/wrong token the same as "daemon unavailable").
+        var xhrMjpegToken = new XMLHttpRequest();
+        xhrMjpegToken.open("GET", "file://" + runtimeDir + "/hello-daemon-mjpeg.token", false);
+        xhrMjpegToken.send();
+        if (xhrMjpegToken.responseText !== "") {
+            mjpegToken = xhrMjpegToken.responseText.trim();
+        } else {
+            console.log("⚠ Unable to read the MJPEG token");
         }
         // Build the UID → account name cache from /etc/passwd
         var px = new XMLHttpRequest();

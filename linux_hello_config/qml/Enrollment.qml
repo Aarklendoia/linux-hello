@@ -43,7 +43,13 @@ Kirigami.Page {
         interval: 40
         repeat: true
         running: AppController.capturing
-        onTriggered: cameraPreview.source = "http://127.0.0.1:17823/snapshot?t=" + Date.now()
+        // token= gates every request to hello-daemon's MJPEG server (see
+        // hello_daemon::preview::start_mjpeg_server) — without it any local
+        // process regardless of user could otherwise watch live video of
+        // whoever is enrolling. QML's Image { source } can't set custom
+        // request headers, so unlike the GUI's own control-server token
+        // (sent as a header), this one has to travel in the URL.
+        onTriggered: cameraPreview.source = "http://127.0.0.1:17823/snapshot?token=" + AppController.mjpegToken + "&t=" + Date.now()
     }
 
     ColumnLayout {
