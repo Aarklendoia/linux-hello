@@ -45,16 +45,20 @@ fn main() {
     let ctrl_port = start_control_server(uid, ctrl_token.clone(), install_pam_available);
     eprintln!("🔌 Control server on port {}", ctrl_port);
     // Written to files readable from QML (Qt.environmentVariable unavailable
-    // on this build). Namespaced per UID, like the instance lock above —
-    // without that, two different users each launching the GUI (e.g. during
-    // fast user switching) would clobber each other's port/token files,
-    // since /tmp has no per-user separation of its own. 0600: the control
-    // server binds 127.0.0.1, reachable by any local process regardless of
-    // user — the port number alone isn't sensitive, but the token is what
-    // actually gates access to routes like /sddm-enable, which now triggers
-    // a real pkexec prompt.
-    let _ = write_owner_only_file(&ctrl_port_path(uid), &ctrl_port.to_string());
-    let _ = write_owner_only_file(&ctrl_token_path(uid), &ctrl_token);
+    // on this build), under $XDG_RUNTIME_DIR (see `runtime_dir`'s doc comment
+    // for why not /tmp). 0600: the control server binds 127.0.0.1, reachable
+    // by any local process regardless of user — the port number alone isn't
+    // sensitive, but the token is what actually gates access to routes like
+    // /sddm-enable, which now triggers a real pkexec prompt. A failure here
+    // is loud, not swallowed: it means the GUI has no way to reach its own
+    // backend, so it's worth knowing about immediately rather than silently
+    // limping along with a QML frontend that can never authenticate.
+    if let Err(e) = write_owner_only_file(&ctrl_port_path(uid), &ctrl_port.to_string()) {
+        eprintln!("❌ Could not write the control port file: {}", e);
+    }
+    if let Err(e) = write_owner_only_file(&ctrl_token_path(uid), &ctrl_token) {
+        eprintln!("❌ Could not write the control token file: {}", e);
+    }
 
     // Configure the QML import paths
     let qml_import_paths = [
@@ -202,15 +206,34 @@ fn get_current_uid() -> u32 {
         .unwrap_or(1000)
 }
 
-/// Per-UID path for the control server's port file — see `write_owner_only_file`'s
-/// doc comment for why this is namespaced by UID rather than a fixed name.
+/// Base directory for the control server's port/token files: `$XDG_RUNTIME_DIR`
+/// (falling back to its standard value, `/run/user/<uid>` — safe to assume
+/// for a desktop GUI app launched from a real login session, unlike the
+/// sandboxed system service in `hello_daemon::screenlock`, which only ever
+/// uses the env var and warns if it's unset). Deliberately not `/tmp`: unlike
+/// `/run/user/<uid>` (mode 0700, owned solely by this UID), `/tmp` is shared
+/// with every other local user, and its sticky bit only stops *other* users
+/// from deleting files *we* own — it does nothing to stop the reverse. A
+/// different-UID attacker can pre-create
+/// `/tmp/linux-hello-ctrl-<our-uid>.token` themselves; we can then never
+/// remove or replace their file (sticky bit: only the owner may unlink it),
+/// so our real token is silently never published and the GUI's entire
+/// "authenticated" control channel is quietly redirected to whatever
+/// port/token the attacker planted — this exact codebase already hit this
+/// class of problem once, see `hello_daemon::screenlock::control_port_file_path`.
+fn runtime_dir(uid: u32) -> String {
+    std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| format!("/run/user/{}", uid))
+}
+
+/// Per-UID path for the control server's port file — see `runtime_dir`'s doc
+/// comment for why this lives under `$XDG_RUNTIME_DIR` rather than `/tmp`.
 fn ctrl_port_path(uid: u32) -> String {
-    format!("/tmp/linux-hello-ctrl-{}.port", uid)
+    format!("{}/linux-hello-ctrl.port", runtime_dir(uid))
 }
 
 /// Per-UID path for the control server's auth token file (see `ctrl_port_path`).
 fn ctrl_token_path(uid: u32) -> String {
-    format!("/tmp/linux-hello-ctrl-{}.token", uid)
+    format!("{}/linux-hello-ctrl.token", runtime_dir(uid))
 }
 
 /// Generates a random 64-hex-char token for authenticating requests to the
@@ -233,17 +256,26 @@ fn generate_ctrl_token() -> String {
 /// of which are otherwise reachable/discoverable by any local process
 /// regardless of user (the loopback socket has no per-user ACL of its own).
 ///
-/// These are fixed, predictable paths in world-writable `/tmp`, so a local
-/// attacker could pre-create one (e.g. as a symlink elsewhere, or a regular
-/// file with permissive permissions) before this process ever runs. Two
-/// things guard against that: removing whatever is at `path` first, then
-/// creating fresh with `create_new` (`O_CREAT|O_EXCL`), which fails rather
-/// than following a symlink or reusing a file we don't control if something
-/// wins the (now much narrower) race to recreate it in between. The mode is
-/// passed to `open()` itself rather than applied via a separate
-/// `set_permissions` call afterward — the latter would leave a window, file
-/// existing but not yet locked down, during which another local process
-/// could read the freshly-written token.
+/// Guards against a stale or maliciously pre-planted file already sitting at
+/// `path` (e.g. left by a crashed prior run, or a symlink into somewhere
+/// else): removes whatever is there first, then creates fresh with
+/// `create_new` (`O_CREAT|O_EXCL`), which fails rather than following a
+/// symlink or reusing a file we don't control if something wins the (now
+/// much narrower) race to recreate it in between. The mode is passed to
+/// `open()` itself rather than applied via a separate `set_permissions` call
+/// afterward — the latter would leave a window, file existing but not yet
+/// locked down, during which another local process could read the
+/// freshly-written token.
+///
+/// This alone is NOT sufficient in a directory shared with other UIDs (like
+/// `/tmp`): if a *different* user already owns the file at `path`, the
+/// `remove_file` above fails (sticky-bit directories like `/tmp` only let a
+/// file's owner unlink it, regardless of the directory's own permissions),
+/// `create_new` then fails too since the path still exists, and this
+/// function correctly returns `Err` — but only if the caller actually checks
+/// that `Err`. Callers of this function for anything security-sensitive
+/// must (a) use a directory that isn't shared with other UIDs to begin with
+/// (see `runtime_dir`) and (b) not silently ignore a returned `Err`.
 fn write_owner_only_file(path: &str, contents: &str) -> std::io::Result<()> {
     use std::fs::OpenOptions;
     use std::os::unix::fs::OpenOptionsExt;
@@ -700,12 +732,24 @@ mod tests {
     }
 
     #[test]
-    fn ctrl_paths_are_namespaced_per_uid_and_distinct() {
-        assert_eq!(ctrl_port_path(1000), "/tmp/linux-hello-ctrl-1000.port");
-        assert_eq!(ctrl_token_path(1000), "/tmp/linux-hello-ctrl-1000.token");
-        assert_ne!(ctrl_port_path(1000), ctrl_port_path(1001));
-        assert_ne!(ctrl_token_path(1000), ctrl_token_path(1001));
+    fn ctrl_paths_live_under_the_runtime_dir_and_are_distinct() {
+        // Doesn't assert the exact literal path — that depends on whether
+        // XDG_RUNTIME_DIR happens to be set in the environment this test
+        // runs in, and mutating it here would race with other tests running
+        // in parallel in the same process. What matters is: both files live
+        // under this UID's runtime dir (not /tmp — see `runtime_dir`'s doc
+        // comment for why), and the two filenames don't collide.
+        let dir = runtime_dir(1000);
+        assert_eq!(
+            ctrl_port_path(1000),
+            format!("{}/linux-hello-ctrl.port", dir)
+        );
+        assert_eq!(
+            ctrl_token_path(1000),
+            format!("{}/linux-hello-ctrl.token", dir)
+        );
         assert_ne!(ctrl_port_path(1000), ctrl_token_path(1000));
+        assert!(!ctrl_port_path(1000).starts_with("/tmp/"));
     }
 
     #[test]
@@ -729,11 +773,13 @@ mod tests {
 
     #[test]
     fn write_owner_only_file_replaces_a_preexisting_permissive_file() {
-        // Simulates a local attacker (or a stale file from a crashed prior
-        // run) pre-planting the path with loose permissions before this
-        // process starts — a real risk since these are fixed, predictable
-        // paths in world-writable /tmp. The new content and 0600 mode must
-        // win regardless of what was there before.
+        // Simulates a stale file left behind by a crashed prior run (or a
+        // same-UID process that got here first) — the new content and 0600
+        // mode must win regardless of what was there before. This does NOT
+        // cover a different-UID attacker pre-planting the path in a shared,
+        // sticky directory like /tmp (create_new's remove-then-recreate
+        // can't remove a file it doesn't own); that's why ctrl_port_path/
+        // ctrl_token_path use $XDG_RUNTIME_DIR instead, not this function.
         use std::os::unix::fs::PermissionsExt;
         let path = std::env::temp_dir().join(format!(
             "linux-hello-test-preexisting-{}-{}.tmp",
