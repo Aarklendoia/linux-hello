@@ -364,9 +364,68 @@ fn control_port_file_path() -> Option<String> {
         .map(|dir| format!("{}/hello-daemon-screenlock-ctrl.port", dir))
 }
 
+/// Path of the file holding the shared-secret token every request to this
+/// server must present (see `start_screenlock_control_server`'s doc comment
+/// for why one was added). Same directory/reasoning as
+/// `control_port_file_path`.
+fn control_token_file_path() -> Option<String> {
+    std::env::var("XDG_RUNTIME_DIR")
+        .ok()
+        .map(|dir| format!("{}/hello-daemon-screenlock-ctrl.token", dir))
+}
+
+/// Generates a random 64-hex-char token, the same way
+/// `crate::preview::generate_mjpeg_token`/`linux_hello_config`'s control
+/// server do (reads 32 bytes directly from /dev/urandom via `read_exact`,
+/// not `fs::read` — the latter would block forever on a character device
+/// that never returns EOF).
+fn generate_control_token() -> String {
+    use std::io::Read;
+    let mut buf = [0u8; 32];
+    std::fs::File::open("/dev/urandom")
+        .and_then(|mut f| f.read_exact(&mut buf))
+        .expect("Unable to read /dev/urandom for the screenlock control server token");
+    buf.iter().map(|b| format!("{:02x}", b)).collect()
+}
+
+/// Compares two strings in time that doesn't depend on *where* they first
+/// differ (see `crate::preview::constant_time_eq`, which this mirrors — the
+/// token's length isn't secret, always 64 hex chars by construction, so the
+/// length check may still return early).
+fn constant_time_eq(a: &str, b: &str) -> bool {
+    let (a, b) = (a.as_bytes(), b.as_bytes());
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
+/// Extracts the `X-Linux-Hello-Token:` header's value from a raw HTTP
+/// request (same hand-rolled parsing style used elsewhere in this
+/// project — see `linux_hello_config::main::extract_token_header`).
+fn extract_token_header(req: &str) -> Option<&str> {
+    req.lines().find_map(|line| {
+        line.to_ascii_lowercase()
+            .starts_with("x-linux-hello-token:")
+            .then(|| line["x-linux-hello-token:".len()..].trim())
+    })
+}
+
 /// Start the screenlock status/retry control server
 /// (`GET /status`, `POST /retry`) on loopback, and write its port to
 /// `control_port_file_path()`.
+///
+/// Gated on a shared-secret token (see `control_token_file_path`): loopback
+/// TCP has no per-user ACL of its own, and `POST /retry` is a real
+/// state-changing action (forces a fresh camera capture/face-match attempt
+/// against whichever session this daemon instance is watching) — without a
+/// token, any other local process/user could trigger unwanted camera
+/// activation against someone else's locked session, or poll `/status` to
+/// learn unlock timing/enrollment state as a presence side-channel.
 ///
 /// Same hand-rolled raw-tokio-TCP style as `crate::preview::start_mjpeg_server`
 /// — no HTTP framework dependency.
@@ -394,6 +453,29 @@ pub async fn start_screenlock_control_server(
         ),
     }
 
+    let token = generate_control_token();
+    match control_token_file_path() {
+        Some(path) => {
+            if let Err(e) = std::fs::write(&path, &token) {
+                warn!(
+                    "Could not write screenlock control token file {}: {} \
+                     (status/retry UI in the lock screen won't authenticate)",
+                    path, e
+                );
+            } else {
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+                }
+            }
+        }
+        None => warn!(
+            "XDG_RUNTIME_DIR not set — can't write the screenlock control token file \
+             (status/retry UI in the lock screen won't authenticate)"
+        ),
+    }
+
     info!(
         "Screenlock control server: http://127.0.0.1:{}",
         SCREENLOCK_CTRL_PORT
@@ -405,8 +487,9 @@ pub async fn start_screenlock_control_server(
                 Ok((stream, _)) => {
                     let status = status.clone();
                     let retry_notify = retry_notify.clone();
+                    let token = token.clone();
                     tokio::spawn(async move {
-                        handle_control_conn(stream, status, retry_notify).await;
+                        handle_control_conn(stream, status, retry_notify, &token).await;
                     });
                 }
                 Err(e) => error!("Screenlock control server accept error: {}", e),
@@ -421,6 +504,7 @@ async fn handle_control_conn(
     mut stream: tokio::net::TcpStream,
     status: SharedScreenlockStatus,
     retry_notify: Arc<Notify>,
+    expected_token: &str,
 ) {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -432,22 +516,32 @@ async fn handle_control_conn(
     let request = String::from_utf8_lossy(&buf[..n]);
     let request_line = request.lines().next().unwrap_or("");
 
-    let body = if request_line.starts_with("POST /retry") {
+    let token_ok = extract_token_header(&request)
+        .map(|t| constant_time_eq(t, expected_token))
+        .unwrap_or(false);
+
+    let (status_code, body) = if !token_ok {
+        ("403 Forbidden", String::new())
+    } else if request_line.starts_with("POST /retry") {
         retry_notify.notify_one();
-        r#"{"ok":true}"#.to_string()
+        ("200 OK", r#"{"ok":true}"#.to_string())
     } else if request_line.starts_with("GET /status") {
         let s = status.lock().unwrap();
-        format!(
-            r#"{{"state":"{}","message":{}}}"#,
-            s.state.as_str(),
-            serde_json::to_string(&s.message).unwrap_or_else(|_| "\"\"".to_string())
+        (
+            "200 OK",
+            format!(
+                r#"{{"state":"{}","message":{}}}"#,
+                s.state.as_str(),
+                serde_json::to_string(&s.message).unwrap_or_else(|_| "\"\"".to_string())
+            ),
         )
     } else {
-        r#"{"error":"not found"}"#.to_string()
+        ("404 Not Found", r#"{"error":"not found"}"#.to_string())
     };
 
     let response = format!(
-        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        "HTTP/1.1 {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        status_code,
         body.len(),
         body
     );
@@ -508,5 +602,37 @@ mod tests {
         assert_eq!(ScreenlockState::Recognizing.as_str(), "recognizing");
         assert_eq!(ScreenlockState::Success.as_str(), "success");
         assert_eq!(ScreenlockState::Failed.as_str(), "failed");
+    }
+
+    #[test]
+    fn test_extract_token_header_finds_value_case_insensitively() {
+        let req = "GET /status HTTP/1.1\r\nHost: 127.0.0.1\r\nX-Linux-Hello-Token: abc123\r\n\r\n";
+        assert_eq!(extract_token_header(req), Some("abc123"));
+        let req_lower = "GET /status HTTP/1.1\r\nx-linux-hello-token: abc123\r\n\r\n";
+        assert_eq!(extract_token_header(req_lower), Some("abc123"));
+    }
+
+    #[test]
+    fn test_extract_token_header_none_when_missing() {
+        let req = "GET /status HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n";
+        assert_eq!(extract_token_header(req), None);
+    }
+
+    #[test]
+    fn test_constant_time_eq_matches_regular_equality() {
+        assert!(constant_time_eq("abc123", "abc123"));
+        assert!(!constant_time_eq("abc123", "abc124"));
+        assert!(!constant_time_eq("abc123", "abc12"));
+    }
+
+    #[test]
+    fn test_generate_control_token_is_64_lowercase_hex_chars_and_varies() {
+        let a = generate_control_token();
+        let b = generate_control_token();
+        assert_eq!(a.len(), 64);
+        assert!(a
+            .chars()
+            .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
+        assert_ne!(a, b);
     }
 }

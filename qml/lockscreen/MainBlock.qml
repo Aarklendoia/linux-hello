@@ -301,20 +301,33 @@ SessionManagementScreen {
             requestRetry()
         }
 
-        function _portCmd() {
-            return '$(cat "$XDG_RUNTIME_DIR/hello-daemon-screenlock-ctrl.port" 2>/dev/null)'
+        // Builds a `curl` invocation authenticated with the control
+        // server's shared-secret token (see hello_daemon::screenlock's
+        // start_screenlock_control_server doc comment for why one was
+        // added — loopback TCP has no per-user ACL, and POST /retry is a
+        // real state-changing action). Every "$(cat ...)" substitution is
+        // wrapped in its own double quotes (unlike an earlier version of
+        // this function, which left them unquoted) so the shell can't
+        // word-split or glob-expand the file's content into extra
+        // arguments — today that file only ever holds the single value the
+        // daemon itself writes there, but this is the same command
+        // Plasma5Support.DataSource's "executable" engine actually runs,
+        // so it's worth not depending on that alone.
+        function _authedCurlCmd(extraCurlArgs, path) {
+            var script = 'curl -s ' + extraCurlArgs +
+                '-H "X-Linux-Hello-Token: $(cat "$XDG_RUNTIME_DIR/hello-daemon-screenlock-ctrl.token" 2>/dev/null)" ' +
+                '"http://127.0.0.1:$(cat "$XDG_RUNTIME_DIR/hello-daemon-screenlock-ctrl.port" 2>/dev/null)' + path + '" 2>/dev/null'
+            return "sh -c '" + script + "'"
         }
 
         function pollStatus() {
             if (lhStatusSource.connectedSources.length === 0) {
-                lhStatusSource.connectSource(
-                    "sh -c 'curl -s http://127.0.0.1:" + _portCmd() + "/status 2>/dev/null'")
+                lhStatusSource.connectSource(_authedCurlCmd("", "/status"))
             }
         }
 
         function requestRetry() {
-            lhRetrySource.connectSource(
-                "sh -c 'curl -s -X POST http://127.0.0.1:" + _portCmd() + "/retry 2>/dev/null'")
+            lhRetrySource.connectSource(_authedCurlCmd("-X POST ", "/retry"))
         }
 
         P5Support.DataSource {
