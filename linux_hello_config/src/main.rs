@@ -39,12 +39,16 @@ fn main() {
     let ctrl_port = start_control_server(uid, ctrl_token.clone());
     eprintln!("🔌 Control server on port {}", ctrl_port);
     // Written to files readable from QML (Qt.environmentVariable unavailable
-    // on this build). 0600: the control server binds 127.0.0.1, reachable by
-    // any local process regardless of user — the port number alone isn't
-    // sensitive, but the token is what actually gates access to routes like
-    // /sddm-enable, which now triggers a real pkexec prompt.
-    let _ = write_owner_only_file("/tmp/linux-hello-ctrl.port", &ctrl_port.to_string());
-    let _ = write_owner_only_file("/tmp/linux-hello-ctrl.token", &ctrl_token);
+    // on this build). Namespaced per UID, like the instance lock above —
+    // without that, two different users each launching the GUI (e.g. during
+    // fast user switching) would clobber each other's port/token files,
+    // since /tmp has no per-user separation of its own. 0600: the control
+    // server binds 127.0.0.1, reachable by any local process regardless of
+    // user — the port number alone isn't sensitive, but the token is what
+    // actually gates access to routes like /sddm-enable, which now triggers
+    // a real pkexec prompt.
+    let _ = write_owner_only_file(&ctrl_port_path(uid), &ctrl_port.to_string());
+    let _ = write_owner_only_file(&ctrl_token_path(uid), &ctrl_token);
 
     // Configure the QML import paths
     let qml_import_paths = [
@@ -60,11 +64,18 @@ fn main() {
     ]
     .join(":");
 
-    // Launch qml6
+    // Launch qml6. The trailing `-- <uid>` is how the QML side learns its
+    // own UID (to find its own namespaced port/token files below):
+    // Qt.environmentVariable is unavailable on this build, so LINUX_HELLO_UID
+    // isn't readable from QML, but qml6 forwards anything after `--` into
+    // Qt.application.arguments, which is. Must stay the last argument, since
+    // the QML side reads it by position (the last element).
     let mut cmd = Command::new("qml6");
     cmd.arg("-name")
         .arg("linux-hello")
         .arg(&qml_path)
+        .arg("--")
+        .arg(uid.to_string())
         .env("LINUX_HELLO_CTRL_PORT", ctrl_port.to_string())
         .env("LINUX_HELLO_UID", uid.to_string())
         .env("QML_IMPORT_PATH", &qml_import_paths)
@@ -183,6 +194,17 @@ fn get_current_uid() -> u32 {
         .and_then(|o| String::from_utf8(o.stdout).ok())
         .and_then(|s| s.trim().parse().ok())
         .unwrap_or(1000)
+}
+
+/// Per-UID path for the control server's port file — see `write_owner_only_file`'s
+/// doc comment for why this is namespaced by UID rather than a fixed name.
+fn ctrl_port_path(uid: u32) -> String {
+    format!("/tmp/linux-hello-ctrl-{}.port", uid)
+}
+
+/// Per-UID path for the control server's auth token file (see `ctrl_port_path`).
+fn ctrl_token_path(uid: u32) -> String {
+    format!("/tmp/linux-hello-ctrl-{}.token", uid)
 }
 
 /// Generates a random 64-hex-char token for authenticating requests to the
@@ -564,6 +586,15 @@ mod tests {
             .chars()
             .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
         assert_ne!(a, b, "two calls must not produce the same token");
+    }
+
+    #[test]
+    fn ctrl_paths_are_namespaced_per_uid_and_distinct() {
+        assert_eq!(ctrl_port_path(1000), "/tmp/linux-hello-ctrl-1000.port");
+        assert_eq!(ctrl_token_path(1000), "/tmp/linux-hello-ctrl-1000.token");
+        assert_ne!(ctrl_port_path(1000), ctrl_port_path(1001));
+        assert_ne!(ctrl_token_path(1000), ctrl_token_path(1001));
+        assert_ne!(ctrl_port_path(1000), ctrl_token_path(1000));
     }
 
     #[test]
