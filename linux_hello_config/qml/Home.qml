@@ -13,6 +13,17 @@ Kirigami.Page {
     Layout.fillWidth: true
     Layout.fillHeight: true
 
+    // Standard KDE placement for an "About" entry — an icon in the page's
+    // own toolbar, always reachable regardless of daemon/SDDM state, rather
+    // than another row competing with the primary actions below.
+    actions: [
+        Kirigami.Action {
+            icon.name: "help-about-symbolic"
+            text: I18n.tr("about.title")
+            onTriggered: AppController.navigateToAboutImpl()
+        }
+    ]
+
     padding: Kirigami.Units.largeSpacing
     topPadding: Kirigami.Units.largeSpacing * 5
 

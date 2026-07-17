@@ -55,5 +55,16 @@
         "backBtn": "Voltar",
         "sample": "amostra",
         "anyFaceNote": "Qualquer rosto registado pode autenticá-lo — para sudo, desbloqueio de ecrã e em qualquer outro local onde o Linux Hello esteja ativo."
+    },
+    "about": {
+        "title": "Sobre",
+        "version": "Versão %1",
+        "tagline": "Autenticação biométrica facial para o KDE — PAM, ecrã de início de sessão SDDM e bloqueio de ecrã.",
+        "license": "Licença",
+        "author": "Autor",
+        "repository": "Repositório de código-fonte",
+        "builtWith": "Construído com Rust, Qt6 e KDE Kirigami",
+        "licenseTitle": "Licença",
+        "licenseLoading": "A carregar…"
     }
 }

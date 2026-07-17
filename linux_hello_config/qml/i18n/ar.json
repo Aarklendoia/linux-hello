@@ -55,5 +55,16 @@
         "backBtn": "رجوع",
         "sample": "عيّنة",
         "anyFaceNote": "يمكن لأي وجه مسجّل أن يوثّق هويتك — لـ sudo، وإلغاء قفل الشاشة، وفي أي مكان آخر تم فيه تفعيل Linux Hello."
+    },
+    "about": {
+        "title": "حول التطبيق",
+        "version": "الإصدار %1",
+        "tagline": "مصادقة بيومترية بالوجه لـ KDE — تدعم PAM، وشاشة تسجيل الدخول SDDM، وإلغاء قفل الشاشة.",
+        "license": "الترخيص",
+        "author": "المؤلف",
+        "repository": "مستودع المصدر",
+        "builtWith": "مبني باستخدام Rust و Qt6 و KDE Kirigami",
+        "licenseTitle": "الترخيص",
+        "licenseLoading": "جارٍ التحميل…"
     }
 }

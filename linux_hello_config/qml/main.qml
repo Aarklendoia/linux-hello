@@ -54,6 +54,18 @@ Kirigami.ApplicationWindow {
         function onNavigateToManageFacesSignal() {
             mainWindow.pageStack.replace(Qt.resolvedUrl("ManageFaces.qml"));
         }
+
+        // push (not replace): About/License are peek-and-return sub-pages,
+        // so Home stays underneath and Kirigami's own back button/gesture
+        // returns to it — unlike Enroll/ManageFaces above, which fully take
+        // over the single-column stack.
+        function onNavigateToAboutSignal() {
+            mainWindow.pageStack.push(Qt.resolvedUrl("About.qml"));
+        }
+
+        function onNavigateToLicenseSignal() {
+            mainWindow.pageStack.push(Qt.resolvedUrl("License.qml"));
+        }
     }
 
     // Home page (the only pre-created page, no ProgressBar)
