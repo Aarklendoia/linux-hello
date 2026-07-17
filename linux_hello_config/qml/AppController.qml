@@ -19,6 +19,16 @@ QtObject {
     property string lastRegisteredFaceId: ""
     property var uidNameCache: ({})
 
+    // About screen — populated from Cargo.toml via the control server's
+    // /app-info route (see main.rs's APP_VERSION/APP_LICENSE/APP_AUTHORS),
+    // never hand-typed here. licenseText is loaded lazily (only once the
+    // user actually opens the license sub-page) since it's the one sizeable
+    // payload in this file — the GPL's full text.
+    property string appVersion: ""
+    property string appLicense: ""
+    property string appAuthor: ""
+    property string licenseText: ""
+
     // State signals
     signal appProgressChanged(int value)
     signal captureCompletedSignal
@@ -28,6 +38,8 @@ QtObject {
     signal navigateToHomeSignal
     signal navigateToEnrollSignal
     signal navigateToManageFacesSignal
+    signal navigateToAboutSignal
+    signal navigateToLicenseSignal
 
     // Internal signal to restart the animation timer (which lives in main.qml)
     signal restartTimerNeeded
@@ -98,6 +110,7 @@ QtObject {
         checkDaemonStatus();
         checkSddmStatus();
         loadFaces();
+        loadAppInfo();
     }
 
     function uidToName(uid) {
@@ -286,6 +299,61 @@ QtObject {
                 controller.loadFaces();
         };
         xhr.send();
+    }
+
+    // Static per-build values (version/license/author) — cheap enough to
+    // fetch unconditionally at startup, unlike loadLicenseText() below.
+    function loadAppInfo() {
+        if (ctrlPort === "0")
+            return;
+        var xhr = new XMLHttpRequest();
+        openAuthedRequest(xhr, "/app-info");
+        xhr.onreadystatechange = function () {
+            if (xhr.readyState !== XMLHttpRequest.DONE)
+                return;
+            if (xhr.status === 200) {
+                try {
+                    var resp = JSON.parse(xhr.responseText);
+                    controller.appVersion = resp.version || "";
+                    controller.appLicense = resp.license || "";
+                    controller.appAuthor = resp.author || "";
+                } catch (e) {
+                    console.log("✗ Error parsing app info:", e);
+                }
+            }
+        };
+        xhr.send();
+    }
+
+    // The GPL's full text — only fetched once the user actually opens the
+    // license sub-page (not at startup like loadAppInfo()), and only once
+    // per session (licenseText !== "" short-circuits repeat opens).
+    function loadLicenseText() {
+        if (ctrlPort === "0" || licenseText !== "")
+            return;
+        var xhr = new XMLHttpRequest();
+        openAuthedRequest(xhr, "/license-text");
+        xhr.onreadystatechange = function () {
+            if (xhr.readyState !== XMLHttpRequest.DONE)
+                return;
+            if (xhr.status === 200) {
+                try {
+                    controller.licenseText = JSON.parse(xhr.responseText).text || "";
+                } catch (e) {
+                    console.log("✗ Error parsing license text:", e);
+                }
+            }
+        };
+        xhr.send();
+    }
+
+    function navigateToAboutImpl() {
+        navigateToAboutSignal();
+    }
+
+    function navigateToLicenseImpl() {
+        loadLicenseText();
+        navigateToLicenseSignal();
     }
 
     function navigateToHomeImpl() {

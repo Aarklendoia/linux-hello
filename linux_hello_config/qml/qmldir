@@ -4,5 +4,8 @@ singleton AppController 1.0 AppController.qml
 Home 1.0 Home.qml
 Enrollment 1.0 Enrollment.qml
 ManageFaces 1.0 ManageFaces.qml
+About 1.0 About.qml
+License 1.0 License.qml
 ActionCard 1.0 ActionCard.qml
+AboutInfoRow 1.0 AboutInfoRow.qml
 

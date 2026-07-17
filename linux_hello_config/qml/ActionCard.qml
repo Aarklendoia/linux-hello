@@ -27,7 +27,21 @@ AbstractButton {
 
     background: Rectangle {
         radius: Kirigami.Units.smallSpacing * 1.4
-        color: card.hovered ? Kirigami.Theme.hoverColor : Kirigami.Theme.backgroundColor
+        // Not Theme.hoverColor: it's a solid, fully-saturated blue in this
+        // theme, not a subtle overlay — it swallowed same-hue badges/icons
+        // sitting on top. A low-opacity textColor wash (matching this
+        // file's border convention below) stays neutral against any badge
+        // color.
+        //
+        // Qt.tint (not a plain translucent Qt.rgba) pre-blends that wash
+        // into an opaque color: backgroundColor is itself fully opaque, so
+        // animating between it and a ~6%-alpha color also animates alpha
+        // across a huge range, flashing through a much lighter/more-opaque
+        // intermediate tone before settling. Both states here are opaque,
+        // so the Behavior below only ever interpolates RGB.
+        color: card.hovered
+            ? Qt.tint(Kirigami.Theme.backgroundColor, Qt.rgba(Kirigami.Theme.textColor.r, Kirigami.Theme.textColor.g, Kirigami.Theme.textColor.b, 0.06))
+            : Kirigami.Theme.backgroundColor
         border.width: 1
         border.color: Qt.rgba(Kirigami.Theme.textColor.r, Kirigami.Theme.textColor.g, Kirigami.Theme.textColor.b, 0.15)
         opacity: card.enabled ? 1 : 0.6

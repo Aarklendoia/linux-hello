@@ -56,5 +56,16 @@
         "backBtn": "Back",
         "sample": "sample",
         "anyFaceNote": "Any registered face can authenticate you — for sudo, screen unlock, and anywhere else Linux Hello is enabled."
+    },
+    "about": {
+        "title": "About",
+        "version": "Version %1",
+        "tagline": "Face-based biometric authentication for KDE — PAM, SDDM login and screen unlock.",
+        "license": "License",
+        "author": "Author",
+        "repository": "Source repository",
+        "builtWith": "Built with Rust, Qt6 & KDE Kirigami",
+        "licenseTitle": "License",
+        "licenseLoading": "Loading…"
     }
 }
