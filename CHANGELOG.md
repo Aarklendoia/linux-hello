@@ -1,5 +1,56 @@
 # Changelog
 
+## [1.4.1](https://github.com/Aarklendoia/linux-hello/compare/v1.4.0...v1.4.1) (2026-07-17)
+
+
+### Bug Fixes
+
+* **daemon:** reject path-traversal face_id in DeleteFace ([58d4af6](https://github.com/Aarklendoia/linux-hello/commit/58d4af683bb35a040365b6658ab2c4a94bbae3a9))
+* **daemon:** reject path-traversal face_id in DeleteFace ([761cb7e](https://github.com/Aarklendoia/linux-hello/commit/761cb7e1a4eee7a4f4ecc9b10ae8a094eb29a86e))
+* **daemon:** require a token for the MJPEG camera preview server ([b0b642c](https://github.com/Aarklendoia/linux-hello/commit/b0b642cb87475b21190ead05f843abeb54a04a5f))
+* **daemon:** require a token for the MJPEG camera preview server ([31794f0](https://github.com/Aarklendoia/linux-hello/commit/31794f00b1eead98dfcbda839e026ad167804185))
+* **daemon:** require a token for the screenlock control server ([75da2d5](https://github.com/Aarklendoia/linux-hello/commit/75da2d5e30b9e09cb70412c05dd7a41bdc62881e))
+* **daemon:** require a token for the screenlock control server ([52931eb](https://github.com/Aarklendoia/linux-hello/commit/52931ebf60811796df1b815c7e77fada9cb6ff07))
+* **face-core:** avoid ort dylib-load deadlock in scrfd tests ([f49cde5](https://github.com/Aarklendoia/linux-hello/commit/f49cde51f1bc4029fcfe244b0c1be48aca8c5212))
+* **face-core:** reject truncated frame buffers instead of reading OOB ([80d2fb4](https://github.com/Aarklendoia/linux-hello/commit/80d2fb40afd9ce23a8fca7893e2009a707403e73))
+* **face-core:** reject truncated frame buffers instead of reading OOB ([da8642c](https://github.com/Aarklendoia/linux-hello/commit/da8642cf8da76a4a771d7afb667680dd04642346))
+* **gui:** close control-server auth bypass via OPTIONS substring match ([656e630](https://github.com/Aarklendoia/linux-hello/commit/656e630edbe81bca01a554ac6620e9b3af2c54d0))
+* **gui:** close control-server auth bypass via OPTIONS substring match ([86021cd](https://github.com/Aarklendoia/linux-hello/commit/86021cdaabd339c775fe90cb63f471c31815e5a4))
+* **gui:** close TOCTOU/planted-file window on control-server secrets ([b2e65d5](https://github.com/Aarklendoia/linux-hello/commit/b2e65d58af9046bf8c9e14a2170018caa2ece900))
+* **gui:** close TOCTOU/planted-file window on control-server secrets ([3c1dd58](https://github.com/Aarklendoia/linux-hello/commit/3c1dd58d39bbb9c35c6abfae0ad3c71cb8e4b770))
+* **gui:** compare the control-server auth token in constant time ([e11b433](https://github.com/Aarklendoia/linux-hello/commit/e11b433a6942ac319bf4aacb189069946b953bbe))
+* **gui:** compare the control-server auth token in constant time ([c7c55a4](https://github.com/Aarklendoia/linux-hello/commit/c7c55a4c89834beddc8fdfa60b0731facd0d20a4))
+* **gui:** localize toggleSddm()'s error messages instead of hardcoded French ([a0ebb95](https://github.com/Aarklendoia/linux-hello/commit/a0ebb953c97d382c11836425cdddfae2745e7520))
+* **gui:** localize toggleSddm()'s error messages instead of hardcoded French ([9649919](https://github.com/Aarklendoia/linux-hello/commit/96499192812a47eb85b3e0b1833c6b80efe7579e))
+* **gui:** move control-server port/token files off /tmp to $XDG_RUNTIME_DIR ([2fde11e](https://github.com/Aarklendoia/linux-hello/commit/2fde11ee2c18f4371005b308b97e3858a5f3355c))
+* **gui:** move control-server port/token files off /tmp to $XDG_RUNTIME_DIR ([e31b41d](https://github.com/Aarklendoia/linux-hello/commit/e31b41dddcfcae11948984151f054fff0b13135a))
+* **gui:** namespace control-server port/token files per UID ([9dbbc14](https://github.com/Aarklendoia/linux-hello/commit/9dbbc142ea81ef6f347ea6c7b1720dbcfe0f1d76))
+* **gui:** namespace control-server port/token files per UID ([e9b5ea8](https://github.com/Aarklendoia/linux-hello/commit/e9b5ea8804552a3b191733d15db7ca04ba293197))
+* **pam:** drop nullok from the generated polkit-1's password fallback ([1096c9b](https://github.com/Aarklendoia/linux-hello/commit/1096c9b1724b55dfc4211a78d851d561563db090))
+* **pam:** drop nullok from the generated polkit-1's password fallback ([8f29da6](https://github.com/Aarklendoia/linux-hello/commit/8f29da6a059e5ea5cf7e72b15d8bb917067d6c9e))
+* **pam:** log via syslog instead of a symlink-attackable /tmp path ([c98d89e](https://github.com/Aarklendoia/linux-hello/commit/c98d89ecc6951899cd01a24e951fb31ce3d1c2e5))
+* **pam:** log via syslog instead of a symlink-attackable /tmp path ([71f2713](https://github.com/Aarklendoia/linux-hello/commit/71f27135528932fdcd368e56a44aa566be5db483))
+* **pam:** remove the similarity_threshold PAM option, which never worked ([09d4d8f](https://github.com/Aarklendoia/linux-hello/commit/09d4d8f372eaabf12b731cf01901bf709018076b))
+* **pam:** remove the similarity_threshold PAM option, which never worked ([a3f830c](https://github.com/Aarklendoia/linux-hello/commit/a3f830c95a06c1dad9a52640c78c8445b26b6102))
+* **pam:** send install-pam.sh warnings/errors to stderr, not stdout ([ce68aa2](https://github.com/Aarklendoia/linux-hello/commit/ce68aa2f8e5eb4c86f78fb6979cbcc8bf4f369f4))
+* **pam:** send install-pam.sh warnings/errors to stderr, not stdout ([5eafecf](https://github.com/Aarklendoia/linux-hello/commit/5eafecf53e55be602999c5ebd1ae18fe273a2a43))
+* **pam:** verify the hello-daemon socket peer's UID before trusting it ([b1261e7](https://github.com/Aarklendoia/linux-hello/commit/b1261e71f2e9e66d9d341689391375f7f8ddf746))
+* **pam:** verify the hello-daemon socket peer's UID before trusting it ([75827b7](https://github.com/Aarklendoia/linux-hello/commit/75827b77ca6fe74280d7ae0d14699e45887132f3))
+
+
+### Performance Improvements
+
+* **gui:** stop re-checking install-pam.sh's presence on every /sddm-status request ([ace8857](https://github.com/Aarklendoia/linux-hello/commit/ace88573f25eb9eebbc993116a34569e794c8256))
+* **gui:** stop re-checking install-pam.sh's presence on every /sddm-status request ([a7f92e0](https://github.com/Aarklendoia/linux-hello/commit/a7f92e00f92e365596b958208a6887bbe576d4eb))
+
+
+### Code Refactoring
+
+* **gui:** drop I18n.qml's duplicate hardcoded English translations ([fdb6506](https://github.com/Aarklendoia/linux-hello/commit/fdb6506143bddc37587d736638768df81e792eb1))
+* **gui:** drop I18n.qml's duplicate hardcoded English translations ([a1026be](https://github.com/Aarklendoia/linux-hello/commit/a1026be29a9b50f4357f6c750ea94a0c1f680aef))
+* **gui:** extract shared ActionCard component from Home.qml ([b26b2d9](https://github.com/Aarklendoia/linux-hello/commit/b26b2d91077f42d60f73ec97dcfdb687a488b5b0))
+* **gui:** extract shared ActionCard component from Home.qml ([a7df401](https://github.com/Aarklendoia/linux-hello/commit/a7df401c8c6afe6add5fc8433202205b653ac50f))
+
 ## [1.4.0](https://github.com/Aarklendoia/linux-hello/compare/v1.3.0...v1.4.0) (2026-07-16)
 
 
