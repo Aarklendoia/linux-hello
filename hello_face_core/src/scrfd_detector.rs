@@ -346,10 +346,21 @@ mod tests {
     #[test]
     fn detect_rejects_a_truncated_frame_buffer_instead_of_reading_out_of_bounds() {
         let model_path = crate::default_models_dir().join("det_500m.onnx");
+        // Check for the file up front rather than letting `load` fail:
+        // when the onnxruntime dylib itself isn't installed (e.g. CI with
+        // LINUX_HELLO_NO_MODEL_DOWNLOAD=1), ort's dylib-not-found error path
+        // deadlocks instead of returning an Err (ort 2.0.0-rc.12), so we
+        // can't rely on `load` to fail fast here.
+        if !model_path.exists() {
+            eprintln!(
+                "Skipping: SCRFD model not available at {}",
+                model_path.display()
+            );
+            return;
+        }
         let Ok(detector) = ScrfdDetector::load(&model_path) else {
-            // Real model not available in this environment (e.g. CI run
-            // with LINUX_HELLO_NO_MODEL_DOWNLOAD=1) — nothing to test here,
-            // don't fail the suite over an environment gap.
+            // Real model not available in this environment — nothing to
+            // test here, don't fail the suite over an environment gap.
             eprintln!(
                 "Skipping: SCRFD model not available at {}",
                 model_path.display()
@@ -371,6 +382,16 @@ mod tests {
     #[test]
     fn detect_still_works_on_a_correctly_sized_frame() {
         let model_path = crate::default_models_dir().join("det_500m.onnx");
+        // See the comment in the test above: check existence first, since
+        // `load` can deadlock rather than error when the onnxruntime dylib
+        // itself is missing.
+        if !model_path.exists() {
+            eprintln!(
+                "Skipping: SCRFD model not available at {}",
+                model_path.display()
+            );
+            return;
+        }
         let Ok(detector) = ScrfdDetector::load(&model_path) else {
             eprintln!(
                 "Skipping: SCRFD model not available at {}",
