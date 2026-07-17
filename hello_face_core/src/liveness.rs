@@ -24,6 +24,21 @@ use crate::FaceRegion;
 /// # Returns
 /// Liveness score between 0.0 and 1.0
 pub fn ir_liveness_score(gray_frame: &[u8], w: u32, h: u32, face: &FaceRegion) -> f32 {
+    // Every read below indexes gray_frame assuming it holds at least w*h
+    // bytes, with no bounds check of its own (normalize_roi and the
+    // raw_range loop just below both do `gray_frame[(y * w + x) as usize]`
+    // unconditionally). w/h come from the caller (ultimately the
+    // V4L2-negotiated capture format) while gray_frame is a separately
+    // produced buffer that can legitimately be shorter (a truncated
+    // capture, or a driver/format mismatch — capture_gray_stream_v4l2
+    // passes the raw mmap buffer through with no stride/size adjustment of
+    // its own). Same "no decision" sentinel already used a few lines below
+    // for other degenerate inputs (tiny ROI, low dynamic range), rather
+    // than introducing a Result return here.
+    if (gray_frame.len() as u64) < (w as u64) * (h as u64) {
+        return 0.5;
+    }
+
     let (fx, fy, fw, fh) = face.bounding_box;
 
     // Clamp the ROI to the image bounds
@@ -274,6 +289,28 @@ mod tests {
             score > 0.4,
             "Textured image should give a correct score: {}",
             score
+        );
+    }
+
+    #[test]
+    fn test_liveness_rejects_a_truncated_gray_frame_instead_of_reading_out_of_bounds() {
+        // Declares 64x64 but only actually supplies 10 bytes — exactly the
+        // mismatch a truncated IR capture or a driver/format mismatch would
+        // produce (capture_gray_stream_v4l2 passes the raw mmap buffer
+        // through unadjusted). Must return the "no decision" sentinel
+        // rather than panicking.
+        let w = 64u32;
+        let h = 64u32;
+        let truncated = vec![120u8; 10];
+        let face = FaceRegion {
+            bounding_box: (8, 8, 48, 48),
+            confidence: 0.9,
+            landmarks: vec![],
+        };
+        let score = ir_liveness_score(&truncated, w, h, &face);
+        assert_eq!(
+            score, 0.5,
+            "a too-short buffer must yield the no-decision sentinel"
         );
     }
 }
