@@ -63,6 +63,45 @@ Kirigami.Page {
             color: Kirigami.Theme.textColor
         }
 
+        // No-IR security notice — hello_daemon::matcher::match_with_liveness
+        // skips the anti-spoofing liveness gate entirely when the camera has
+        // no infrared channel (AppController.hasIrCamera, from the daemon's
+        // CameraInfo D-Bus method), so authentication then relies on RGB
+        // face matching alone. Same neutralTextColor + dialog-warning
+        // convention as Home.qml's "daemon inactive" indicator.
+        Rectangle {
+            visible: !AppController.hasIrCamera
+            Layout.fillWidth: true
+            radius: Kirigami.Units.smallSpacing * 1.4
+            color: Qt.rgba(Kirigami.Theme.neutralTextColor.r, Kirigami.Theme.neutralTextColor.g, Kirigami.Theme.neutralTextColor.b, 0.12)
+            border.width: 1
+            border.color: Qt.rgba(Kirigami.Theme.neutralTextColor.r, Kirigami.Theme.neutralTextColor.g, Kirigami.Theme.neutralTextColor.b, 0.35)
+            implicitHeight: noIrWarnRow.implicitHeight + Kirigami.Units.largeSpacing
+
+            RowLayout {
+                id: noIrWarnRow
+                anchors.fill: parent
+                anchors.margins: Kirigami.Units.smallSpacing * 1.2
+                spacing: Kirigami.Units.smallSpacing * 0.8
+
+                Kirigami.Icon {
+                    source: "dialog-warning"
+                    Layout.preferredWidth: Kirigami.Units.gridUnit
+                    Layout.preferredHeight: Kirigami.Units.gridUnit
+                    Layout.alignment: Qt.AlignTop
+                    color: Kirigami.Theme.neutralTextColor
+                    isMask: true
+                }
+                Label {
+                    text: I18n.tr("enrollment.noIrWarning")
+                    font.pixelSize: 11
+                    color: Kirigami.Theme.textColor
+                    wrapMode: Text.WordWrap
+                    Layout.fillWidth: true
+                }
+            }
+        }
+
         // Camera preview with viewfinder-style corner brackets
         Item {
             id: previewRect

@@ -41,7 +41,8 @@
         "previewAnalyzing": "A analisar o rosto…",
         "previewValidating": "A validar…",
         "previewSuccess": "✓ Rosto registado com sucesso!",
-        "previewError": "✗ Erro:"
+        "previewError": "✗ Erro:",
+        "noIrWarning": "Esta câmara não tem sensor de infravermelhos: a verificação anti-falsificação está desativada, a segurança depende apenas do reconhecimento facial padrão."
     },
     "manageFaces": {
         "title": "Gerenciar rostos",

@@ -553,6 +553,44 @@ fn handle_ctrl_connection(
                 ("200 OK", format!(r#"{{"ok":false,"error":"{}"}}"#, e))
             }
         }
+    } else if req.contains("/camera-info") {
+        // Whether the active camera has an IR channel — see
+        // hello_daemon::dbus::camera_info's doc comment. No liveness gate
+        // without one, so the Enrollment screen warns the user their setup
+        // is more spoofable than the common (IR-equipped) case.
+        match Command::new("busctl")
+            .args([
+                "--user",
+                "call",
+                "com.linuxhello.FaceAuth",
+                "/com/linuxhello/FaceAuth",
+                "com.linuxhello.FaceAuth",
+                "CameraInfo",
+            ])
+            .output()
+        {
+            Ok(out) if out.status.success() => {
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                let json = extract_busctl_json(&stdout)
+                    .unwrap_or_else(|| r#"{"has_ir":true}"#.to_string());
+                ("200 OK", json)
+            }
+            Ok(out) => {
+                let err = String::from_utf8_lossy(&out.stderr)
+                    .replace('"', "\\\"")
+                    .replace('\n', " ");
+                eprintln!("✗ CameraInfo busctl stderr: {}", err);
+                // Fail open toward "has IR" rather than flashing a false
+                // security warning if the daemon is briefly unreachable —
+                // the actual liveness gate isn't affected either way, this
+                // route only feeds an informational banner.
+                ("200 OK", r#"{"has_ir":true}"#.to_string())
+            }
+            Err(e) => {
+                eprintln!("✗ CameraInfo spawn error: {}", e);
+                ("200 OK", r#"{"has_ir":true}"#.to_string())
+            }
+        }
     } else if req.contains("/list-faces") {
         match Command::new("busctl")
             .args([

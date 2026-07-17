@@ -41,7 +41,8 @@
         "previewAnalyzing": "正在分析人脸…",
         "previewValidating": "正在验证…",
         "previewSuccess": "✓ 人脸注册成功！",
-        "previewError": "✗ 错误："
+        "previewError": "✗ 错误：",
+        "noIrWarning": "此摄像头没有红外传感器：防伪活体检测已禁用，安全性仅依赖于标准人脸识别。"
     },
     "manageFaces": {
         "title": "管理脸部",
