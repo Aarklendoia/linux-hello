@@ -825,7 +825,10 @@ mod tests {
 
     #[test]
     fn json_escape_leaves_plain_text_untouched() {
-        assert_eq!(json_escape("GNU GENERAL PUBLIC LICENSE"), "GNU GENERAL PUBLIC LICENSE");
+        assert_eq!(
+            json_escape("GNU GENERAL PUBLIC LICENSE"),
+            "GNU GENERAL PUBLIC LICENSE"
+        );
     }
 
     #[test]
