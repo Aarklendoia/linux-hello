@@ -14,6 +14,19 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::thread;
 
+/// Populated by Cargo from this crate's own `Cargo.toml` at compile time
+/// (which itself inherits `version`/`license`/`authors` from the workspace
+/// root) — the About screen's version/license/author fields read these
+/// through the control server's `/app-info` route instead of a hand-typed
+/// QML string, so they can't drift from what actually got released.
+const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
+const APP_LICENSE: &str = env!("CARGO_PKG_LICENSE");
+const APP_AUTHORS: &str = env!("CARGO_PKG_AUTHORS");
+/// Full GPL text, bundled into the binary at compile time — served as-is by
+/// `/license-text` so the About screen can show it without needing the
+/// repo's LICENSE file to be installed anywhere on the target system.
+const LICENSE_TEXT: &str = include_str!("../../LICENSE");
+
 fn main() {
     // Determine the QML path
     let qml_path = find_qml_path();
@@ -370,6 +383,28 @@ fn request_method(req: &str) -> &str {
         .unwrap_or("")
 }
 
+/// Escapes a string for embedding in a JSON string literal. Needed for
+/// `/license-text`: unlike this file's other JSON bodies (short, known-shape
+/// values), the GPL text is arbitrary long-form content — it contains
+/// double quotes (license section headers) and real newlines that a naive
+/// `format!` would emit unescaped into the response body, breaking parsing
+/// on the QML side.
+fn json_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 16);
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out
+}
+
 /// Compares two strings in time that doesn't depend on *where* they first
 /// differ — unlike `==`/`!=`, which short-circuits at the first mismatching
 /// byte. Used to compare the request's token against the expected one: a
@@ -657,6 +692,23 @@ fn handle_ctrl_connection(
                 )
             }
         }
+    } else if req.contains("/app-info") {
+        // Static per-build values (see the consts' doc comments) — no
+        // busctl/D-Bus round-trip needed, unlike the routes above.
+        (
+            "200 OK",
+            format!(
+                r#"{{"version":"{}","license":"{}","author":"{}"}}"#,
+                json_escape(APP_VERSION),
+                json_escape(APP_LICENSE),
+                json_escape(APP_AUTHORS)
+            ),
+        )
+    } else if req.contains("/license-text") {
+        (
+            "200 OK",
+            format!(r#"{{"text":"{}"}}"#, json_escape(LICENSE_TEXT)),
+        )
     } else {
         ("404 Not Found", String::new())
     };
@@ -807,6 +859,43 @@ mod tests {
         assert_eq!(mode & 0o777, 0o600);
         assert_eq!(std::fs::read_to_string(path_str).unwrap(), "secret");
         let _ = std::fs::remove_file(path_str);
+    }
+
+    #[test]
+    fn json_escape_leaves_plain_text_untouched() {
+        assert_eq!(
+            json_escape("GNU GENERAL PUBLIC LICENSE"),
+            "GNU GENERAL PUBLIC LICENSE"
+        );
+    }
+
+    #[test]
+    fn json_escape_escapes_quotes_backslashes_and_newlines() {
+        assert_eq!(json_escape("a \"quoted\" word"), "a \\\"quoted\\\" word");
+        assert_eq!(json_escape("C:\\path"), "C:\\\\path");
+        assert_eq!(json_escape("line one\nline two"), "line one\\nline two");
+    }
+
+    #[test]
+    fn json_escape_result_round_trips_through_a_json_parser_shaped_check() {
+        // No JSON parser dependency in this crate (see the doc comment atop
+        // this file) — approximates "valid JSON string body" by checking
+        // that every escape sequence produced is one JSON actually defines,
+        // and no raw control character or unescaped quote slips through.
+        let escaped = json_escape("quote:\" backslash:\\ tab:\t newline:\n");
+        let mut chars = escaped.chars().peekable();
+        while let Some(c) = chars.next() {
+            assert!(c != '"', "unescaped quote in output: {:?}", escaped);
+            assert!(
+                (c as u32) >= 0x20 || c == '\\',
+                "raw control character in output: {:?}",
+                escaped
+            );
+            if c == '\\' {
+                let next = chars.next().expect("dangling backslash");
+                assert!(matches!(next, '"' | '\\' | 'n' | 'r' | 't' | 'u'));
+            }
+        }
     }
 
     #[test]

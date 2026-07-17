@@ -56,5 +56,16 @@
         "backBtn": "Zurück",
         "sample": "Probe",
         "anyFaceNote": "Jedes registrierte Gesicht kann Sie authentifizieren — für sudo, die Bildschirmsperre und überall sonst, wo Linux Hello aktiviert ist."
+    },
+    "about": {
+        "title": "Über",
+        "version": "Version %1",
+        "tagline": "Biometrische Gesichtserkennung für KDE — PAM, SDDM-Anmeldebildschirm und Bildschirmsperre.",
+        "license": "Lizenz",
+        "author": "Autor",
+        "repository": "Quell-Repository",
+        "builtWith": "Erstellt mit Rust, Qt6 & KDE Kirigami",
+        "licenseTitle": "Lizenz",
+        "licenseLoading": "Wird geladen…"
     }
 }

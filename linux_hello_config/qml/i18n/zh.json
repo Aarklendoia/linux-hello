@@ -56,5 +56,16 @@
         "backBtn": "返回",
         "sample": "样本",
         "anyFaceNote": "任何已注册的人脸都可以对您进行身份验证——适用于 sudo、解锁屏幕，以及启用了 Linux Hello 的任何地方。"
+    },
+    "about": {
+        "title": "关于",
+        "version": "版本 %1",
+        "tagline": "面向 KDE 的人脸生物识别认证 — 支持 PAM、SDDM 登录界面与屏幕解锁。",
+        "license": "许可证",
+        "author": "作者",
+        "repository": "源码仓库",
+        "builtWith": "使用 Rust、Qt6 与 KDE Kirigami 构建",
+        "licenseTitle": "许可证",
+        "licenseLoading": "加载中…"
     }
 }

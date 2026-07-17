@@ -57,5 +57,16 @@
         "backBtn": "Retour",
         "sample": "échantillon",
         "anyFaceNote": "N'importe quel visage enregistré peut vous authentifier — pour sudo, le déverrouillage d'écran, et partout où Linux Hello est activé."
+    },
+    "about": {
+        "title": "À propos",
+        "version": "Version %1",
+        "tagline": "Authentification biométrique par reconnaissance faciale pour KDE — PAM, écran de connexion SDDM et verrouillage d'écran.",
+        "license": "Licence",
+        "author": "Auteur",
+        "repository": "Dépôt source",
+        "builtWith": "Construit avec Rust, Qt6 et KDE Kirigami",
+        "licenseTitle": "Licence",
+        "licenseLoading": "Chargement…"
     }
 }

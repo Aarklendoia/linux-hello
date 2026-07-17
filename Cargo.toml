@@ -30,7 +30,7 @@ codegen-units = 16
 [workspace.package]
 version = "1.4.1"
 edition = "2021"
-authors = ["Linux Hello Contributors"]
+authors = ["Édouard Biton"]
 license = "GPL-3.0-or-later"
 
 [workspace.dependencies]

@@ -56,5 +56,16 @@
         "backBtn": "वापस",
         "sample": "नमूना",
         "anyFaceNote": "कोई भी पंजीकृत चेहरा आपको प्रमाणित कर सकता है — sudo, स्क्रीन अनलॉक और जहाँ भी Linux Hello सक्षम है।"
+    },
+    "about": {
+        "title": "परिचय",
+        "version": "संस्करण %1",
+        "tagline": "KDE के लिए चेहरे पर आधारित बायोमेट्रिक प्रमाणीकरण — PAM, SDDM लॉगिन स्क्रीन और स्क्रीन अनलॉक।",
+        "license": "लाइसेंस",
+        "author": "लेखक",
+        "repository": "सोर्स रिपॉज़िटरी",
+        "builtWith": "Rust, Qt6 और KDE Kirigami के साथ निर्मित",
+        "licenseTitle": "लाइसेंस",
+        "licenseLoading": "लोड हो रहा है…"
     }
 }

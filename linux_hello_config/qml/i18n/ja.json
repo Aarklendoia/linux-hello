@@ -56,5 +56,16 @@
         "backBtn": "戻る",
         "sample": "サンプル",
         "anyFaceNote": "登録済みのどの顔でも認証できます — sudo、画面ロック解除、その他 Linux Hello が有効な箇所すべてで。"
+    },
+    "about": {
+        "title": "このアプリについて",
+        "version": "バージョン %1",
+        "tagline": "KDE 向けの顔認証による生体認証 — PAM、SDDM ログイン画面、画面ロック解除に対応。",
+        "license": "ライセンス",
+        "author": "作者",
+        "repository": "ソースリポジトリ",
+        "builtWith": "Rust、Qt6、KDE Kirigami で構築",
+        "licenseTitle": "ライセンス",
+        "licenseLoading": "読み込み中…"
     }
 }
