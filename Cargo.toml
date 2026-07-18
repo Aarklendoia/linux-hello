@@ -28,7 +28,7 @@ lto = false
 codegen-units = 16
 
 [workspace.package]
-version = "1.4.1"
+version = "1.5.0"
 edition = "2021"
 authors = ["Édouard Biton"]
 license = "GPL-3.0-or-later"
