@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.5.0](https://github.com/Aarklendoia/linux-hello/compare/v1.4.1...v1.5.0) (2026-07-18)
+
+
+### Features
+
+* **gui:** add an About screen with version, license, and author ([f35c25e](https://github.com/Aarklendoia/linux-hello/commit/f35c25ef1d0a067ae55d83eb78e7d9008e8e47b0))
+* **gui:** add an About screen with version, license, and author ([6ba8e3b](https://github.com/Aarklendoia/linux-hello/commit/6ba8e3ba3516a1cbc64ed9e9a3dcf10821ae6cf7))
+
+
+### Bug Fixes
+
+* **enrollment:** tune the live face-detection box and warn on IR-less cameras ([0c7d817](https://github.com/Aarklendoia/linux-hello/commit/0c7d817bc006697ce24bdcfc6c4c64fff92c88d9))
+
 ## [1.4.1](https://github.com/Aarklendoia/linux-hello/compare/v1.4.0...v1.4.1) (2026-07-17)
 
 
