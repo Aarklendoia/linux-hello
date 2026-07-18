@@ -41,7 +41,8 @@
         "previewAnalyzing": "顔を分析中…",
         "previewValidating": "検証中…",
         "previewSuccess": "✓ 顔の登録に成功しました！",
-        "previewError": "✗ エラー:"
+        "previewError": "✗ エラー:",
+        "noIrWarning": "このカメラには赤外線センサーがありません。なりすまし防止のライブネスチェックは無効になり、セキュリティは通常の顔認識のみに依存します。"
     },
     "manageFaces": {
         "title": "顔を管理",

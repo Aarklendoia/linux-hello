@@ -193,6 +193,23 @@ impl FaceAuthInterface {
         Ok("pong".to_string())
     }
 
+    /// Whether the active camera has an infrared channel.
+    ///
+    /// Without one, `matcher::match_with_liveness` skips the anti-spoofing
+    /// liveness gate entirely (see its doc comment) — enrollment/auth still
+    /// work, just on RGB matching alone. The GUI uses this to warn users on
+    /// a camera without IR that their setup is more susceptible to a
+    /// photo/video spoof than the common case.
+    ///
+    /// # Returns
+    /// JSON `{"has_ir": bool}`
+    pub async fn camera_info(&self) -> zbus::fdo::Result<String> {
+        debug!("D-Bus call: camera_info");
+        let daemon = self.daemon.read().await;
+        let has_ir = daemon.camera_manager().has_ir();
+        Ok(format!(r#"{{"has_ir":{}}}"#, has_ir))
+    }
+
     /// Start a streaming capture session with signal emission
     ///
     /// Emits `CaptureProgress` D-Bus signals for each captured frame.

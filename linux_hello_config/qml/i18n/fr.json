@@ -42,7 +42,8 @@
         "previewAnalyzing": "Analyse du visage en cours…",
         "previewValidating": "Validation en cours…",
         "previewSuccess": "✓ Visage enregistré avec succès !",
-        "previewError": "✗ Erreur :"
+        "previewError": "✗ Erreur :",
+        "noIrWarning": "Cette caméra n'a pas de capteur infrarouge : la vérification anti-usurpation est désactivée, la sécurité repose uniquement sur la reconnaissance faciale standard."
     },
     "manageFaces": {
         "title": "Gérer les visages",

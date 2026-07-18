@@ -282,7 +282,12 @@ pub fn export_preview_frame_rgb(data: &[u8], width: u32, height: u32) -> anyhow:
             let smoothed = match *g {
                 None => (rx, ry, rw, rh),
                 Some((px, py, pw, ph)) => {
-                    const ALPHA: f32 = 0.35;
+                    // Higher than before (0.35): that smoothing lagged
+                    // enough behind head movement to visibly trail the
+                    // actual position (reported as the box sitting
+                    // offset/stale right after moving). Still smooths out
+                    // single-frame jitter, just converges faster.
+                    const ALPHA: f32 = 0.5;
                     (
                         px * (1.0 - ALPHA) + rx * ALPHA,
                         py * (1.0 - ALPHA) + ry * ALPHA,
@@ -405,11 +410,16 @@ fn detect_face_region(rgb: &[u8], width: u32, height: u32) -> Option<(u32, u32, 
     let cx = (sum_x / count) as u32;
     let cy = (sum_y / count) as u32;
 
-    // The box is asymmetric: 20% above the centroid (forehead/eyebrows), 22% below (chin).
-    // Width: 16% on each side.
+    // The box is asymmetric: 20% above the centroid (forehead/eyebrows), 32%
+    // below (chin/jaw). The centroid itself already sits low within the
+    // face — cheeks/nose/mouth dominate the skin-pixel count while hair
+    // typically excludes much of the forehead from it — so reaching the
+    // chin needs noticeably more margin below than above. (Previously 22%,
+    // which cropped the chin in practice.) Width: 18% on each side
+    // (previously 16% — a little tight against the jaw on some faces).
     let above = height * 20 / 100;
-    let below = height * 22 / 100;
-    let half_w = width * 16 / 100;
+    let below = height * 32 / 100;
+    let half_w = width * 18 / 100;
 
     let x = cx.saturating_sub(half_w);
     let y = cy.saturating_sub(above);

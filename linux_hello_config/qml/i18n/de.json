@@ -41,7 +41,8 @@
         "previewAnalyzing": "Gesicht wird analysiert…",
         "previewValidating": "Wird überprüft…",
         "previewSuccess": "✓ Gesicht erfolgreich registriert!",
-        "previewError": "✗ Fehler:"
+        "previewError": "✗ Fehler:",
+        "noIrWarning": "Diese Kamera hat keinen Infrarotsensor: Die Anti-Spoofing-Lebenderkennung ist deaktiviert, die Sicherheit basiert allein auf der Standard-Gesichtserkennung."
     },
     "manageFaces": {
         "title": "Gesichter verwalten",

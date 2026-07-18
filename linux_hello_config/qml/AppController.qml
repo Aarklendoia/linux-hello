@@ -19,6 +19,12 @@ QtObject {
     property string lastRegisteredFaceId: ""
     property var uidNameCache: ({})
 
+    // Whether the active camera has an IR channel — defaults to true so the
+    // Enrollment screen doesn't flash a false "weaker security" warning
+    // before this loads (or if the daemon is briefly unreachable; see
+    // /camera-info's own fail-open comment in main.rs).
+    property bool hasIrCamera: true
+
     // About screen — populated from Cargo.toml via the control server's
     // /app-info route (see main.rs's APP_VERSION/APP_LICENSE/APP_AUTHORS),
     // never hand-typed here. licenseText is loaded lazily (only once the
@@ -110,6 +116,7 @@ QtObject {
         checkDaemonStatus();
         checkSddmStatus();
         loadFaces();
+        loadCameraInfo();
         loadAppInfo();
     }
 
@@ -297,6 +304,29 @@ QtObject {
         xhr.onreadystatechange = function () {
             if (xhr.readyState === XMLHttpRequest.DONE && xhr.status === 200)
                 controller.loadFaces();
+        };
+        xhr.send();
+    }
+
+    // Whether the active camera has an IR channel — drives Enrollment.qml's
+    // weaker-security warning banner. Same fail-open reasoning as the route
+    // itself: an unreachable daemon here shouldn't flash a false warning.
+    function loadCameraInfo() {
+        if (ctrlPort === "0")
+            return;
+        var xhr = new XMLHttpRequest();
+        openAuthedRequest(xhr, "/camera-info");
+        xhr.onreadystatechange = function () {
+            if (xhr.readyState !== XMLHttpRequest.DONE)
+                return;
+            if (xhr.status === 200) {
+                try {
+                    var resp = JSON.parse(xhr.responseText);
+                    controller.hasIrCamera = resp.has_ir !== false;
+                } catch (e) {
+                    console.log("✗ Error parsing camera info:", e);
+                }
+            }
         };
         xhr.send();
     }

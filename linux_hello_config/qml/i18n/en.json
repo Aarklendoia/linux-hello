@@ -42,7 +42,8 @@
         "previewAnalyzing": "Analyzing face…",
         "previewValidating": "Validating…",
         "previewSuccess": "✓ Face registered successfully!",
-        "previewError": "✗ Error:"
+        "previewError": "✗ Error:",
+        "noIrWarning": "This camera has no infrared sensor: anti-spoofing liveness checks are disabled, so security relies on standard face recognition alone."
     },
     "manageFaces": {
         "title": "Manage Faces",
