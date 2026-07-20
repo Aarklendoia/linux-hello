@@ -321,3 +321,146 @@ async fn command_camera(duration: u64) -> anyhow::Result<()> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    fn parse(args: &[&str]) -> Cli {
+        let mut full = vec!["linux-hello"];
+        full.extend_from_slice(args);
+        Cli::try_parse_from(full).expect("valid CLI invocation should parse")
+    }
+
+    #[test]
+    fn test_enroll_parses_required_uid_and_defaults() {
+        let cli = parse(&["enroll", "1000"]);
+        match cli.command {
+            Commands::Enroll {
+                user_id,
+                context,
+                samples,
+            } => {
+                assert_eq!(user_id, 1000);
+                assert_eq!(context, "test");
+                assert_eq!(samples, 3);
+            }
+            _ => panic!("expected Enroll"),
+        }
+        assert!(!cli.verbose);
+    }
+
+    #[test]
+    fn test_enroll_parses_explicit_context_and_samples() {
+        let cli = parse(&["enroll", "1000", "--context", "sudo", "--samples", "5"]);
+        match cli.command {
+            Commands::Enroll {
+                user_id,
+                context,
+                samples,
+            } => {
+                assert_eq!(user_id, 1000);
+                assert_eq!(context, "sudo");
+                assert_eq!(samples, 5);
+            }
+            _ => panic!("expected Enroll"),
+        }
+    }
+
+    #[test]
+    fn test_enroll_requires_a_uid() {
+        let result = Cli::try_parse_from(["linux-hello", "enroll"]);
+        assert!(result.is_err(), "user_id is a required positional arg");
+    }
+
+    #[test]
+    fn test_verify_parses_defaults() {
+        let cli = parse(&["verify", "1000"]);
+        match cli.command {
+            Commands::Verify {
+                user_id,
+                context,
+                timeout,
+            } => {
+                assert_eq!(user_id, 1000);
+                assert_eq!(context, "test");
+                assert_eq!(timeout, 5000);
+            }
+            _ => panic!("expected Verify"),
+        }
+    }
+
+    #[test]
+    fn test_list_parses_uid() {
+        let cli = parse(&["list", "1000"]);
+        match cli.command {
+            Commands::List { user_id } => assert_eq!(user_id, 1000),
+            _ => panic!("expected List"),
+        }
+    }
+
+    #[test]
+    fn test_delete_parses_uid_with_no_face_id() {
+        let cli = parse(&["delete", "1000"]);
+        match cli.command {
+            Commands::Delete { user_id, face_id } => {
+                assert_eq!(user_id, 1000);
+                assert_eq!(face_id, None);
+            }
+            _ => panic!("expected Delete"),
+        }
+    }
+
+    #[test]
+    fn test_delete_parses_uid_with_a_face_id() {
+        let cli = parse(&["delete", "1000", "face_1000_123"]);
+        match cli.command {
+            Commands::Delete { user_id, face_id } => {
+                assert_eq!(user_id, 1000);
+                assert_eq!(face_id, Some("face_1000_123".to_string()));
+            }
+            _ => panic!("expected Delete"),
+        }
+    }
+
+    #[test]
+    fn test_camera_parses_default_duration() {
+        let cli = parse(&["camera"]);
+        match cli.command {
+            Commands::Camera { duration } => assert_eq!(duration, 5),
+            _ => panic!("expected Camera"),
+        }
+    }
+
+    #[test]
+    fn test_daemon_parses_debug_and_storage_flags() {
+        let cli = parse(&["daemon", "--debug", "--storage", "/tmp/x"]);
+        match cli.command {
+            Commands::Daemon { debug, storage } => {
+                assert!(debug);
+                assert_eq!(storage, Some(std::path::PathBuf::from("/tmp/x")));
+            }
+            _ => panic!("expected Daemon"),
+        }
+    }
+
+    #[test]
+    fn test_verbose_flag_is_global() {
+        // `global = true` means it must parse whether placed before or
+        // after the subcommand.
+        let cli = parse(&["--verbose", "list", "1000"]);
+        assert!(cli.verbose);
+
+        let cli = parse(&["list", "1000", "--verbose"]);
+        assert!(cli.verbose);
+    }
+
+    #[test]
+    fn test_daemon_call_error_wraps_a_generic_zbus_error() {
+        let err = daemon_call_error("Enrollment", zbus::Error::Address("bad address".into()));
+        let msg = err.to_string();
+        assert!(msg.contains("Enrollment failed"));
+        assert!(msg.contains("bad address"));
+    }
+}
