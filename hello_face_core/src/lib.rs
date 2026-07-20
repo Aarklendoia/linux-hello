@@ -556,4 +556,32 @@ mod tests {
         };
         assert!(result.to_string().contains("0.85"));
     }
+
+    #[test]
+    fn test_default_models_dir_prefers_the_env_var_override() {
+        // The env var is checked first, before any real filesystem path
+        // (the system /usr/share/linux-hello/models install, XDG_DATA_HOME,
+        // etc.), so this is safe to assert regardless of what's actually
+        // installed on the machine running the test.
+        //
+        // SAFETY: no other test in this binary reads or writes
+        // LINUX_HELLO_MODELS_DIR (grep-confirmed) — sequential save/restore
+        // within this one test, so it can't race with itself either.
+        let saved = std::env::var("LINUX_HELLO_MODELS_DIR").ok();
+
+        unsafe {
+            std::env::set_var("LINUX_HELLO_MODELS_DIR", "/scratch/override-models-dir");
+        }
+        assert_eq!(
+            default_models_dir(),
+            std::path::PathBuf::from("/scratch/override-models-dir")
+        );
+
+        unsafe {
+            match &saved {
+                Some(v) => std::env::set_var("LINUX_HELLO_MODELS_DIR", v),
+                None => std::env::remove_var("LINUX_HELLO_MODELS_DIR"),
+            }
+        }
+    }
 }
