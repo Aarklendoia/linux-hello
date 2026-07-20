@@ -59,7 +59,3 @@ jobs:
           LINUX_HELLO_NO_MODEL_DOWNLOAD: "1"
         run: |
           cargo test --all --profile ci
-
-      - name: Run clippy
-        run: |
-          cargo clippy --all -- -D warnings || true
