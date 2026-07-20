@@ -1,0 +1,50 @@
+name: Fuzz
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'hello_face_core/**'
+      - '.github/workflows/fuzz.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'hello_face_core/**'
+      - '.github/workflows/fuzz.yml'
+  workflow_dispatch:
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    strategy:
+      matrix:
+        target: [rgb_liveness_score, ir_liveness_score]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Install nightly Rust
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+
+      # Short smoke run, not a full fuzzing campaign: catches a regression
+      # in hello_face_core's buffer-indexing liveness code (the exact class
+      # of bug already found and fixed here once — a truncated/mismatched
+      # capture buffer read out of bounds) on every PR that touches it,
+      # without meaningfully slowing down CI.
+      - name: Fuzz ${{ matrix.target }} (60s smoke run)
+        working-directory: hello_face_core
+        run: cargo fuzz run ${{ matrix.target }} -- -max_total_time=60
+
+      - name: Upload crash artifacts
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fuzz-crash-${{ matrix.target }}
+          path: hello_face_core/fuzz/artifacts/${{ matrix.target }}
+          retention-days: 30

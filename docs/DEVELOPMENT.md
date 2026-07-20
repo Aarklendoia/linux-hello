@@ -120,10 +120,32 @@ The GitHub Actions workflows run automatically:
 
 - **build-debian.yml**: Builds the packages
 - **test.yml**: Runs the tests
-- **quality.yml**: Linting and security
+- **quality.yml**: Linting, security, and code coverage
+- **fuzz.yml**: 60s fuzz smoke run on `hello_face_core`'s buffer-parsing code (see [Fuzzing](#-fuzzing) below)
 - **docs.yml**: Generates the documentation
 
 See [CI_CD_INFRASTRUCTURE.md](CI_CD_INFRASTRUCTURE.md) for more details.
+
+## 🐛 Fuzzing
+
+`hello_face_core/fuzz/` has cargo-fuzz targets for `rgb_liveness_score` and
+`ir_liveness_score` — buffer/bounding-box-indexing code that has already had
+real out-of-bounds-read bugs found and fixed (a truncated/mismatched camera
+capture buffer). CI (`fuzz.yml`) runs each target for a 60s smoke test on
+every PR touching `hello_face_core`; for a real fuzzing session, run for
+longer locally:
+
+```bash
+rustup install nightly
+cargo install cargo-fuzz
+cd hello_face_core
+cargo +nightly fuzz run rgb_liveness_score -- -max_total_time=300
+cargo +nightly fuzz run ir_liveness_score -- -max_total_time=300
+```
+
+The fuzz targets build with `default-features = false` on `hello_face_core`
+(no ONNX/tract), since the liveness module is plain byte-buffer math — no
+model files or system ONNX Runtime needed to run them.
 
 ## 📝 Code Conventions
 

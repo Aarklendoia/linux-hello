@@ -1,0 +1,37 @@
+[package]
+name = "hello_face_core-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+# Standalone crate, deliberately not a member of the top-level workspace
+# (different toolchain requirement — nightly — and its own Cargo.lock).
+[workspace]
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+arbitrary = { version = "1", features = ["derive"] }
+
+[dependencies.hello_face_core]
+path = ".."
+# The liveness module fuzzed here is plain byte-buffer math with no ONNX
+# involvement — skip the default "backends" feature (tract/ort/ndarray/image)
+# entirely so the fuzz build stays fast and needs no model files on disk.
+default-features = false
+
+[[bin]]
+name = "rgb_liveness_score"
+path = "fuzz_targets/rgb_liveness_score.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ir_liveness_score"
+path = "fuzz_targets/ir_liveness_score.rs"
+test = false
+doc = false
+bench = false
