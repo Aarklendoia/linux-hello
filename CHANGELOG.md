@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.5.1](https://github.com/Aarklendoia/linux-hello/compare/v1.5.0...v1.5.1) (2026-07-20)
+
+
+### Bug Fixes
+
+* **daemon:** restrict biometric storage to owner-only permissions ([#97](https://github.com/Aarklendoia/linux-hello/issues/97)) ([b034006](https://github.com/Aarklendoia/linux-hello/commit/b0340066a511dbae4b6afce7dadb687a43f61871))
+* **liveness:** add an RGB-only fallback gate when there is no IR camera ([#100](https://github.com/Aarklendoia/linux-hello/issues/100)) ([49a9d35](https://github.com/Aarklendoia/linux-hello/commit/49a9d358233d3dbb6d013d94a00fac0ae69fa576))
+* **pam:** floor SDDM system-listener responses to close a timing side-channel ([#98](https://github.com/Aarklendoia/linux-hello/issues/98)) ([6fb44e5](https://github.com/Aarklendoia/linux-hello/commit/6fb44e571766a45e38b6c4d64aa7802df783e1c4))
+
 ## [1.5.0](https://github.com/Aarklendoia/linux-hello/compare/v1.4.1...v1.5.0) (2026-07-18)
 
 
