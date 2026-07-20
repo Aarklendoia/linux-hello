@@ -959,6 +959,69 @@ mod tests {
     }
 
     #[test]
+    fn test_uid_from_name_resolves_root() {
+        // root always exists at uid 0 on any real Linux system.
+        assert_eq!(uid_from_name("root"), Some(0));
+    }
+
+    #[test]
+    fn test_uid_from_name_returns_none_for_an_unknown_user() {
+        assert_eq!(
+            uid_from_name("this-user-definitely-does-not-exist-xyz123"),
+            None
+        );
+    }
+
+    #[test]
+    fn test_uid_from_name_returns_none_for_a_name_with_an_embedded_nul() {
+        // CString::new rejects embedded NULs; must fail closed rather than
+        // panic on a crafted username.
+        assert_eq!(uid_from_name("root\0extra"), None);
+    }
+
+    #[test]
+    fn test_pam_t_returns_empty_string_for_an_unknown_key() {
+        // The catch-all arm, independent of locale (every language-specific
+        // arm only ever matches a *known* key).
+        assert_eq!(pam_t("this_key_does_not_exist"), "");
+    }
+
+    #[test]
+    fn test_pam_t_selects_message_by_locale() {
+        // Both scenarios live in one test (rather than two) so the
+        // LC_ALL/LANG/etc mutations below never interleave with another
+        // test doing the same thing — no other test in this binary reads
+        // or writes these vars (confirmed by grep), but two tests racing
+        // on the same globals would still be flaky against each other.
+        const VARS: [&str; 4] = ["LC_ALL", "LC_MESSAGES", "LANG", "LANGUAGE"];
+        let saved: Vec<(&str, Option<String>)> =
+            VARS.iter().map(|&v| (v, std::env::var(v).ok())).collect();
+
+        unsafe {
+            for v in VARS {
+                std::env::remove_var(v);
+            }
+        }
+        assert_eq!(pam_t("looking"), "🔍 Look at the camera...");
+        assert_eq!(pam_t("recognized"), "✓ Face recognized");
+
+        unsafe {
+            std::env::set_var("LANG", "fr_FR.UTF-8");
+        }
+        assert_eq!(pam_t("recognized"), "✓ Visage reconnu");
+        assert_eq!(pam_t("not_recognized"), "✗ Visage non reconnu");
+
+        unsafe {
+            for (v, val) in saved {
+                match val {
+                    Some(val) => std::env::set_var(v, val),
+                    None => std::env::remove_var(v),
+                }
+            }
+        }
+    }
+
+    #[test]
     fn log_pam_strips_embedded_newlines() {
         // Defense in depth: even though routing through syslog (rather than
         // a file this process controls the path of) already closes the
