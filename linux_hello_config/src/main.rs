@@ -323,11 +323,24 @@ fn extract_query_param(req: &str, param: &str) -> Option<String> {
 }
 
 /// Extracts the face_id from the busctl output of a RegisterFace call.
-/// busctl format: s "{\"face_id\":\"face_1000_xxx\", ...}"
+///
+/// Real busctl output escapes embedded quotes — confirmed against a live
+/// `busctl --user call com.linuxhello.FaceAuth … CameraInfo`, which returns
+/// `s "{\"has_ir\":true}"` (backslash-escaped), not the bare `{"has_ir":true}`
+/// this function's search key used to assume. Goes through
+/// [`extract_busctl_json`] first (which already strips the `s "…"` wrapper
+/// and un-escapes `\"`/`\\`) rather than hand-rolling a second,
+/// escape-aware search here — searching the cleaned-up JSON for the plain
+/// `face_id":"` key is both simpler and reuses already-tested logic.
+///
+/// Before this fix, the key never matched real output, silently falling
+/// back to the caller's `"unknown"` default after every successful
+/// enrollment.
 fn extract_face_id_from_busctl(output: &str) -> Option<String> {
+    let json = extract_busctl_json(output)?;
     let key = "face_id\":\"";
-    let start = output.find(key)? + key.len();
-    let rest = &output[start..];
+    let start = json.find(key)? + key.len();
+    let rest = &json[start..];
     let end = rest.find('"').unwrap_or(rest.len());
     Some(rest[..end].to_string())
 }
@@ -981,19 +994,17 @@ mod tests {
     }
 
     #[test]
-    fn extract_face_id_from_busctl_finds_the_id() {
-        // NB: the function's own search key ("face_id\":\"" as *Rust source*)
-        // evaluates to the 10 literal characters `face_id":"` — i.e. it
-        // matches *unescaped* embedded quotes, not the backslash-escaped
-        // quotes shown in its doc comment's example (verified: an input
-        // with real `\"` sequences around face_id does NOT match). Testing
-        // the behavior actually implemented, not the doc comment's example —
-        // see the PR/review note flagging this as a likely pre-existing
-        // mismatch worth checking against real busctl output separately.
-        let output = r#"s "{"face_id":"face_1000_123", "quality":0.9}""#;
+    fn extract_face_id_from_busctl_finds_the_id_in_real_escaped_busctl_output() {
+        // Regression test for a real bug: busctl escapes embedded quotes in
+        // its `s "…"` string replies (confirmed against a live
+        // `busctl --user call com.linuxhello.FaceAuth … CameraInfo`, which
+        // returned exactly `s "{\"has_ir\":true}"`) — this is the actual
+        // shape a RegisterFace reply arrives in, not the bare-quote JSON
+        // used before this fix.
+        let output = r#"s "{\"face_id\":\"face_1000_1784108235\",\"registered_at\":1784108235,\"quality_score\":0.80982935}""#;
         assert_eq!(
             extract_face_id_from_busctl(output),
-            Some("face_1000_123".to_string())
+            Some("face_1000_1784108235".to_string())
         );
     }
 
