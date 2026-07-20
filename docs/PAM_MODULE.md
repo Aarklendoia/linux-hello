@@ -197,12 +197,18 @@ Known limitations (accepted, not solved):
   until *after* a successful PAM session phase (network home, per-user
   encryption), the pre-auth read sees an empty or inaccessible home and
   falls back to password — safe, but unhelpful.
-- Response time differs measurably between "no such user," "user exists but
-  never enrolled," and "enrolled → camera capture happens" (roughly 1-5s).
-  This is a mild timing side-channel: someone at the greeter (or scripting
-  repeated attempts) could infer which local accounts have enrolled a face.
-  A constant-time-floor response is a possible future hardening, not
-  implemented today.
+- Response time used to differ measurably between "no such user," "user
+  exists but never enrolled," and "enrolled → camera capture happens"
+  (roughly 1-5s) — a mild timing side-channel that let someone at the
+  greeter (or scripting repeated attempts) infer which local accounts have
+  enrolled a face. The system-listener path now floors every non-success
+  response to the caller's own `timeout_ms`, so "no such user" and "never
+  enrolled" take as long as a real capture attempt instead of returning in
+  microseconds (see `respond_with_floor` in `hello_daemon/src/pam_helper.rs`).
+  This narrows the gap but isn't a perfect constant-time guarantee — a
+  successful match can still return faster than a full failed capture
+  attempt, which isn't itself sensitive information (a success only ever
+  tells the caller they *are* the enrolled user).
 - Raw `/etc/passwd` parsing (no `getent`/NSS) won't resolve
   `systemd-homed`-only accounts, same as the automatic timer's limitation
   above.
