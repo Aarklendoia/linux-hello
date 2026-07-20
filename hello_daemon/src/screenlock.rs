@@ -635,4 +635,27 @@ mod tests {
             .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
         assert_ne!(a, b);
     }
+
+    #[test]
+    fn control_port_and_token_file_paths_are_derived_from_xdg_runtime_dir() {
+        // Read-only check against whatever XDG_RUNTIME_DIR happens to be in
+        // this process — never mutated here, so safe under concurrent test
+        // execution (unlike env vars this file/crate would need to change).
+        match std::env::var("XDG_RUNTIME_DIR") {
+            Ok(dir) => {
+                assert_eq!(
+                    control_port_file_path(),
+                    Some(format!("{dir}/hello-daemon-screenlock-ctrl.port"))
+                );
+                assert_eq!(
+                    control_token_file_path(),
+                    Some(format!("{dir}/hello-daemon-screenlock-ctrl.token"))
+                );
+            }
+            Err(_) => {
+                assert_eq!(control_port_file_path(), None);
+                assert_eq!(control_token_file_path(), None);
+            }
+        }
+    }
 }

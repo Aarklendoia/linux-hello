@@ -539,4 +539,106 @@ mod tests {
         assert_eq!(std::fs::read_to_string(path_str).unwrap(), "fresh token");
         let _ = std::fs::remove_file(path_str);
     }
+
+    #[test]
+    fn yuyv_to_rgb_gray_input_is_gray_output() {
+        // Same math as hello_camera's yuyv_to_rgb_strided, unstrided:
+        // Y=128, U=128, V=128 -> u=v=0 -> R=G=B=Y for both pixels.
+        let data = [128u8, 128, 128, 128];
+        let rgb = yuyv_to_rgb(&data, 2, 1);
+        assert_eq!(rgb, vec![128, 128, 128, 128, 128, 128]);
+    }
+
+    #[test]
+    fn yuyv_to_rgb_applies_chrominance() {
+        // Y=128, U=128 (u=0), V=200 (v=72): R=128+100=228, G=128-0-51=77, B=128.
+        let data = [128u8, 128, 128, 200];
+        let rgb = yuyv_to_rgb(&data, 2, 1);
+        assert_eq!(rgb, vec![228, 77, 128, 228, 77, 128]);
+    }
+
+    #[test]
+    fn write_frame_preview_produces_a_decodable_jpeg_of_the_right_size() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("preview.jpg");
+        // A tiny uniform-gray 4x2 YUYV frame.
+        let data = vec![128u8; 4 * 2 * 2]; // width*height*2 bytes/pixel
+        write_frame_preview(&data, 4, 2, &path).unwrap();
+
+        let decoded = image::open(&path).expect("output must be a valid image");
+        assert_eq!(decoded.width(), 4);
+        assert_eq!(decoded.height(), 2);
+    }
+
+    #[test]
+    fn detect_face_region_finds_a_synthetic_skin_colored_block() {
+        let width = 100u32;
+        let height = 100u32;
+        let mut rgb = vec![0u8; (width * height * 3) as usize];
+
+        // A block of a plausible skin tone (verified against the function's
+        // own YCbCr thresholds) within the region it actually searches
+        // (y in [height/10, height*7/10)).
+        for y in 20..50u32 {
+            for x in 30..70u32 {
+                let idx = ((y * width + x) * 3) as usize;
+                rgb[idx] = 200;
+                rgb[idx + 1] = 150;
+                rgb[idx + 2] = 120;
+            }
+        }
+
+        let (bx, by, bw, bh) =
+            detect_face_region(&rgb, width, height).expect("a skin-colored block should be found");
+
+        // Robust property rather than exact pixel equality: the returned
+        // box's center should fall within the synthetic block we drew.
+        let cx = bx + bw / 2;
+        let cy = by + bh / 2;
+        assert!((30..70).contains(&cx), "center x {cx} outside [30,70)");
+        assert!((20..50).contains(&cy), "center y {cy} outside [20,50)");
+    }
+
+    #[test]
+    fn detect_face_region_returns_none_when_no_skin_color_is_present() {
+        let width = 100u32;
+        let height = 100u32;
+        let rgb = vec![0u8; (width * height * 3) as usize]; // all black
+        assert!(detect_face_region(&rgb, width, height).is_none());
+    }
+
+    #[test]
+    fn mjpeg_token_file_path_is_derived_from_xdg_runtime_dir() {
+        // Read-only check against whatever XDG_RUNTIME_DIR happens to be in
+        // this process — never mutated here, so safe under concurrent test
+        // execution.
+        match std::env::var("XDG_RUNTIME_DIR") {
+            Ok(dir) => assert_eq!(
+                mjpeg_token_file_path(),
+                Some(format!("{dir}/hello-daemon-mjpeg.token"))
+            ),
+            Err(_) => assert_eq!(mjpeg_token_file_path(), None),
+        }
+    }
+
+    #[test]
+    fn draw_rect_rgb_colors_the_border_and_leaves_the_interior_untouched() {
+        let width = 20u32;
+        let mut rgb = vec![0u8; (width * width * 3) as usize];
+        let color = [10u8, 20, 30];
+
+        draw_rect_rgb(&mut rgb, width, 5, 5, 10, 10, color);
+
+        let pixel_at = |rgb: &[u8], x: u32, y: u32| -> [u8; 3] {
+            let idx = ((y * width + x) * 3) as usize;
+            [rgb[idx], rgb[idx + 1], rgb[idx + 2]]
+        };
+
+        // Top-left corner of the border.
+        assert_eq!(pixel_at(&rgb, 5, 5), color);
+        // Interior, well inside the 3px-thick border.
+        assert_eq!(pixel_at(&rgb, 10, 10), [0, 0, 0]);
+        // Outside the rect entirely.
+        assert_eq!(pixel_at(&rgb, 0, 0), [0, 0, 0]);
+    }
 }
