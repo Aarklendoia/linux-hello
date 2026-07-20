@@ -36,6 +36,7 @@ compile_commands.json
 # Test outputs
 test-output/
 *.profdata
+/coverage-html/
 
 # Logs
 *.log
