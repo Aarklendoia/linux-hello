@@ -21,6 +21,8 @@ pub mod pam_helper;
 pub mod preview;
 pub mod screenlock;
 pub mod storage;
+#[cfg(test)]
+mod test_support;
 
 use camera::CameraManager;
 use dbus_interface::{DeleteFaceRequest, RegisterFaceRequest, VerifyRequest, VerifyResult};
@@ -139,6 +141,26 @@ impl FaceAuthDaemon {
 
         info!("Daemon created with config: {:?}", config);
 
+        Ok(Self {
+            config,
+            storage: Arc::new(storage),
+            camera: Arc::new(camera),
+            matcher: Arc::new(matcher),
+        })
+    }
+
+    /// Same as `new()`, but takes a pre-built `CameraManager` instead of
+    /// always constructing one via `CameraManager::new(5000)` — lets tests
+    /// wire in a `CameraManager::for_test()` with fake detector/extractor
+    /// implementations, all the way through to `FaceAuthInterface`.
+    #[cfg(test)]
+    pub(crate) fn new_for_test(
+        config: DaemonConfig,
+        camera: CameraManager,
+    ) -> Result<Self, DaemonError> {
+        let storage = FaceStorage::new(&config.storage_path)
+            .map_err(|e| DaemonError::StorageError(e.to_string()))?;
+        let matcher = FaceMatcher::new(config.default_similarity_threshold);
         Ok(Self {
             config,
             storage: Arc::new(storage),
@@ -579,5 +601,269 @@ mod tests {
         record_frame_result(&mut state, match_result(true, 0.99, "face_2"), 2);
 
         assert_eq!(state.success_result.unwrap().face_id.unwrap(), "face_1");
+    }
+
+    use crate::test_support::{blank_rgb_frame, default_face_region, FakeDetector, FakeExtractor};
+
+    fn my_uid() -> u32 {
+        unsafe { libc::getuid() }
+    }
+
+    fn test_config(storage_path: std::path::PathBuf) -> DaemonConfig {
+        DaemonConfig {
+            storage_path,
+            root_mode: false,
+            current_uid: None,
+            default_similarity_threshold: 0.6,
+            debug: false,
+        }
+    }
+
+    /// A `CameraManager` pointed at a device path that can't exist, with its
+    /// own private lock file — matches camera::tests's own helper, but
+    /// that one is private to camera.rs's test module.
+    fn test_camera(
+        detector: FakeDetector,
+        extractor: FakeExtractor,
+    ) -> (tempfile::TempDir, CameraManager) {
+        let dir = tempfile::tempdir().unwrap();
+        let rgb_device = dir
+            .path()
+            .join("no-camera-here")
+            .to_string_lossy()
+            .into_owned();
+        let lock_path = dir.path().join("camera.lock");
+        let camera = CameraManager::for_test(
+            rgb_device,
+            lock_path,
+            Box::new(detector),
+            Box::new(extractor),
+        );
+        (dir, camera)
+    }
+
+    #[tokio::test]
+    async fn test_register_face_normalizes_a_single_repeated_embedding() {
+        let storage_dir = tempfile::TempDir::new().unwrap();
+        let (_cam_dir, camera) = test_camera(
+            FakeDetector::always_detects(default_face_region(640, 480)),
+            FakeExtractor::with_vector(vec![3.0, 4.0, 0.0], 0.8),
+        );
+        let daemon =
+            FaceAuthDaemon::new_for_test(test_config(storage_dir.path().to_path_buf()), camera)
+                .unwrap();
+
+        let uid = my_uid();
+        let response_json = daemon
+            .register_face(RegisterFaceRequest {
+                user_id: uid,
+                context: "test".to_string(),
+                timeout_ms: 1000,
+                num_samples: 1,
+            })
+            .await
+            .unwrap();
+        let response: dbus_interface::RegisterFaceResponse =
+            serde_json::from_str(&response_json).unwrap();
+
+        // [3,4,0] normalized -> [0.6,0.8,0.0]
+        let storage = storage::FaceStorage::new(storage_dir.path()).unwrap();
+        let embedding = storage.load_face_embedding(uid, &response.face_id).unwrap();
+        assert!((embedding.vector[0] - 0.6).abs() < 1e-5);
+        assert!((embedding.vector[1] - 0.8).abs() < 1e-5);
+        assert!(embedding.vector[2].abs() < 1e-5);
+    }
+
+    #[tokio::test]
+    async fn test_register_face_averages_multiple_distinct_embeddings() {
+        let storage_dir = tempfile::TempDir::new().unwrap();
+        let (_cam_dir, camera) = test_camera(
+            FakeDetector::always_detects(default_face_region(640, 480)),
+            FakeExtractor::sequence(vec![vec![1.0, 0.0, 0.0], vec![0.0, 1.0, 0.0]], 0.8),
+        );
+        let daemon =
+            FaceAuthDaemon::new_for_test(test_config(storage_dir.path().to_path_buf()), camera)
+                .unwrap();
+
+        let uid = my_uid();
+        let response_json = daemon
+            .register_face(RegisterFaceRequest {
+                user_id: uid,
+                context: "test".to_string(),
+                timeout_ms: 1000,
+                num_samples: 2,
+            })
+            .await
+            .unwrap();
+        let response: dbus_interface::RegisterFaceResponse =
+            serde_json::from_str(&response_json).unwrap();
+
+        // mean([1,0,0],[0,1,0]) = [0.5,0.5,0], normalized -> [0.7071,0.7071,0]
+        let storage = storage::FaceStorage::new(storage_dir.path()).unwrap();
+        let embedding = storage.load_face_embedding(uid, &response.face_id).unwrap();
+        let expected = 1.0_f32 / 2.0_f32.sqrt();
+        assert!((embedding.vector[0] - expected).abs() < 1e-4);
+        assert!((embedding.vector[1] - expected).abs() < 1e-4);
+        assert!(embedding.vector[2].abs() < 1e-5);
+    }
+
+    #[tokio::test]
+    async fn test_register_face_fails_when_no_face_ever_detected() {
+        let storage_dir = tempfile::TempDir::new().unwrap();
+        let (_cam_dir, camera) = test_camera(
+            FakeDetector::never_detects(),
+            FakeExtractor::with_vector(vec![1.0, 0.0, 0.0], 0.9),
+        );
+        let daemon =
+            FaceAuthDaemon::new_for_test(test_config(storage_dir.path().to_path_buf()), camera)
+                .unwrap();
+
+        let result = daemon
+            .register_face(RegisterFaceRequest {
+                user_id: my_uid(),
+                context: "test".to_string(),
+                timeout_ms: 1000,
+                num_samples: 2,
+            })
+            .await;
+
+        let err = result.expect_err("no face should ever be detected");
+        assert!(err.to_string().contains("No face detected"));
+    }
+
+    #[tokio::test]
+    async fn test_verify_returns_no_enrollment_when_nothing_registered() {
+        let storage_dir = tempfile::TempDir::new().unwrap();
+        let (_cam_dir, camera) = test_camera(
+            FakeDetector::always_detects(default_face_region(640, 480)),
+            FakeExtractor::with_vector(vec![1.0, 0.0, 0.0], 0.9),
+        );
+        let daemon =
+            FaceAuthDaemon::new_for_test(test_config(storage_dir.path().to_path_buf()), camera)
+                .unwrap();
+
+        let result = daemon
+            .verify(VerifyRequest {
+                user_id: my_uid(),
+                context: "test".to_string(),
+                timeout_ms: 100,
+            })
+            .await
+            .unwrap();
+
+        assert!(matches!(result, VerifyResult::NoEnrollment));
+    }
+
+    #[tokio::test]
+    async fn test_verify_returns_no_face_detected_after_enrollment_when_camera_yields_nothing() {
+        // capture_until (verify's path) never invokes its callback at all
+        // when the device can't be opened, unlike capture_frames
+        // (register_face's path) which pads with stub frames — see
+        // camera::tests::test_capture_until_with_unavailable_device_never_invokes_callback.
+        // So a fresh enrollment followed by verify against the same fake
+        // camera deterministically lands on NoFaceDetected.
+        let storage_dir = tempfile::TempDir::new().unwrap();
+        let (_cam_dir, camera) = test_camera(
+            FakeDetector::always_detects(default_face_region(640, 480)),
+            FakeExtractor::with_vector(vec![1.0, 0.0, 0.0], 0.9),
+        );
+        let daemon =
+            FaceAuthDaemon::new_for_test(test_config(storage_dir.path().to_path_buf()), camera)
+                .unwrap();
+        let uid = my_uid();
+
+        daemon
+            .register_face(RegisterFaceRequest {
+                user_id: uid,
+                context: "test".to_string(),
+                timeout_ms: 1000,
+                num_samples: 1,
+            })
+            .await
+            .unwrap();
+
+        let result = daemon
+            .verify(VerifyRequest {
+                user_id: uid,
+                context: "test".to_string(),
+                timeout_ms: 100,
+            })
+            .await
+            .unwrap();
+
+        assert!(matches!(result, VerifyResult::NoFaceDetected));
+    }
+
+    /// Chains score_frame -> matcher::match_with_liveness -> record_frame_result
+    /// directly — exactly what capture_until's closure does internally —
+    /// to exercise the actual Success/NoMatch consecutive-frame
+    /// orchestration without needing frames to flow through a real or fake
+    /// camera at all (capture_until can't help here: see the test above).
+    #[test]
+    fn test_verify_orchestration_succeeds_after_two_consecutive_matching_frames() {
+        let detector = FakeDetector::always_detects(default_face_region(640, 480));
+        let extractor = FakeExtractor::with_vector(vec![1.0, 0.0, 0.0], 0.9);
+        let frame = blank_rgb_frame(640, 480);
+
+        let mut stored = std::collections::HashMap::new();
+        stored.insert(
+            "face_1".to_string(),
+            hello_face_core::Embedding {
+                vector: vec![1.0, 0.0, 0.0],
+                metadata: hello_face_core::EmbeddingMetadata {
+                    model: "test".to_string(),
+                    model_version: "test".to_string(),
+                    extracted_at: 0,
+                    quality_score: 0.9,
+                },
+            },
+        );
+        let matcher = FaceMatcher::new(0.6);
+        let mut state = VerifyLoopState::default();
+
+        for _ in 0..2 {
+            let (embedding, rgb_liveness) =
+                camera::score_frame(&detector, &extractor, 0, &frame, 640, 480).unwrap();
+            let result =
+                matcher.match_with_liveness(&embedding, &stored, "test", None, rgb_liveness);
+            record_frame_result(&mut state, result, 2);
+        }
+
+        let success = state
+            .success_result
+            .expect("2 consecutive matches should succeed");
+        assert_eq!(success.face_id.unwrap(), "face_1");
+    }
+
+    #[test]
+    fn test_verify_orchestration_reports_no_match_for_a_dissimilar_embedding() {
+        let detector = FakeDetector::always_detects(default_face_region(640, 480));
+        // Orthogonal to the stored [1,0,0] -> cosine similarity 0.0
+        let extractor = FakeExtractor::with_vector(vec![0.0, 1.0, 0.0], 0.9);
+        let frame = blank_rgb_frame(640, 480);
+
+        let mut stored = std::collections::HashMap::new();
+        stored.insert(
+            "face_1".to_string(),
+            hello_face_core::Embedding {
+                vector: vec![1.0, 0.0, 0.0],
+                metadata: hello_face_core::EmbeddingMetadata {
+                    model: "test".to_string(),
+                    model_version: "test".to_string(),
+                    extracted_at: 0,
+                    quality_score: 0.9,
+                },
+            },
+        );
+        let matcher = FaceMatcher::new(0.6);
+        let mut state = VerifyLoopState::default();
+
+        let (embedding, rgb_liveness) =
+            camera::score_frame(&detector, &extractor, 0, &frame, 640, 480).unwrap();
+        let result = matcher.match_with_liveness(&embedding, &stored, "test", None, rgb_liveness);
+        record_frame_result(&mut state, result, 2);
+
+        assert!(state.success_result.is_none());
+        assert!(state.any_face_detected);
     }
 }

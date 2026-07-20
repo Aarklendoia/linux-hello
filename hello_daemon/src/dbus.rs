@@ -356,6 +356,25 @@ mod tests {
         (temp, FaceAuthInterface::new(daemon))
     }
 
+    /// Same as `test_interface()`, but with a caller-supplied `CameraManager`
+    /// (typically `CameraManager::for_test()` with fake detector/extractor
+    /// implementations) instead of a real one — lets register_face/verify's
+    /// happy-path branches be exercised without real hardware or ONNX.
+    fn test_interface_with_camera(
+        camera: crate::camera::CameraManager,
+    ) -> (tempfile::TempDir, FaceAuthInterface) {
+        let temp = tempfile::TempDir::new().unwrap();
+        let config = DaemonConfig {
+            storage_path: temp.path().to_path_buf(),
+            root_mode: false,
+            current_uid: None,
+            default_similarity_threshold: 0.6,
+            debug: false,
+        };
+        let daemon = FaceAuthDaemon::new_for_test(config, camera).unwrap();
+        (temp, FaceAuthInterface::new(daemon))
+    }
+
     /// `check_user_permission` compares against the *real* process UID, not
     /// anything injectable — so "acting on your own UID" in a test means
     /// this, and "a different UID" means anything else.
@@ -506,5 +525,154 @@ mod tests {
         };
         let json = serde_json::to_string(&request).unwrap();
         assert!(iface.delete_face(&json).await.is_ok());
+    }
+
+    // Happy paths for register_face/verify — previously untested here since
+    // they need a camera, and this project has already hit a real ORT-
+    // dylib-load deadlock hazard from a similar shortcut once (see
+    // hello_face_core::scrfd_detector's test comments). CameraManager::for_test()
+    // sidesteps that entirely: no ONNX, no model files, no real device.
+
+    fn fake_camera(
+        detector: crate::test_support::FakeDetector,
+        extractor: crate::test_support::FakeExtractor,
+    ) -> (tempfile::TempDir, crate::camera::CameraManager) {
+        let dir = tempfile::tempdir().unwrap();
+        let rgb_device = dir
+            .path()
+            .join("no-camera-here")
+            .to_string_lossy()
+            .into_owned();
+        let lock_path = dir.path().join("camera.lock");
+        let camera = crate::camera::CameraManager::for_test(
+            rgb_device,
+            lock_path,
+            Box::new(detector),
+            Box::new(extractor),
+        );
+        (dir, camera)
+    }
+
+    #[tokio::test]
+    async fn test_register_face_happy_path_returns_well_formed_response_json() {
+        let (_cam_dir, camera) = fake_camera(
+            crate::test_support::FakeDetector::always_detects(
+                crate::test_support::default_face_region(640, 480),
+            ),
+            crate::test_support::FakeExtractor::with_vector(vec![1.0, 0.0, 0.0], 0.9),
+        );
+        let (_temp, iface) = test_interface_with_camera(camera);
+
+        let request = RegisterFaceRequest {
+            user_id: my_uid(),
+            context: "test".to_string(),
+            timeout_ms: 1000,
+            num_samples: 1,
+        };
+        let json = serde_json::to_string(&request).unwrap();
+        let response_json = iface.register_face(&json).await.unwrap();
+        let response: crate::dbus_interface::RegisterFaceResponse =
+            serde_json::from_str(&response_json).unwrap();
+
+        assert!(!response.face_id.is_empty());
+        assert!(response.quality_score > 0.0);
+    }
+
+    #[tokio::test]
+    async fn test_register_face_happy_path_then_list_faces_shows_the_new_record() {
+        let (_cam_dir, camera) = fake_camera(
+            crate::test_support::FakeDetector::always_detects(
+                crate::test_support::default_face_region(640, 480),
+            ),
+            crate::test_support::FakeExtractor::with_vector(vec![1.0, 0.0, 0.0], 0.9),
+        );
+        let (_temp, iface) = test_interface_with_camera(camera);
+        let uid = my_uid();
+
+        let request = RegisterFaceRequest {
+            user_id: uid,
+            context: "test".to_string(),
+            timeout_ms: 1000,
+            num_samples: 1,
+        };
+        let json = serde_json::to_string(&request).unwrap();
+        let response_json = iface.register_face(&json).await.unwrap();
+        let response: crate::dbus_interface::RegisterFaceResponse =
+            serde_json::from_str(&response_json).unwrap();
+
+        let faces_json = iface.list_faces(uid).await.unwrap();
+        let faces: Vec<crate::FaceRecord> = serde_json::from_str(&faces_json).unwrap();
+        assert_eq!(faces.len(), 1);
+        assert_eq!(faces[0].face_id, response.face_id);
+    }
+
+    #[tokio::test]
+    async fn test_verify_no_enrollment_returns_well_formed_json() {
+        let (_cam_dir, camera) = fake_camera(
+            crate::test_support::FakeDetector::always_detects(
+                crate::test_support::default_face_region(640, 480),
+            ),
+            crate::test_support::FakeExtractor::with_vector(vec![1.0, 0.0, 0.0], 0.9),
+        );
+        let (_temp, iface) = test_interface_with_camera(camera);
+
+        let request = VerifyRequest {
+            user_id: my_uid(),
+            context: "test".to_string(),
+            timeout_ms: 100,
+        };
+        let json = serde_json::to_string(&request).unwrap();
+        let result_json = iface.verify(&json).await.unwrap();
+        let result: crate::dbus_interface::VerifyResult =
+            serde_json::from_str(&result_json).unwrap();
+
+        assert!(matches!(
+            result,
+            crate::dbus_interface::VerifyResult::NoEnrollment
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_verify_no_face_detected_after_enrollment_returns_well_formed_json() {
+        // Same asymmetry as lib.rs's equivalent test: capture_until never
+        // invokes its callback against an unavailable device, so a fresh
+        // enrollment followed by verify deterministically lands on
+        // NoFaceDetected rather than Success.
+        let (_cam_dir, camera) = fake_camera(
+            crate::test_support::FakeDetector::always_detects(
+                crate::test_support::default_face_region(640, 480),
+            ),
+            crate::test_support::FakeExtractor::with_vector(vec![1.0, 0.0, 0.0], 0.9),
+        );
+        let (_temp, iface) = test_interface_with_camera(camera);
+        let uid = my_uid();
+
+        let register_request = RegisterFaceRequest {
+            user_id: uid,
+            context: "test".to_string(),
+            timeout_ms: 1000,
+            num_samples: 1,
+        };
+        iface
+            .register_face(&serde_json::to_string(&register_request).unwrap())
+            .await
+            .unwrap();
+
+        let verify_request = VerifyRequest {
+            user_id: uid,
+            context: "test".to_string(),
+            timeout_ms: 100,
+        };
+        let result_json = iface
+            .verify(&serde_json::to_string(&verify_request).unwrap())
+            .await
+            .unwrap();
+        let result: crate::dbus_interface::VerifyResult =
+            serde_json::from_str(&result_json).unwrap();
+
+        assert!(matches!(
+            result,
+            crate::dbus_interface::VerifyResult::NoFaceDetected
+        ));
     }
 }

@@ -60,13 +60,13 @@ struct CameraLock {
 }
 
 impl CameraLock {
-    fn try_acquire() -> Result<Self, CameraError> {
+    fn try_acquire(path: &std::path::Path) -> Result<Self, CameraError> {
         let file = std::fs::OpenOptions::new()
             .read(true)
             .write(true)
             .create(true)
             .truncate(false)
-            .open(camera_lock_path())
+            .open(path)
             .map_err(|e| CameraError::CaptureError(format!("Camera lock file: {}", e)))?;
 
         // SAFETY: flock() on a valid, owned fd; no preconditions beyond that.
@@ -115,6 +115,12 @@ pub struct CameraManager {
     detector: Arc<Box<dyn FaceDetector>>,
     /// Embedding extractor (ArcFace or fallback)
     extractor: Arc<Box<dyn EmbeddingExtractor>>,
+    /// Override for the cross-process camera lock file path. `None` in
+    /// production (resolved via `camera_lock_path()` at acquire time, same
+    /// as before this field existed) — set by `for_test()` so concurrent
+    /// tests each get their own lock file instead of racing on the shared
+    /// `LINUX_HELLO_CAMERA_LOCK_PATH` process-global env var.
+    lock_path: Option<std::path::PathBuf>,
 }
 
 impl CameraManager {
@@ -135,7 +141,39 @@ impl CameraManager {
             ir_device: inventory.ir_device,
             detector,
             extractor,
+            lock_path: None,
         }
+    }
+
+    /// Build a `CameraManager` around injected detector/extractor fakes and
+    /// an isolated lock file, bypassing `create_detector`/`create_extractor`
+    /// (and the real ONNX/model-file dependency that comes with them)
+    /// entirely. `rgb_device` should point at a path that doesn't exist, so
+    /// the real V4L2 capture functions fail fast and fall through to their
+    /// existing (already-safe-without-hardware) stub-frame behavior.
+    #[cfg(test)]
+    pub(crate) fn for_test(
+        rgb_device: impl Into<String>,
+        lock_path: std::path::PathBuf,
+        detector: Box<dyn FaceDetector>,
+        extractor: Box<dyn EmbeddingExtractor>,
+    ) -> Self {
+        Self {
+            default_timeout_ms: 1000,
+            rgb_device: rgb_device.into(),
+            ir_device: None,
+            detector: Arc::new(detector),
+            extractor: Arc::new(extractor),
+            lock_path: Some(lock_path),
+        }
+    }
+
+    /// Resolve the lock file path to use: the test override if set, else
+    /// the same `camera_lock_path()` production default as before.
+    fn resolved_lock_path(&self) -> std::path::PathBuf {
+        self.lock_path
+            .clone()
+            .unwrap_or_else(|| std::path::PathBuf::from(camera_lock_path()))
     }
 
     /// Check whether an RGB camera is available
@@ -173,12 +211,13 @@ impl CameraManager {
 
         let rgb_device = self.rgb_device.clone();
         let ir_device = self.ir_device.clone();
+        let lock_path = self.resolved_lock_path();
 
         // RGB capture in a blocking thread (V4L2 is not async)
         let (rgb_frames, ir_frames) =
             tokio::task::spawn_blocking(move || -> Result<_, CameraError> {
                 // Held for the whole capture; released when this closure returns.
-                let _camera_lock = CameraLock::try_acquire()?;
+                let _camera_lock = CameraLock::try_acquire(&lock_path)?;
 
                 let mut rgb_frames: Vec<Frame> = Vec::new();
                 let mut ir_frames: Vec<Frame> = Vec::new();
@@ -405,10 +444,11 @@ impl CameraManager {
         let ir_device = self.ir_device.clone();
         let detector = Arc::clone(&self.detector);
         let extractor = Arc::clone(&self.extractor);
+        let lock_path = self.resolved_lock_path();
 
         tokio::task::spawn_blocking(move || -> Result<(), CameraError> {
             // Held for the whole attempt; released when this closure returns.
-            let _camera_lock = CameraLock::try_acquire()?;
+            let _camera_lock = CameraLock::try_acquire(&lock_path)?;
 
             // Sample IR liveness once at the start of the attempt (same
             // "first frame" semantics as capture_frames today).
@@ -446,34 +486,12 @@ impl CameraManager {
             let result =
                 hello_camera::capture_rgb_stream_until(&rgb_device, timeout, |data, w, h| {
                     frame_index += 1;
-                    let faces = match detector.detect(&data, w, h, 3) {
-                        Ok(f) => f,
-                        Err(e) => {
-                            warn!("SCRFD detection error frame {}: {}", frame_index, e);
-                            return false;
+                    match score_frame(&**detector, &**extractor, frame_index, &data, w, h) {
+                        Some((embedding, rgb_liveness)) => {
+                            on_frame(embedding, ir_liveness, rgb_liveness)
                         }
-                    };
-                    let Some(best_face) = faces
-                        .into_iter()
-                        .max_by(|a, b| a.confidence.total_cmp(&b.confidence))
-                    else {
-                        return false; // no face in this frame, keep going
-                    };
-                    let embedding = match extractor.extract(&best_face, &data, w, h, 3) {
-                        Ok(emb) => emb,
-                        Err(e) => {
-                            warn!("Embedding extraction frame {}: {}", frame_index, e);
-                            return false;
-                        }
-                    };
-                    // Weaker fallback signal for the (common) no-IR-camera
-                    // case — see hello_face_core::liveness::rgb_liveness_score.
-                    // Always computed (never a hiccup-prone Option) since
-                    // the RGB frame and detected face are already in hand
-                    // at this point.
-                    let rgb_liveness =
-                        hello_face_core::liveness::rgb_liveness_score(&data, w, h, &best_face);
-                    on_frame(embedding, ir_liveness, rgb_liveness)
+                        None => false, // no face / detection or extraction error: keep going
+                    }
                 });
 
             if let Err(e) = result {
@@ -584,6 +602,48 @@ impl CameraManager {
     }
 }
 
+/// Detect the best face in a frame, extract its embedding, and score its
+/// RGB-only liveness — the per-frame body of `capture_until`'s callback,
+/// pulled out as a pure function (no I/O, no `&self`) so it's directly
+/// testable with fake detector/extractor implementations and an in-memory
+/// buffer, without needing frames to flow through a real or simulated
+/// camera at all.
+///
+/// Returns `None` if no face was detected, or detection/extraction failed —
+/// callers treat that as "keep going, no verdict from this frame" rather
+/// than a hard error, same as before this was extracted.
+pub(crate) fn score_frame(
+    detector: &dyn FaceDetector,
+    extractor: &dyn EmbeddingExtractor,
+    frame_index: u32,
+    data: &[u8],
+    w: u32,
+    h: u32,
+) -> Option<(Embedding, f32)> {
+    let faces = match detector.detect(data, w, h, 3) {
+        Ok(f) => f,
+        Err(e) => {
+            warn!("SCRFD detection error frame {}: {}", frame_index, e);
+            return None;
+        }
+    };
+    let best_face = faces
+        .into_iter()
+        .max_by(|a, b| a.confidence.total_cmp(&b.confidence))?;
+    let embedding = match extractor.extract(&best_face, data, w, h, 3) {
+        Ok(emb) => emb,
+        Err(e) => {
+            warn!("Embedding extraction frame {}: {}", frame_index, e);
+            return None;
+        }
+    };
+    // Weaker fallback signal for the (common) no-IR-camera case — see
+    // hello_face_core::liveness::rgb_liveness_score. Always computed since
+    // the RGB frame and detected face are already in hand at this point.
+    let rgb_liveness = hello_face_core::liveness::rgb_liveness_score(data, w, h, &best_face);
+    Some((embedding, rgb_liveness))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -629,17 +689,13 @@ mod tests {
 
     #[test]
     fn test_camera_lock_busy_on_contention() {
-        // Point at a scratch file, not the real /run/lock/ path.
+        // A scratch file, private to this test — no process-global env var
+        // involved, so this is safe to run concurrently with any other test.
         let dir = tempfile::tempdir().unwrap();
         let lock_path = dir.path().join("camera.lock");
-        // SAFETY: this test doesn't run concurrently with anything else that
-        // reads LINUX_HELLO_CAMERA_LOCK_PATH.
-        unsafe {
-            std::env::set_var("LINUX_HELLO_CAMERA_LOCK_PATH", &lock_path);
-        }
 
-        let first = CameraLock::try_acquire().expect("first acquire should succeed");
-        let second = CameraLock::try_acquire();
+        let first = CameraLock::try_acquire(&lock_path).expect("first acquire should succeed");
+        let second = CameraLock::try_acquire(&lock_path);
         assert!(
             matches!(second, Err(CameraError::Busy)),
             "expected Busy while the first guard is still held, got {:?}",
@@ -647,10 +703,187 @@ mod tests {
         );
 
         drop(first);
-        let third = CameraLock::try_acquire();
+        let third = CameraLock::try_acquire(&lock_path);
         assert!(
             third.is_ok(),
             "expected the lock to be acquirable again after the first guard was dropped"
         );
+    }
+
+    use crate::test_support::{blank_rgb_frame, default_face_region, FakeDetector, FakeExtractor};
+
+    /// A `CameraManager` pointed at a device path that can't possibly exist,
+    /// with its own private lock file — every test below gets independent
+    /// state, no shared global (env var or otherwise).
+    fn for_test(
+        detector: FakeDetector,
+        extractor: FakeExtractor,
+    ) -> (tempfile::TempDir, CameraManager) {
+        let dir = tempfile::tempdir().unwrap();
+        let rgb_device = dir
+            .path()
+            .join("no-camera-here")
+            .to_string_lossy()
+            .into_owned();
+        let lock_path = dir.path().join("camera.lock");
+        let camera = CameraManager::for_test(
+            rgb_device,
+            lock_path,
+            Box::new(detector),
+            Box::new(extractor),
+        );
+        (dir, camera)
+    }
+
+    #[tokio::test]
+    async fn test_capture_frames_with_injected_detector_produces_expected_embeddings() {
+        let (_dir, camera) = for_test(
+            FakeDetector::always_detects(default_face_region(640, 480)),
+            FakeExtractor::with_vector(vec![1.0, 0.0, 0.0], 0.9),
+        );
+
+        let result = camera.capture_frames(3, 1000).await.unwrap();
+
+        assert_eq!(result.frames.len(), 3);
+        assert_eq!(result.embeddings.len(), 3);
+        for emb in &result.embeddings {
+            assert_eq!(emb.vector, vec![1.0, 0.0, 0.0]);
+            assert!((emb.metadata.quality_score - 0.9).abs() < 1e-6);
+        }
+        assert!((result.quality_score - 0.9).abs() < 1e-6);
+    }
+
+    #[tokio::test]
+    async fn test_capture_frames_with_never_detecting_detector_yields_empty_embeddings_and_zero_quality(
+    ) {
+        let (_dir, camera) = for_test(
+            FakeDetector::never_detects(),
+            FakeExtractor::with_vector(vec![1.0, 0.0, 0.0], 0.9),
+        );
+
+        let result = camera.capture_frames(2, 1000).await.unwrap();
+
+        assert_eq!(result.embeddings.len(), 2);
+        for emb in &result.embeddings {
+            assert!(emb.vector.is_empty());
+            assert_eq!(emb.metadata.quality_score, 0.0);
+            assert_eq!(emb.metadata.model, "no-face");
+        }
+        assert_eq!(result.quality_score, 0.0);
+    }
+
+    #[tokio::test]
+    async fn test_capture_frames_averages_mixed_per_frame_quality_scores() {
+        // Alternating detector: hit, miss, hit, miss (calls counted from 0).
+        let (_dir, camera) = for_test(
+            FakeDetector::alternating(default_face_region(640, 480)),
+            FakeExtractor::with_vector(vec![1.0, 0.0, 0.0], 0.8),
+        );
+
+        let result = camera.capture_frames(4, 1000).await.unwrap();
+
+        assert_eq!(result.embeddings.len(), 4);
+        let scores: Vec<f32> = result
+            .embeddings
+            .iter()
+            .map(|e| e.metadata.quality_score)
+            .collect();
+        assert_eq!(scores, vec![0.8, 0.0, 0.8, 0.0]);
+        assert!(
+            (result.quality_score - 0.4).abs() < 1e-6,
+            "expected the mean of [0.8, 0, 0.8, 0] = 0.4, got {}",
+            result.quality_score
+        );
+    }
+
+    #[tokio::test]
+    async fn test_capture_frames_num_frames_controls_frame_and_embedding_count() {
+        for num_frames in [1u32, 5u32] {
+            let (_dir, camera) = for_test(
+                FakeDetector::always_detects(default_face_region(640, 480)),
+                FakeExtractor::with_vector(vec![1.0, 0.0, 0.0], 0.9),
+            );
+            let result = camera.capture_frames(num_frames, 1000).await.unwrap();
+            assert_eq!(result.frames.len(), num_frames as usize);
+            assert_eq!(result.embeddings.len(), num_frames as usize);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_capture_until_with_unavailable_device_never_invokes_callback() {
+        // Locks in a real asymmetry with capture_frames: unlike
+        // capture_frames (which pads with stub frames on a capture
+        // failure), capture_rgb_stream_until never invokes its callback at
+        // all when the device can't be opened. verify()'s consecutive-
+        // match orchestration is covered separately via score_frame +
+        // matcher::match_with_liveness + record_frame_result directly,
+        // precisely because of this.
+        let (_dir, camera) = for_test(
+            FakeDetector::always_detects(default_face_region(640, 480)),
+            FakeExtractor::with_vector(vec![1.0, 0.0, 0.0], 0.9),
+        );
+
+        let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let calls_clone = calls.clone();
+        let result = camera
+            .capture_until(200, move |_embedding, _ir, _rgb| {
+                calls_clone.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                false
+            })
+            .await;
+
+        assert!(result.is_ok());
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn test_score_frame_returns_none_when_no_face_detected() {
+        let detector = FakeDetector::never_detects();
+        let extractor = FakeExtractor::with_vector(vec![1.0, 0.0, 0.0], 0.9);
+        let frame = blank_rgb_frame(64, 64);
+
+        let result = score_frame(&detector, &extractor, 0, &frame, 64, 64);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_score_frame_returns_embedding_and_rgb_liveness_when_face_detected() {
+        let detector = FakeDetector::always_detects(default_face_region(64, 64));
+        let extractor = FakeExtractor::with_vector(vec![0.6, 0.8, 0.0], 0.95);
+        let frame = blank_rgb_frame(64, 64);
+
+        let (embedding, rgb_liveness) =
+            score_frame(&detector, &extractor, 0, &frame, 64, 64).expect("face should be found");
+        assert_eq!(embedding.vector, vec![0.6, 0.8, 0.0]);
+        assert!((0.0..=1.0).contains(&rgb_liveness));
+    }
+
+    // start_capture_stream uses tokio::task::block_in_place internally,
+    // which requires a multi-threaded runtime (the default #[tokio::test]
+    // is single-threaded).
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_start_capture_stream_simulation_fallback_emits_expected_frame_count_and_shape() {
+        let (_dir, camera) = for_test(
+            FakeDetector::never_detects(),
+            FakeExtractor::with_vector(vec![], 0.0),
+        );
+
+        let events = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let events_clone = events.clone();
+        let result = camera
+            .start_capture_stream(2, 5000, move |event| {
+                events_clone.lock().unwrap().push(event);
+            })
+            .await;
+
+        assert!(result.is_ok());
+        let events = events.lock().unwrap();
+        assert_eq!(events.len(), 2);
+        for event in events.iter() {
+            assert_eq!(event.width, 640);
+            assert_eq!(event.height, 480);
+            assert_eq!(event.frame_data.len(), 640 * 480 * 3);
+            assert!(!event.face_detected);
+        }
     }
 }
