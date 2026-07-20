@@ -371,6 +371,46 @@ pub struct CameraInventory {
 /// - OR only the GREY format is supported (no YUYV or MJPG)
 ///
 /// Returns the first RGB camera found + the first IR one if available.
+/// Result of classifying a single device from its reported name and
+/// supported pixel formats — the decision `scan_cameras` makes once per
+/// `/dev/videoN`, pulled out as a pure function (no device/ioctl needed) so
+/// it's directly testable with plain strings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DeviceKind {
+    Ir,
+    Rgb,
+    Neither,
+}
+
+/// Classify a device from its `card` name and supported format list.
+///
+/// IR criteria (either one): the name contains "ir"/"infrared"
+/// (case-insensitive *substring* match, not word-boundary — e.g. a
+/// hypothetical camera named "Circle Cam" would also match on "ir"; kept
+/// as-is, unchanged from before this was extracted), or it only supports
+/// GREY/Y800 (no YUYV/MJPG/RGB). Otherwise RGB if a color format is
+/// present, else neither.
+fn classify_device(card_name: &str, formats: &[String]) -> DeviceKind {
+    let is_ir_by_name = {
+        let card = card_name.to_lowercase();
+        card.contains("ir") || card.contains("infrared")
+    };
+    let has_grey = formats
+        .iter()
+        .any(|f| f.contains("GREY") || f.contains("Y800"));
+    let has_color = formats
+        .iter()
+        .any(|f| f.contains("YUYV") || f.contains("MJPG") || f.contains("RGB"));
+
+    if is_ir_by_name || (has_grey && !has_color) {
+        DeviceKind::Ir
+    } else if has_color {
+        DeviceKind::Rgb
+    } else {
+        DeviceKind::Neither
+    }
+}
+
 #[cfg(feature = "v4l2")]
 pub fn scan_cameras() -> CameraInventory {
     use v4l::video::Capture;
@@ -384,15 +424,10 @@ pub fn scan_cameras() -> CameraInventory {
             continue;
         };
 
-        // Read the capabilities for the device name
-        let is_ir_by_name = v4l::Device::query_caps(&dev)
-            .map(|caps| {
-                let card = caps.card.to_lowercase();
-                card.contains("ir") || card.contains("infrared")
-            })
-            .unwrap_or(false);
+        let card_name = v4l::Device::query_caps(&dev)
+            .map(|caps| caps.card)
+            .unwrap_or_default();
 
-        // Read the supported formats
         let formats: Vec<String> = dev
             .enum_formats()
             .unwrap_or_default()
@@ -400,30 +435,24 @@ pub fn scan_cameras() -> CameraInventory {
             .map(|f| f.fourcc.str().unwrap_or_default().to_string())
             .collect();
 
-        let has_grey = formats
-            .iter()
-            .any(|f| f.contains("GREY") || f.contains("Y800"));
-        let has_color = formats
-            .iter()
-            .any(|f| f.contains("YUYV") || f.contains("MJPG") || f.contains("RGB"));
-
-        // IR camera: named IR or GREY-only
-        let is_ir = is_ir_by_name || (has_grey && !has_color);
-
-        if is_ir && ir.is_none() {
-            tracing::info!(
-                "IR camera detected: {} (formats: {})",
-                path,
-                formats.join(", ")
-            );
-            ir = Some(path);
-        } else if !is_ir && has_color && rgb.is_none() {
-            tracing::info!(
-                "RGB camera detected: {} (formats: {})",
-                path,
-                formats.join(", ")
-            );
-            rgb = Some(path);
+        match classify_device(&card_name, &formats) {
+            DeviceKind::Ir if ir.is_none() => {
+                tracing::info!(
+                    "IR camera detected: {} (formats: {})",
+                    path,
+                    formats.join(", ")
+                );
+                ir = Some(path);
+            }
+            DeviceKind::Rgb if rgb.is_none() => {
+                tracing::info!(
+                    "RGB camera detected: {} (formats: {})",
+                    path,
+                    formats.join(", ")
+                );
+                rgb = Some(path);
+            }
+            _ => {}
         }
     }
 
@@ -756,5 +785,77 @@ mod tests {
         // cameras (if any) actually exist on the test machine.
         let camera = create_camera(CameraConfig::default()).unwrap();
         assert!(!camera.is_open());
+    }
+
+    #[test]
+    fn test_classify_device_ir_by_name() {
+        // Real card name from this session's hardware (HP IR Camera),
+        // reporting the same GREY-only format set an IR sensor typically
+        // does — name-based classification should still be what fires.
+        assert_eq!(
+            classify_device("HP IR Camera", &["GREY".to_string()]),
+            DeviceKind::Ir
+        );
+        // Case-insensitive, and the "infrared" spelling.
+        assert_eq!(
+            classify_device("Some Infrared Sensor", &["YUYV".to_string()]),
+            DeviceKind::Ir
+        );
+    }
+
+    #[test]
+    fn test_classify_device_ir_by_format_only_when_grey_and_no_color() {
+        assert_eq!(
+            classify_device("Generic Camera", &["GREY".to_string()]),
+            DeviceKind::Ir
+        );
+        assert_eq!(
+            classify_device("Generic Camera", &["Y800".to_string()]),
+            DeviceKind::Ir
+        );
+    }
+
+    #[test]
+    fn test_classify_device_rgb_when_color_format_present_and_not_ir_named() {
+        assert_eq!(
+            classify_device("HP 5MP Camera", &["YUYV".to_string()]),
+            DeviceKind::Rgb
+        );
+        assert_eq!(
+            classify_device("Generic Webcam", &["MJPG".to_string()]),
+            DeviceKind::Rgb
+        );
+    }
+
+    #[test]
+    fn test_classify_device_neither_without_grey_or_color() {
+        assert_eq!(
+            classify_device("Unknown Device", &["SOMETHING_ELSE".to_string()]),
+            DeviceKind::Neither
+        );
+        assert_eq!(classify_device("Unknown Device", &[]), DeviceKind::Neither);
+    }
+
+    #[test]
+    fn test_classify_device_ir_name_wins_even_with_a_color_format_present() {
+        // A device claiming to be IR by name but also reporting a color
+        // format (unusual, but the name check is checked first/is an "OR")
+        // still classifies as IR — matches scan_cameras's original
+        // if/else-if precedence before this was extracted.
+        assert_eq!(
+            classify_device("HP IR Camera", &["YUYV".to_string()]),
+            DeviceKind::Ir
+        );
+    }
+
+    #[test]
+    fn test_classify_device_grey_and_color_together_is_rgb_not_ir() {
+        // has_grey && !has_color is the IR-by-format condition — a device
+        // reporting BOTH isn't classified as IR on format grounds alone
+        // (only a name match could make it IR in that case).
+        assert_eq!(
+            classify_device("Generic Camera", &["GREY".to_string(), "YUYV".to_string()]),
+            DeviceKind::Rgb
+        );
     }
 }
