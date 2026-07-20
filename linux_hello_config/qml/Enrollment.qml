@@ -64,11 +64,11 @@ Kirigami.Page {
         }
 
         // No-IR security notice — hello_daemon::matcher::match_with_liveness
-        // skips the anti-spoofing liveness gate entirely when the camera has
-        // no infrared channel (AppController.hasIrCamera, from the daemon's
-        // CameraInfo D-Bus method), so authentication then relies on RGB
-        // face matching alone. Same neutralTextColor + dialog-warning
-        // convention as Home.qml's "daemon inactive" indicator.
+        // falls back to a weaker RGB-only liveness heuristic when the camera
+        // has no infrared channel (AppController.hasIrCamera, from the
+        // daemon's CameraInfo D-Bus method) instead of the well-validated IR
+        // gate. Same neutralTextColor + dialog-warning convention as
+        // Home.qml's "daemon inactive" indicator.
         Rectangle {
             visible: !AppController.hasIrCamera
             Layout.fillWidth: true

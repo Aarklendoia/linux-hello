@@ -42,7 +42,7 @@
         "previewValidating": "Validando…",
         "previewSuccess": "✓ ¡Rostro registrado correctamente!",
         "previewError": "✗ Error:",
-        "noIrWarning": "Esta cámara no tiene sensor infrarrojo: la verificación anti-suplantación está desactivada, la seguridad depende únicamente del reconocimiento facial estándar."
+        "noIrWarning": "Esta cámara no tiene sensor infrarrojo: la verificación anti-suplantación recurre a una heurística más débil basada solo en RGB, por lo que la seguridad es más vulnerable a la suplantación por foto o vídeo que con infrarrojos."
     },
     "manageFaces": {
         "title": "Gestionar rostros",

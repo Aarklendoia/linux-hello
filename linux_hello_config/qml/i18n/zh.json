@@ -42,7 +42,7 @@
         "previewValidating": "正在验证…",
         "previewSuccess": "✓ 人脸注册成功！",
         "previewError": "✗ 错误：",
-        "noIrWarning": "此摄像头没有红外传感器：防伪活体检测已禁用，安全性仅依赖于标准人脸识别。"
+        "noIrWarning": "此摄像头没有红外传感器：防伪活体检测将改用较弱的纯RGB启发式方法，因此相较于配备红外线的摄像头，更容易受到照片/视频伪造攻击。"
     },
     "manageFaces": {
         "title": "管理脸部",

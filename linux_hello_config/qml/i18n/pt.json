@@ -42,7 +42,7 @@
         "previewValidating": "A validar…",
         "previewSuccess": "✓ Rosto registado com sucesso!",
         "previewError": "✗ Erro:",
-        "noIrWarning": "Esta câmara não tem sensor de infravermelhos: a verificação anti-falsificação está desativada, a segurança depende apenas do reconhecimento facial padrão."
+        "noIrWarning": "Esta câmara não tem sensor de infravermelhos: a verificação anti-falsificação recorre a uma heurística mais fraca baseada apenas em RGB, tornando a segurança mais vulnerável a uma falsificação por foto/vídeo do que com infravermelhos."
     },
     "manageFaces": {
         "title": "Gerenciar rostos",

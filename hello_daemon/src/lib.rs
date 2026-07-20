@@ -435,12 +435,20 @@ pub async fn verify_with_storage(
     let stored_clone = Arc::clone(&stored_embeddings);
 
     camera
-        .capture_until(request.timeout_ms, move |embedding, ir_liveness| {
-            let result =
-                matcher.match_with_liveness(&embedding, &stored_clone, &context, ir_liveness);
-            let mut s = state_clone.lock().unwrap();
-            record_frame_result(&mut s, result, REQUIRED_CONSECUTIVE_MATCHES)
-        })
+        .capture_until(
+            request.timeout_ms,
+            move |embedding, ir_liveness, rgb_liveness| {
+                let result = matcher.match_with_liveness(
+                    &embedding,
+                    &stored_clone,
+                    &context,
+                    ir_liveness,
+                    rgb_liveness,
+                );
+                let mut s = state_clone.lock().unwrap();
+                record_frame_result(&mut s, result, REQUIRED_CONSECUTIVE_MATCHES)
+            },
+        )
         .await
         .map_err(|e| DaemonError::CameraError(e.to_string()))?;
 

@@ -369,9 +369,12 @@ impl CameraManager {
     /// with a once-per-session IR liveness score (sampled from a single IR
     /// frame at the very start — same "first frame" semantics
     /// `capture_frames` already used; periodic re-sampling across the
-    /// window would be a nice future improvement, not required now). Stops
-    /// as soon as `on_frame` returns `true` ("I've decided, stop") or the
-    /// deadline elapses.
+    /// window would be a nice future improvement, not required now) and a
+    /// per-frame RGB-only liveness score (always computed fresh — see
+    /// `hello_face_core::liveness::rgb_liveness_score` — since it's the
+    /// fallback used when there's no IR camera to sample from at all).
+    /// Stops as soon as `on_frame` returns `true` ("I've decided, stop") or
+    /// the deadline elapses.
     ///
     /// Used by `verify()`'s attempt loop so the camera stays visibly
     /// engaged for the whole window instead of a fixed quick burst —
@@ -383,7 +386,7 @@ impl CameraManager {
         mut on_frame: F,
     ) -> Result<(), CameraError>
     where
-        F: FnMut(Embedding, Option<f32>) -> bool + Send + 'static,
+        F: FnMut(Embedding, Option<f32>, f32) -> bool + Send + 'static,
     {
         let timeout = if timeout_ms == 0 {
             self.default_timeout_ms
@@ -463,7 +466,14 @@ impl CameraManager {
                             return false;
                         }
                     };
-                    on_frame(embedding, ir_liveness)
+                    // Weaker fallback signal for the (common) no-IR-camera
+                    // case — see hello_face_core::liveness::rgb_liveness_score.
+                    // Always computed (never a hiccup-prone Option) since
+                    // the RGB frame and detected face are already in hand
+                    // at this point.
+                    let rgb_liveness =
+                        hello_face_core::liveness::rgb_liveness_score(&data, w, h, &best_face);
+                    on_frame(embedding, ir_liveness, rgb_liveness)
                 });
 
             if let Err(e) = result {
