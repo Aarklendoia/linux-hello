@@ -591,4 +591,147 @@ mod tests {
             "must not add extra delay once the floor has already elapsed"
         );
     }
+
+    fn my_uid() -> u32 {
+        unsafe { libc::getuid() }
+    }
+
+    fn not_my_uid() -> u32 {
+        let uid = my_uid();
+        if uid == 1 {
+            2
+        } else {
+            1
+        }
+    }
+
+    /// A `FaceAuthDaemon` wrapped the same way `start_pam_helper` expects,
+    /// backed by a fake camera (no hardware/ONNX) and a tempdir-scoped
+    /// storage — mirrors `dbus::tests::test_interface_with_camera`, which
+    /// can't be reused directly since it builds a `FaceAuthInterface`, not
+    /// a bare `Arc<RwLock<FaceAuthDaemon>>`.
+    fn test_daemon() -> (
+        tempfile::TempDir,
+        tempfile::TempDir,
+        Arc<tokio::sync::RwLock<crate::FaceAuthDaemon>>,
+    ) {
+        let storage_dir = tempfile::TempDir::new().unwrap();
+        let cam_dir = tempfile::TempDir::new().unwrap();
+        let rgb_device = cam_dir
+            .path()
+            .join("no-camera-here")
+            .to_string_lossy()
+            .into_owned();
+        let lock_path = cam_dir.path().join("camera.lock");
+        let camera = crate::camera::CameraManager::for_test(
+            rgb_device,
+            lock_path,
+            Box::new(crate::test_support::FakeDetector::always_detects(
+                crate::test_support::default_face_region(640, 480),
+            )),
+            Box::new(crate::test_support::FakeExtractor::with_vector(
+                vec![1.0, 0.0, 0.0],
+                0.9,
+            )),
+        );
+        let config = crate::DaemonConfig {
+            storage_path: storage_dir.path().to_path_buf(),
+            root_mode: false,
+            current_uid: None,
+            default_similarity_threshold: 0.6,
+            debug: false,
+        };
+        let daemon = crate::FaceAuthDaemon::new_for_test(config, camera).unwrap();
+        (
+            storage_dir,
+            cam_dir,
+            Arc::new(tokio::sync::RwLock::new(daemon)),
+        )
+    }
+
+    #[tokio::test]
+    async fn test_reject_writes_a_failure_response_and_closes_the_stream() {
+        let (a, b) = tokio::net::UnixStream::pair().unwrap();
+        reject(a, "some reason").await.unwrap();
+
+        let mut buf = Vec::new();
+        let mut b = b;
+        b.read_to_end(&mut buf).await.unwrap();
+        let response: PamHelperResponse = serde_json::from_slice(&buf).unwrap();
+        match response {
+            PamHelperResponse::Failure { reason } => assert_eq!(reason, "some reason"),
+            PamHelperResponse::Success { .. } => panic!("expected Failure"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_handle_pam_request_rejects_malformed_json_and_closes_the_connection() {
+        let (_storage_dir, _cam_dir, daemon) = test_daemon();
+        let (a, mut b) = tokio::net::UnixStream::pair().unwrap();
+
+        b.write_all(b"not json").await.unwrap();
+        b.shutdown().await.unwrap();
+
+        let result = handle_pam_request(a, daemon).await;
+        assert!(result.is_err());
+
+        let mut buf = Vec::new();
+        b.read_to_end(&mut buf).await.unwrap();
+        assert!(buf.is_empty(), "no response should be written on bad JSON");
+    }
+
+    #[tokio::test]
+    async fn test_handle_pam_request_rejects_a_different_users_uid() {
+        if my_uid() == 0 {
+            return; // root can act on any UID; the check is a no-op then
+        }
+        let (_storage_dir, _cam_dir, daemon) = test_daemon();
+        let (a, mut b) = tokio::net::UnixStream::pair().unwrap();
+
+        let req = PamHelperRequest {
+            user_id: not_my_uid(),
+            context: "test".to_string(),
+            timeout_ms: 100,
+        };
+        b.write_all(serde_json::to_string(&req).unwrap().as_bytes())
+            .await
+            .unwrap();
+        b.shutdown().await.unwrap();
+
+        handle_pam_request(a, daemon).await.unwrap();
+
+        let mut buf = Vec::new();
+        b.read_to_end(&mut buf).await.unwrap();
+        let response: PamHelperResponse = serde_json::from_slice(&buf).unwrap();
+        match response {
+            PamHelperResponse::Failure { reason } => assert!(reason.contains("Unauthorized")),
+            PamHelperResponse::Success { .. } => panic!("expected Failure"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_handle_pam_request_happy_path_with_no_enrollment() {
+        let (_storage_dir, _cam_dir, daemon) = test_daemon();
+        let (a, mut b) = tokio::net::UnixStream::pair().unwrap();
+
+        let req = PamHelperRequest {
+            user_id: my_uid(),
+            context: "test".to_string(),
+            timeout_ms: 100,
+        };
+        b.write_all(serde_json::to_string(&req).unwrap().as_bytes())
+            .await
+            .unwrap();
+        b.shutdown().await.unwrap();
+
+        handle_pam_request(a, daemon).await.unwrap();
+
+        let mut buf = Vec::new();
+        b.read_to_end(&mut buf).await.unwrap();
+        let response: PamHelperResponse = serde_json::from_slice(&buf).unwrap();
+        match response {
+            PamHelperResponse::Failure { reason } => assert_eq!(reason, "Face not recognized"),
+            PamHelperResponse::Success { .. } => panic!("expected Failure: nothing is enrolled"),
+        }
+    }
 }

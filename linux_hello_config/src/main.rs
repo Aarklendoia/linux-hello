@@ -323,11 +323,24 @@ fn extract_query_param(req: &str, param: &str) -> Option<String> {
 }
 
 /// Extracts the face_id from the busctl output of a RegisterFace call.
-/// busctl format: s "{\"face_id\":\"face_1000_xxx\", ...}"
+///
+/// Real busctl output escapes embedded quotes — confirmed against a live
+/// `busctl --user call com.linuxhello.FaceAuth … CameraInfo`, which returns
+/// `s "{\"has_ir\":true}"` (backslash-escaped), not the bare `{"has_ir":true}`
+/// this function's search key used to assume. Goes through
+/// [`extract_busctl_json`] first (which already strips the `s "…"` wrapper
+/// and un-escapes `\"`/`\\`) rather than hand-rolling a second,
+/// escape-aware search here — searching the cleaned-up JSON for the plain
+/// `face_id":"` key is both simpler and reuses already-tested logic.
+///
+/// Before this fix, the key never matched real output, silently falling
+/// back to the caller's `"unknown"` default after every successful
+/// enrollment.
 fn extract_face_id_from_busctl(output: &str) -> Option<String> {
+    let json = extract_busctl_json(output)?;
     let key = "face_id\":\"";
-    let start = output.find(key)? + key.len();
-    let rest = &output[start..];
+    let start = json.find(key)? + key.len();
+    let rest = &json[start..];
     let end = rest.find('"').unwrap_or(rest.len());
     Some(rest[..end].to_string())
 }
@@ -926,5 +939,77 @@ mod tests {
         assert_eq!(mode & 0o777, 0o600);
         assert_eq!(std::fs::read_to_string(path_str).unwrap(), "secret");
         let _ = std::fs::remove_file(path_str);
+    }
+
+    #[test]
+    fn extract_busctl_json_unwraps_the_s_quoted_string() {
+        assert_eq!(
+            extract_busctl_json("s \"hello world\"\n"),
+            Some("hello world".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_busctl_json_unescapes_quotes_and_backslashes() {
+        assert_eq!(
+            extract_busctl_json(r#"s "he said \"hi\"""#),
+            Some(r#"he said "hi""#.to_string())
+        );
+        assert_eq!(extract_busctl_json(r#"s "a\\b""#), Some(r"a\b".to_string()));
+    }
+
+    #[test]
+    fn extract_busctl_json_none_for_unrecognized_output() {
+        assert_eq!(extract_busctl_json("not the expected format"), None);
+        assert_eq!(extract_busctl_json(""), None);
+    }
+
+    #[test]
+    fn extract_query_param_finds_the_value() {
+        assert_eq!(
+            extract_query_param("GET /delete-face?id=abc123 HTTP/1.1\r\n", "id"),
+            Some("abc123".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_query_param_stops_at_the_next_param_or_line_end() {
+        assert_eq!(
+            extract_query_param("GET /x?a=1&id=abc123&b=2 HTTP/1.1\r\n", "id"),
+            Some("abc123".to_string())
+        );
+        assert_eq!(
+            extract_query_param("GET /x?id=abc123\r\n", "id"),
+            Some("abc123".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_query_param_none_when_missing() {
+        assert_eq!(
+            extract_query_param("GET /x?other=1 HTTP/1.1\r\n", "id"),
+            None
+        );
+        assert_eq!(extract_query_param("", "id"), None);
+    }
+
+    #[test]
+    fn extract_face_id_from_busctl_finds_the_id_in_real_escaped_busctl_output() {
+        // Regression test for a real bug: busctl escapes embedded quotes in
+        // its `s "…"` string replies (confirmed against a live
+        // `busctl --user call com.linuxhello.FaceAuth … CameraInfo`, which
+        // returned exactly `s "{\"has_ir\":true}"`) — this is the actual
+        // shape a RegisterFace reply arrives in, not the bare-quote JSON
+        // used before this fix.
+        let output = r#"s "{\"face_id\":\"face_1000_1784108235\",\"registered_at\":1784108235,\"quality_score\":0.80982935}""#;
+        assert_eq!(
+            extract_face_id_from_busctl(output),
+            Some("face_1000_1784108235".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_face_id_from_busctl_none_when_key_is_absent() {
+        assert_eq!(extract_face_id_from_busctl("s \"no such key here\""), None);
     }
 }

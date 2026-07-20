@@ -703,4 +703,58 @@ mod tests {
         let rgb = yuyv_to_rgb_strided(&data, 2, 3, 4);
         assert_eq!(rgb.len(), 2 * 2 * 3, "only 2 of 3 rows should be produced");
     }
+
+    #[test]
+    fn test_frame_validate_accepts_correctly_sized_rgb8_and_gray8() {
+        let rgb = Frame {
+            data: vec![0u8; 4 * 2 * 3],
+            width: 4,
+            height: 2,
+            format: FrameFormat::Rgb8,
+            timestamp_ms: 0,
+        };
+        assert!(rgb.validate().is_ok());
+
+        let gray = Frame {
+            data: vec![0u8; 4 * 2],
+            width: 4,
+            height: 2,
+            format: FrameFormat::Gray8,
+            timestamp_ms: 0,
+        };
+        assert!(gray.validate().is_ok());
+    }
+
+    #[test]
+    fn test_frame_validate_rejects_a_mismatched_buffer_size() {
+        let frame = Frame {
+            data: vec![0u8; 10], // too short for 4x2 Rgb8 (needs 24)
+            width: 4,
+            height: 2,
+            format: FrameFormat::Rgb8,
+            timestamp_ms: 0,
+        };
+        assert!(frame.validate().is_err());
+    }
+
+    #[test]
+    fn test_frame_validate_accepts_any_size_for_mjpeg() {
+        let frame = Frame {
+            data: vec![0u8; 7], // arbitrary — MJPEG is variable-size
+            width: 4,
+            height: 2,
+            format: FrameFormat::MjPeg,
+            timestamp_ms: 0,
+        };
+        assert!(frame.validate().is_ok());
+    }
+
+    #[test]
+    fn test_create_camera_builds_a_backend_without_opening_hardware() {
+        // V4L2Camera::new only stores the config — no device is opened —
+        // so this must succeed and start closed, regardless of what
+        // cameras (if any) actually exist on the test machine.
+        let camera = create_camera(CameraConfig::default()).unwrap();
+        assert!(!camera.is_open());
+    }
 }
