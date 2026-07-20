@@ -927,4 +927,78 @@ mod tests {
         assert_eq!(std::fs::read_to_string(path_str).unwrap(), "secret");
         let _ = std::fs::remove_file(path_str);
     }
+
+    #[test]
+    fn extract_busctl_json_unwraps_the_s_quoted_string() {
+        assert_eq!(
+            extract_busctl_json("s \"hello world\"\n"),
+            Some("hello world".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_busctl_json_unescapes_quotes_and_backslashes() {
+        assert_eq!(
+            extract_busctl_json(r#"s "he said \"hi\"""#),
+            Some(r#"he said "hi""#.to_string())
+        );
+        assert_eq!(extract_busctl_json(r#"s "a\\b""#), Some(r"a\b".to_string()));
+    }
+
+    #[test]
+    fn extract_busctl_json_none_for_unrecognized_output() {
+        assert_eq!(extract_busctl_json("not the expected format"), None);
+        assert_eq!(extract_busctl_json(""), None);
+    }
+
+    #[test]
+    fn extract_query_param_finds_the_value() {
+        assert_eq!(
+            extract_query_param("GET /delete-face?id=abc123 HTTP/1.1\r\n", "id"),
+            Some("abc123".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_query_param_stops_at_the_next_param_or_line_end() {
+        assert_eq!(
+            extract_query_param("GET /x?a=1&id=abc123&b=2 HTTP/1.1\r\n", "id"),
+            Some("abc123".to_string())
+        );
+        assert_eq!(
+            extract_query_param("GET /x?id=abc123\r\n", "id"),
+            Some("abc123".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_query_param_none_when_missing() {
+        assert_eq!(
+            extract_query_param("GET /x?other=1 HTTP/1.1\r\n", "id"),
+            None
+        );
+        assert_eq!(extract_query_param("", "id"), None);
+    }
+
+    #[test]
+    fn extract_face_id_from_busctl_finds_the_id() {
+        // NB: the function's own search key ("face_id\":\"" as *Rust source*)
+        // evaluates to the 10 literal characters `face_id":"` — i.e. it
+        // matches *unescaped* embedded quotes, not the backslash-escaped
+        // quotes shown in its doc comment's example (verified: an input
+        // with real `\"` sequences around face_id does NOT match). Testing
+        // the behavior actually implemented, not the doc comment's example —
+        // see the PR/review note flagging this as a likely pre-existing
+        // mismatch worth checking against real busctl output separately.
+        let output = r#"s "{"face_id":"face_1000_123", "quality":0.9}""#;
+        assert_eq!(
+            extract_face_id_from_busctl(output),
+            Some("face_1000_123".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_face_id_from_busctl_none_when_key_is_absent() {
+        assert_eq!(extract_face_id_from_busctl("s \"no such key here\""), None);
+    }
 }
