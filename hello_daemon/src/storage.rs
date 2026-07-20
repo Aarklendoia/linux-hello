@@ -5,8 +5,41 @@
 
 use crate::{DaemonError, FaceRecord};
 use hello_face_core::Embedding;
+use std::io::Write;
+use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use tracing::{debug, info};
+
+/// Restrict a directory to owner-only access (`0700`).
+///
+/// Biometric embeddings live under here; `create_dir_all` alone leaves the
+/// mode to the process umask (0022 on the systemd units, i.e. world-readable
+/// dirs), so this is applied unconditionally after every creation point —
+/// including on a dir that already existed from before this hardening
+/// landed, so an upgrade self-heals existing installs too.
+fn harden_dir(path: &Path) -> Result<(), DaemonError> {
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))
+        .map_err(|e| DaemonError::StorageError(format!("chmod 700 on {}: {}", path.display(), e)))
+}
+
+/// Write `contents` to `path` at mode `0600`, owned by the current process.
+///
+/// Removes whatever is at `path` first, then creates fresh with `create_new`
+/// (`O_CREAT|O_EXCL`) so the mode is applied atomically at creation, rather
+/// than via a separate `set_permissions` call that would leave a moment
+/// where the file exists with default/umask permissions — same pattern as
+/// `preview::write_owner_only_file`.
+fn write_owner_only_file(path: &Path, contents: &str) -> Result<(), DaemonError> {
+    let _ = std::fs::remove_file(path);
+    let mut f = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(path)
+        .map_err(|e| DaemonError::StorageError(format!("create {}: {}", path.display(), e)))?;
+    f.write_all(contents.as_bytes())
+        .map_err(|e| DaemonError::StorageError(format!("write {}: {}", path.display(), e)))
+}
 
 /// Face storage manager
 pub struct FaceStorage {
@@ -26,6 +59,7 @@ impl FaceStorage {
         // Create the directory structure
         std::fs::create_dir_all(&base_path)
             .map_err(|e| DaemonError::StorageError(format!("Directory creation failed: {}", e)))?;
+        harden_dir(&base_path)?;
 
         let db_path = base_path.join("faces.db");
 
@@ -60,6 +94,7 @@ impl FaceStorage {
         let embeddings_dir = self.base_path.join("embeddings");
         std::fs::create_dir_all(&embeddings_dir)
             .map_err(|e| DaemonError::StorageError(format!("Embeddings dir creation: {}", e)))?;
+        harden_dir(&embeddings_dir)?;
 
         // For now we use JSON files
         // Migration to SQLite will happen later with sqlx async
@@ -74,22 +109,21 @@ impl FaceStorage {
         let user_dir = self.user_dir(record.user_id)?;
         std::fs::create_dir_all(&user_dir)
             .map_err(|e| DaemonError::StorageError(format!("User dir creation: {}", e)))?;
+        harden_dir(&user_dir)?;
 
         // Save metadata to a JSON file
         let metadata_path = user_dir.join(format!("{}.meta.json", record.face_id));
         let metadata_json =
             serde_json::to_string_pretty(&record).map_err(DaemonError::JsonError)?;
 
-        std::fs::write(&metadata_path, metadata_json)
-            .map_err(|e| DaemonError::StorageError(format!("Metadata write: {}", e)))?;
+        write_owner_only_file(&metadata_path, &metadata_json)?;
 
         // Save the embedding
         let embedding_path = user_dir.join(format!("{}.embedding.json", record.face_id));
         let embedding_json =
             serde_json::to_string_pretty(&embedding).map_err(DaemonError::JsonError)?;
 
-        std::fs::write(&embedding_path, embedding_json)
-            .map_err(|e| DaemonError::StorageError(format!("Embedding write: {}", e)))?;
+        write_owner_only_file(&embedding_path, &embedding_json)?;
 
         debug!(
             "Face saved: user_id={}, face_id={}",
@@ -452,6 +486,57 @@ mod tests {
         assert!(
             canary.exists(),
             "the file outside the user dir must survive"
+        );
+    }
+
+    /// Regression test: biometric data must never be left readable by other
+    /// local users, regardless of the process umask. Without the explicit
+    /// `harden_dir`/`write_owner_only_file` calls, these would end up at
+    /// whatever the umask allows (0755/0644 under systemd's default 0022).
+    #[test]
+    fn test_save_face_restricts_directory_and_file_permissions() {
+        let temp = TempDir::new().unwrap();
+        let storage = FaceStorage::new(temp.path()).unwrap();
+
+        let record = FaceRecord {
+            face_id: "face_1000_1735036800".to_string(),
+            user_id: 1000,
+            embedding_json: "{}".to_string(),
+            quality_score: 0.95,
+            registered_at: 0,
+            context: "test".to_string(),
+        };
+        let embedding = Embedding {
+            vector: vec![0.1, 0.2, 0.3],
+            metadata: hello_face_core::EmbeddingMetadata {
+                model: "test".to_string(),
+                model_version: "0.1.0".to_string(),
+                extracted_at: 0,
+                quality_score: 0.95,
+            },
+        };
+        storage.save_face(&record, &embedding).unwrap();
+
+        let mode = |p: &std::path::Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+
+        assert_eq!(mode(temp.path()), 0o700, "base storage dir");
+        assert_eq!(
+            mode(&temp.path().join("embeddings")),
+            0o700,
+            "embeddings dir"
+        );
+
+        let user_dir = temp.path().join("users/1000");
+        assert_eq!(mode(&user_dir), 0o700, "per-user dir");
+        assert_eq!(
+            mode(&user_dir.join("face_1000_1735036800.meta.json")),
+            0o600,
+            "metadata file"
+        );
+        assert_eq!(
+            mode(&user_dir.join("face_1000_1735036800.embedding.json")),
+            0o600,
+            "embedding file"
         );
     }
 }
