@@ -322,12 +322,110 @@ pub async fn start_system_pam_helper(
     Ok(())
 }
 
+/// Resolve the `PamHelperResponse` for a system-listener request: unknown
+/// user, no enrollment, or an actual camera capture + match attempt.
+///
+/// Split out from [`handle_system_pam_request`] so the branch that fires
+/// near-instantly (no home dir, no enrollment) can be exercised directly in
+/// tests without going through the root-only socket.
+async fn compute_verify_response(
+    camera: &crate::camera::CameraManager,
+    matcher: Arc<crate::matcher::FaceMatcher>,
+    req: &PamHelperRequest,
+) -> PamHelperResponse {
+    match resolve_home_dir(req.user_id) {
+        None => {
+            debug!(
+                "PAM system helper: no home directory for uid={}",
+                req.user_id
+            );
+            PamHelperResponse::Failure {
+                reason: "Unknown user".to_string(),
+            }
+        }
+        Some(home) => {
+            let base_path = home.join(".local/share/linux-hello");
+            match FaceStorage::open_read_only(&base_path) {
+                Ok(None) => PamHelperResponse::Failure {
+                    reason: "No enrollment".to_string(),
+                },
+                Ok(Some(storage)) => {
+                    let verify_req = VerifyRequest {
+                        user_id: req.user_id,
+                        context: req.context.clone(),
+                        timeout_ms: req.timeout_ms,
+                    };
+                    let timeout = std::time::Duration::from_millis(verify_req.timeout_ms + 1000);
+                    let result = tokio::time::timeout(
+                        timeout,
+                        verify_with_storage(&storage, camera, matcher, &verify_req),
+                    )
+                    .await;
+
+                    match result {
+                        Ok(Ok(VerifyResult::Success {
+                            face_id,
+                            similarity_score,
+                        })) => PamHelperResponse::Success {
+                            face_id,
+                            similarity_score,
+                        },
+                        Ok(Ok(_)) => PamHelperResponse::Failure {
+                            reason: "Face not recognized".to_string(),
+                        },
+                        Ok(Err(e)) => PamHelperResponse::Failure {
+                            reason: e.to_string(),
+                        },
+                        Err(_) => PamHelperResponse::Failure {
+                            reason: "Timeout".to_string(),
+                        },
+                    }
+                }
+                Err(e) => PamHelperResponse::Failure {
+                    reason: e.to_string(),
+                },
+            }
+        }
+    }
+}
+
+/// Pad a non-`Success` response so it never returns before `req.timeout_ms`
+/// has elapsed since `start`.
+///
+/// Mitigates the timing side-channel documented in
+/// docs/PAM_MODULE.md#pam-configuration: at the SDDM greeter, "unknown
+/// user" and "user exists but never enrolled" used to return in
+/// microseconds, while "enrolled, camera ran" took roughly 1-5s — letting
+/// someone at the greeter (or scripting repeated attempts) infer which
+/// local accounts have enrolled a face just from response latency. Flooring
+/// every failure to the caller's own configured `timeout_ms` (the same
+/// value already used to bound the real capture attempt) closes that gap
+/// without slowing down the one response worth keeping fast: a genuine
+/// `Success` reveals nothing an attacker didn't already know (they *are*
+/// the enrolled user), so it's left unpadded.
+async fn respond_with_floor(
+    start: std::time::Instant,
+    req: &PamHelperRequest,
+    response: PamHelperResponse,
+) -> PamHelperResponse {
+    if !matches!(response, PamHelperResponse::Success { .. }) {
+        let floor = std::time::Duration::from_millis(req.timeout_ms);
+        let elapsed = start.elapsed();
+        if elapsed < floor {
+            tokio::time::sleep(floor - elapsed).await;
+        }
+    }
+    response
+}
+
 /// Process an incoming connection on the system listener.
 async fn handle_system_pam_request(
     mut stream: tokio::net::UnixStream,
     camera: Arc<crate::camera::CameraManager>,
     matcher: Arc<crate::matcher::FaceMatcher>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let start = std::time::Instant::now();
+
     // Bounded read: defense in depth. This socket is reachable before any
     // authentication happens, so a stalled/malicious peer must not be able
     // to tie up a connection indefinitely.
@@ -356,60 +454,8 @@ async fn handle_system_pam_request(
     debug!("PAM system helper received: {}", request_json);
     let req: PamHelperRequest = serde_json::from_str(&request_json)?;
 
-    let response = match resolve_home_dir(req.user_id) {
-        None => {
-            debug!(
-                "PAM system helper: no home directory for uid={}",
-                req.user_id
-            );
-            PamHelperResponse::Failure {
-                reason: "Unknown user".to_string(),
-            }
-        }
-        Some(home) => {
-            let base_path = home.join(".local/share/linux-hello");
-            match FaceStorage::open_read_only(&base_path) {
-                Ok(None) => PamHelperResponse::Failure {
-                    reason: "No enrollment".to_string(),
-                },
-                Ok(Some(storage)) => {
-                    let verify_req = VerifyRequest {
-                        user_id: req.user_id,
-                        context: req.context,
-                        timeout_ms: req.timeout_ms,
-                    };
-                    let timeout = std::time::Duration::from_millis(verify_req.timeout_ms + 1000);
-                    let result = tokio::time::timeout(
-                        timeout,
-                        verify_with_storage(&storage, &camera, Arc::clone(&matcher), &verify_req),
-                    )
-                    .await;
-
-                    match result {
-                        Ok(Ok(VerifyResult::Success {
-                            face_id,
-                            similarity_score,
-                        })) => PamHelperResponse::Success {
-                            face_id,
-                            similarity_score,
-                        },
-                        Ok(Ok(_)) => PamHelperResponse::Failure {
-                            reason: "Face not recognized".to_string(),
-                        },
-                        Ok(Err(e)) => PamHelperResponse::Failure {
-                            reason: e.to_string(),
-                        },
-                        Err(_) => PamHelperResponse::Failure {
-                            reason: "Timeout".to_string(),
-                        },
-                    }
-                }
-                Err(e) => PamHelperResponse::Failure {
-                    reason: e.to_string(),
-                },
-            }
-        }
-    };
+    let response = compute_verify_response(&camera, matcher, &req).await;
+    let response = respond_with_floor(start, &req, response).await;
 
     let response_json = serde_json::to_string(&response)?;
     stream.write_all(response_json.as_bytes()).await?;
@@ -450,5 +496,99 @@ mod tests {
         unsafe {
             std::env::remove_var("LINUX_HELLO_SYSTEM_SOCKET_PATH");
         }
+    }
+
+    fn unknown_user_req(timeout_ms: u64) -> PamHelperRequest {
+        PamHelperRequest {
+            // Same "astronomically unlikely to exist" uid used above —
+            // resolve_home_dir returns None, so this hits the fast
+            // "Unknown user" branch.
+            user_id: 4_294_967_000,
+            context: "sddm".to_string(),
+            timeout_ms,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_compute_verify_response_unknown_user_is_a_fast_failure() {
+        let camera = crate::camera::CameraManager::new(1000);
+        let matcher = Arc::new(crate::matcher::FaceMatcher::new(0.6));
+        let req = unknown_user_req(5000);
+
+        let response = compute_verify_response(&camera, matcher, &req).await;
+
+        assert!(matches!(
+            response,
+            PamHelperResponse::Failure { reason } if reason == "Unknown user"
+        ));
+    }
+
+    /// Regression test for the timing side-channel described in
+    /// docs/PAM_MODULE.md: without `respond_with_floor`, this branch returns
+    /// in microseconds — a local attacker at the greeter could distinguish
+    /// it from the ~1-5s an actual camera capture takes. Padding it to the
+    /// caller-supplied `timeout_ms` closes that gap.
+    #[tokio::test]
+    async fn test_respond_with_floor_pads_a_fast_failure_up_to_timeout_ms() {
+        let camera = crate::camera::CameraManager::new(1000);
+        let matcher = Arc::new(crate::matcher::FaceMatcher::new(0.6));
+        let req = unknown_user_req(150);
+
+        let start = std::time::Instant::now();
+        let response = compute_verify_response(&camera, matcher, &req).await;
+        let response = respond_with_floor(start, &req, response).await;
+
+        assert!(matches!(response, PamHelperResponse::Failure { .. }));
+        assert!(
+            start.elapsed() >= std::time::Duration::from_millis(150),
+            "elapsed={:?} should be padded up to timeout_ms",
+            start.elapsed()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_respond_with_floor_does_not_pad_success() {
+        let req = unknown_user_req(5000); // timeout_ms large enough that padding would be obvious
+        let start = std::time::Instant::now();
+
+        let response = respond_with_floor(
+            start,
+            &req,
+            PamHelperResponse::Success {
+                face_id: "face_1".to_string(),
+                similarity_score: 0.9,
+            },
+        )
+        .await;
+
+        assert!(matches!(response, PamHelperResponse::Success { .. }));
+        assert!(
+            start.elapsed() < std::time::Duration::from_millis(500),
+            "a genuine success must not be held back by the floor"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_respond_with_floor_adds_no_extra_delay_once_past_the_floor() {
+        let req = unknown_user_req(30);
+        // Backdate `start` so the floor has already elapsed by the time we
+        // call respond_with_floor — it must not sleep an extra `timeout_ms`
+        // on top.
+        let start = std::time::Instant::now() - std::time::Duration::from_millis(200);
+
+        let before = std::time::Instant::now();
+        let _ = respond_with_floor(
+            start,
+            &req,
+            PamHelperResponse::Failure {
+                reason: "Timeout".to_string(),
+            },
+        )
+        .await;
+
+        assert!(
+            before.elapsed() < std::time::Duration::from_millis(100),
+            "must not add extra delay once the floor has already elapsed"
+        );
     }
 }
