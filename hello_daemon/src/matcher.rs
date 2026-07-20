@@ -120,49 +120,66 @@ impl FaceMatcher {
         }
     }
 
-    /// Matching with an independent IR liveness check filter
+    /// Matching with an independent liveness check filter — IR when
+    /// available, otherwise a weaker RGB-only fallback.
     ///
     /// Two-stage architecture:
-    ///   1. Liveness check: ir_liveness >= LIVENESS_GATE → real face confirmed
+    ///   1. Liveness check: score >= gate → real face confirmed
     ///   2. Recognition: rgb_score >= threshold → correct person confirmed
     ///
-    /// If ir_liveness < LIVENESS_GATE, an anti-spoofing failure is returned.
-    /// If ir_liveness is None (no IR camera), the filter is not applied.
+    /// If the liveness score is below its gate, an anti-spoofing failure is
+    /// returned. `rgb_liveness` is only consulted when `ir_liveness` is
+    /// `None` — with an IR camera, its (well-validated) gate is used alone,
+    /// unchanged from before.
     ///
-    /// This separation prevents the quality of the IR signal from penalizing
-    /// the recognition score, and vice versa.
+    /// This separation prevents the quality of the liveness signal from
+    /// penalizing the recognition score, and vice versa.
     pub fn match_with_liveness(
         &self,
         probe: &Embedding,
         stored: &HashMap<String, Embedding>,
         context: &str,
         ir_liveness: Option<f32>,
+        rgb_liveness: f32,
     ) -> MatchResult {
-        // Liveness check threshold, independent of the recognition threshold.
-        // 0.20 is calibrated to accept low-signal IR cameras while
-        // blocking photos (near-zero texture → score < 0.10).
+        // Liveness check thresholds, independent of the recognition
+        // threshold.
+        //
+        // LIVENESS_GATE (IR): 0.20 is calibrated to accept low-signal IR
+        // cameras while blocking photos (near-zero texture → score < 0.10).
+        //
+        // RGB_LIVENESS_GATE: see `hello_face_core::liveness::rgb_liveness_score`
+        // for the real-hardware calibration this is based on (one subject,
+        // one phone, three sessions) — live scored 1.000 every time, a
+        // phone-screen replay scored 0.0-0.453. 0.55 sits with a wide
+        // margin below every live sample observed and above every spoof
+        // sample observed; still a much weaker guarantee than the IR gate,
+        // since it rests on far less validation.
         const LIVENESS_GATE: f32 = 0.20;
+        const RGB_LIVENESS_GATE: f32 = 0.55;
 
         // First compute the best RGB score
         let rgb_result = self.match_embedding(probe, stored, context);
 
-        let Some(liveness) = ir_liveness else {
-            // No IR camera → liveness cannot be checked, so accept
-            return rgb_result;
+        let (liveness, gate, source) = match ir_liveness {
+            Some(ir) => (ir.clamp(0.0, 1.0), LIVENESS_GATE, "IR"),
+            None => (
+                rgb_liveness.clamp(0.0, 1.0),
+                RGB_LIVENESS_GATE,
+                "RGB-fallback",
+            ),
         };
 
-        let liveness = liveness.clamp(0.0, 1.0);
-
         info!(
-            "Liveness gate: ir_liveness={:.3}, gate={:.2}, rgb_best={:.3}, rgb_matched={}",
-            liveness, LIVENESS_GATE, rgb_result.best_score, rgb_result.matched
+            "Liveness gate ({source}): score={:.3}, gate={:.2}, rgb_best={:.3}, rgb_matched={}",
+            liveness, gate, rgb_result.best_score, rgb_result.matched
         );
 
-        if liveness < LIVENESS_GATE {
-            // IR signal too weak to be a real face (photo, spoofing)
+        if liveness < gate {
+            // Liveness signal too weak to be a real face (photo, spoofing)
             info!(
-                "Liveness gate: REJECTED (score {:.3} < {:.2})",
-                liveness, LIVENESS_GATE
+                "Liveness gate ({source}): REJECTED (score {:.3} < {:.2})",
+                liveness, gate
             );
             let threshold = self.get_threshold(context);
             return MatchResult {
@@ -281,5 +298,77 @@ mod tests {
         assert_eq!(matcher.get_threshold("login"), 0.60);
         assert_eq!(matcher.get_threshold("sudo"), 0.62);
         assert_eq!(matcher.get_threshold("unknown"), 0.58); // default
+    }
+
+    fn matching_probe_and_stored() -> (Embedding, HashMap<String, Embedding>) {
+        let probe = Embedding {
+            vector: vec![1.0, 0.0, 0.0],
+            metadata: hello_face_core::EmbeddingMetadata {
+                model: "test".to_string(),
+                model_version: "0.1.0".to_string(),
+                extracted_at: 0,
+                quality_score: 0.9,
+            },
+        };
+        let mut stored = HashMap::new();
+        stored.insert(
+            "face_1".to_string(),
+            Embedding {
+                vector: vec![1.0, 0.0, 0.0],
+                metadata: hello_face_core::EmbeddingMetadata {
+                    model: "test".to_string(),
+                    model_version: "0.1.0".to_string(),
+                    extracted_at: 0,
+                    quality_score: 0.9,
+                },
+            },
+        );
+        (probe, stored)
+    }
+
+    #[test]
+    fn test_match_with_liveness_ir_gate_rejects_below_threshold() {
+        let matcher = FaceMatcher::new(0.6);
+        let (probe, stored) = matching_probe_and_stored();
+
+        // A recognizable face, but IR liveness reads as a flat photo
+        // (well below the 0.20 IR gate) — must be rejected despite the
+        // strong RGB match.
+        let result = matcher.match_with_liveness(&probe, &stored, "test", Some(0.05), 1.0);
+
+        assert!(!result.matched);
+        assert_eq!(result.face_id, None);
+    }
+
+    #[test]
+    fn test_match_with_liveness_ir_gate_accepts_above_threshold() {
+        let matcher = FaceMatcher::new(0.6);
+        let (probe, stored) = matching_probe_and_stored();
+
+        let result = matcher.match_with_liveness(&probe, &stored, "test", Some(0.9), 1.0);
+
+        assert!(result.matched);
+        assert_eq!(result.face_id, Some("face_1".to_string()));
+    }
+
+    #[test]
+    fn test_match_with_liveness_falls_back_to_rgb_gate_without_ir() {
+        let matcher = FaceMatcher::new(0.6);
+        let (probe, stored) = matching_probe_and_stored();
+
+        // No IR camera (None): a strong RGB match must still be rejected
+        // if the RGB-only liveness fallback reads as a likely screen
+        // replay (below RGB_LIVENESS_GATE) — this is the path that used to
+        // skip liveness entirely.
+        let rejected = matcher.match_with_liveness(&probe, &stored, "test", None, 0.2);
+        assert!(!rejected.matched, "low RGB liveness must reject the match");
+
+        // And accept when the RGB fallback reads as a real face.
+        let accepted = matcher.match_with_liveness(&probe, &stored, "test", None, 0.95);
+        assert!(
+            accepted.matched,
+            "high RGB liveness must let the match through"
+        );
+        assert_eq!(accepted.face_id, Some("face_1".to_string()));
     }
 }

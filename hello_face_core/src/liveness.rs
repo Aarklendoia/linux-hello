@@ -124,6 +124,89 @@ pub fn ir_liveness_score(gray_frame: &[u8], w: u32, h: u32, face: &FaceRegion) -
     score.clamp(0.0, 1.0)
 }
 
+/// Fallback liveness score for cameras with no IR channel, based on texture/
+/// gradient statistics of the RGB face ROI alone.
+///
+/// # Calibration and honest limits
+///
+/// This does **not** reuse the IR heuristic's assumption that "more texture
+/// = more likely real" — real-camera testing showed the opposite for the
+/// attack this targets. Measured once, on one real Windows-Hello-class
+/// RGB+IR webcam, one subject, one phone (`hello_daemon/examples/
+/// liveness_calibration.rs`, since removed after use):
+///
+/// | sample                        | Laplacian var | gradient  |
+/// |--------------------------------|---------------|-----------|
+/// | live face (5 frames)          | 250-275       | 0.19      |
+/// | phone-screen replay (10 frames, 2 sessions) | 795-1080 | 0.35-0.37 |
+///
+/// A phone/monitor replaying a photo reads as *more* textured than skin —
+/// screen pixel-grid moiré and a sharper source image outweigh the
+/// smoothing a re-capture would otherwise cause. So this scores high
+/// texture/gradient as the suspicious direction, the mirror image of
+/// [`ir_liveness_score`].
+///
+/// This is a coarse triage for blatant screen-replay artifacts, not a
+/// validated anti-spoofing guarantee: it was calibrated against a single
+/// subject and a single attack sample, so the accept band is set with
+/// deliberate headroom above the one live sample observed (favoring false
+/// accepts over rejecting a legitimate user under different lighting/skin/
+/// camera) rather than splitting the gap tightly. It has not been tested
+/// against a printed photo (paper texture/halftone could plausibly score
+/// either direction) or against any spoof technique that doesn't elevate
+/// texture. Deliberately excludes color/saturation, even though the
+/// real-hardware sample showed a difference there too — that signal
+/// correlates with skin tone and would risk a biased false-reject rate
+/// across users, for a benefit that's already covered by the texture/
+/// gradient bands here.
+///
+/// See docs/PAM_MODULE.md for how this is wired into the verification gate.
+pub fn rgb_liveness_score(rgb_frame: &[u8], w: u32, h: u32, face: &FaceRegion) -> f32 {
+    let Some(gray) = rgb_to_gray(rgb_frame, w, h) else {
+        return 0.5; // malformed/truncated buffer -> no decision
+    };
+
+    let (fx, fy, fw, fh) = face.bounding_box;
+    let x1 = fx.min(w.saturating_sub(1));
+    let y1 = fy.min(h.saturating_sub(1));
+    let x2 = (fx + fw).min(w);
+    let y2 = (fy + fh).min(h);
+    if x2 <= x1 + 4 || y2 <= y1 + 4 {
+        return 0.5; // ROI too small -> no decision
+    }
+
+    let lap_var = laplacian_variance(&gray, w, h, x1, y1, x2, y2);
+    let grad = gradient_mean(&gray, w, h, x1, y1, x2, y2);
+
+    tracing::debug!("Liveness RGB: lap_var={:.1}, gradient={:.4}", lap_var, grad);
+
+    // Bands sit between the observed live sample and the observed spoof
+    // samples above, biased toward the live side (see doc comment).
+    let tex_ok = 1.0 - sigmoid_score(lap_var, 650.0, 800.0);
+    let grad_ok = 1.0 - sigmoid_score(grad, 0.25, 0.32);
+
+    (0.6 * tex_ok + 0.4 * grad_ok).clamp(0.0, 1.0)
+}
+
+/// Converts an interleaved RGB888 buffer to 8-bit grayscale (ITU-R BT.601
+/// luma weights), for [`rgb_liveness_score`]. Returns `None` if `rgb` is
+/// shorter than `w * h * 3` — same defensive posture as the IR path
+/// (`ir_liveness_score`) against a truncated/mismatched capture.
+fn rgb_to_gray(rgb: &[u8], w: u32, h: u32) -> Option<Vec<u8>> {
+    let expected = (w as u64) * (h as u64) * 3;
+    if (rgb.len() as u64) < expected {
+        return None;
+    }
+    let mut gray = Vec::with_capacity((w * h) as usize);
+    for chunk in rgb[..expected as usize].chunks_exact(3) {
+        let r = chunk[0] as u32;
+        let g = chunk[1] as u32;
+        let b = chunk[2] as u32;
+        gray.push(((r * 77 + g * 150 + b * 29) >> 8) as u8);
+    }
+    Some(gray)
+}
+
 /// Extracts the ROI and normalizes the pixels to [0, 255] (contrast stretching).
 fn normalize_roi(gray: &[u8], w: u32, x1: u32, y1: u32, x2: u32, y2: u32) -> Vec<u8> {
     let mut roi: Vec<u8> = Vec::with_capacity(((x2 - x1) * (y2 - y1)) as usize);
@@ -308,6 +391,91 @@ mod tests {
             landmarks: vec![],
         };
         let score = ir_liveness_score(&truncated, w, h, &face);
+        assert_eq!(
+            score, 0.5,
+            "a too-short buffer must yield the no-decision sentinel"
+        );
+    }
+
+    #[test]
+    fn test_rgb_liveness_smooth_image_scores_high_like_a_real_face() {
+        // Low-frequency RGB content, standing in for the real "live face"
+        // calibration sample (lap_var ~260, gradient ~0.19) — see the doc
+        // comment on rgb_liveness_score for the real numbers this is based
+        // on. Should land near the "looks real" end.
+        let w = 64u32;
+        let h = 64u32;
+        let mut rgb = Vec::with_capacity((w * h * 3) as usize);
+        for y in 0..h {
+            for x in 0..w {
+                let v = (120 + (x as i32 - 32) / 4 + (y as i32 - 32) / 8) as u8;
+                rgb.push(v);
+                rgb.push(v);
+                rgb.push(v);
+            }
+        }
+        let face = FaceRegion {
+            bounding_box: (8, 8, 48, 48),
+            confidence: 0.9,
+            landmarks: vec![],
+        };
+        let score = rgb_liveness_score(&rgb, w, h, &face);
+        assert!(
+            score > 0.8,
+            "smooth/low-frequency content should score high: {}",
+            score
+        );
+    }
+
+    #[test]
+    fn test_rgb_liveness_high_frequency_image_scores_low_like_a_screen_replay() {
+        // Pseudo-random high-frequency content (same generator as
+        // test_liveness_noisy_image above), standing in for the moiré/
+        // screen-grid aliasing measured on a real phone-screen replay
+        // (lap_var ~800-1080, gradient ~0.35-0.37 in the real sample). A
+        // perfect axis-aligned checkerboard was tried first and rejected:
+        // its Sobel gx/gy cancel out by symmetry at every pixel, which is
+        // an artifact of that specific synthetic pattern, not of real
+        // moiré — pseudo-random noise doesn't have that degenerate
+        // cancellation.
+        let w = 64u32;
+        let h = 64u32;
+        let mut rgb = Vec::with_capacity((w * h * 3) as usize);
+        for y in 0..h {
+            for x in 0..w {
+                let i = (y * w + x) as usize;
+                let v = ((i * 37 + i / 8) % 200 + 50) as u8;
+                rgb.push(v);
+                rgb.push(v);
+                rgb.push(v);
+            }
+        }
+        let face = FaceRegion {
+            bounding_box: (8, 8, 48, 48),
+            confidence: 0.9,
+            landmarks: vec![],
+        };
+        let score = rgb_liveness_score(&rgb, w, h, &face);
+        assert!(
+            score < 0.2,
+            "high-frequency/pseudo-random content should score low: {}",
+            score
+        );
+    }
+
+    #[test]
+    fn test_rgb_liveness_rejects_a_truncated_frame_instead_of_reading_out_of_bounds() {
+        // Same defensive posture as ir_liveness_score: a buffer shorter
+        // than w*h*3 must yield the no-decision sentinel, not panic.
+        let w = 64u32;
+        let h = 64u32;
+        let truncated = vec![120u8; 10];
+        let face = FaceRegion {
+            bounding_box: (8, 8, 48, 48),
+            confidence: 0.9,
+            landmarks: vec![],
+        };
+        let score = rgb_liveness_score(&truncated, w, h, &face);
         assert_eq!(
             score, 0.5,
             "a too-short buffer must yield the no-decision sentinel"

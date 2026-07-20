@@ -195,11 +195,13 @@ impl FaceAuthInterface {
 
     /// Whether the active camera has an infrared channel.
     ///
-    /// Without one, `matcher::match_with_liveness` skips the anti-spoofing
-    /// liveness gate entirely (see its doc comment) — enrollment/auth still
-    /// work, just on RGB matching alone. The GUI uses this to warn users on
-    /// a camera without IR that their setup is more susceptible to a
-    /// photo/video spoof than the common case.
+    /// Without one, `matcher::match_with_liveness` falls back to a weaker,
+    /// RGB-only liveness heuristic instead of the well-validated IR gate
+    /// (see its doc comment and `hello_face_core::liveness::rgb_liveness_score`).
+    /// The GUI uses this to warn users on a camera without IR that their
+    /// setup is more susceptible to a photo/video spoof than the common
+    /// case — that's still true with the RGB fallback in place, just less
+    /// starkly than with no check at all.
     ///
     /// # Returns
     /// JSON `{"has_ir": bool}`

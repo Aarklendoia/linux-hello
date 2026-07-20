@@ -43,7 +43,7 @@
         "previewValidating": "Validation en cours…",
         "previewSuccess": "✓ Visage enregistré avec succès !",
         "previewError": "✗ Erreur :",
-        "noIrWarning": "Cette caméra n'a pas de capteur infrarouge : la vérification anti-usurpation est désactivée, la sécurité repose uniquement sur la reconnaissance faciale standard."
+        "noIrWarning": "Cette caméra n'a pas de capteur infrarouge : la vérification anti-usurpation repose à la place sur une heuristique plus faible basée uniquement sur l'image RGB, ce qui la rend plus vulnérable à une usurpation par photo ou vidéo qu'avec un capteur infrarouge."
     },
     "manageFaces": {
         "title": "Gérer les visages",

@@ -349,6 +349,29 @@ The PAM module implements:
 - Structured logs for auditing
 - Timeouts to prevent blocking
 
+### Anti-spoofing / liveness
+
+`hello_daemon::matcher::match_with_liveness` gates every verification
+attempt on a liveness score, on top of the RGB face-recognition score:
+
+- **With an IR camera** (`hello_face_core::liveness::ir_liveness_score`):
+  well-validated texture/thermal-gradient heuristic, gate at 0.20.
+- **Without an IR camera** (the common case on most laptops/webcams):
+  falls back to `hello_face_core::liveness::rgb_liveness_score`, a much
+  more weakly validated heuristic based on RGB texture/gradient alone, gate
+  at 0.55. Real-hardware testing (one subject, one phone, three sessions,
+  against a real Windows-Hello-class RGB+IR webcam) showed a phone-screen
+  replay of a face photo reads as *more* textured than a live face — the
+  opposite of the naive assumption — because screen pixel-grid moiré and a
+  sharper source image outweigh the smoothing a re-capture would otherwise
+  cause. The fallback's accept band is deliberately set well above the one
+  live sample observed, favoring false accepts over rejecting a legitimate
+  user under different lighting/skin/camera. It has not been validated
+  against a printed photo or any spoof technique that doesn't elevate
+  texture, and should be treated as a coarse triage, not a guarantee
+  equivalent to the IR path. The GUI's enrollment screen and `camera_info`
+  D-Bus property both surface a warning when no IR camera is present.
+
 ## Troubleshooting
 
 ### "The name com.linuxhello.FaceAuth was not provided by any .service files"

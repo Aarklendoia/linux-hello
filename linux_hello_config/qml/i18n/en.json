@@ -43,7 +43,7 @@
         "previewValidating": "Validating…",
         "previewSuccess": "✓ Face registered successfully!",
         "previewError": "✗ Error:",
-        "noIrWarning": "This camera has no infrared sensor: anti-spoofing liveness checks are disabled, so security relies on standard face recognition alone."
+        "noIrWarning": "This camera has no infrared sensor: anti-spoofing liveness checks fall back to a weaker, RGB-only heuristic, so security is more vulnerable to a photo/video spoof than with infrared."
     },
     "manageFaces": {
         "title": "Manage Faces",
