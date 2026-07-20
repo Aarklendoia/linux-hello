@@ -332,3 +332,179 @@ impl FaceAuthInterface {
         self.storage_path.clone()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::dbus_interface::{DeleteFaceRequest, RegisterFaceRequest, VerifyRequest};
+    use crate::DaemonConfig;
+
+    /// A fresh `FaceAuthInterface` backed by a tempdir, via the same `new()`
+    /// (no live D-Bus `Connection` needed) used everywhere below. Every
+    /// method on `FaceAuthInterface` is a plain async fn underneath the
+    /// `#[interface]` macro, so it's directly callable without an actual bus.
+    fn test_interface() -> (tempfile::TempDir, FaceAuthInterface) {
+        let temp = tempfile::TempDir::new().unwrap();
+        let config = DaemonConfig {
+            storage_path: temp.path().to_path_buf(),
+            root_mode: false,
+            current_uid: None,
+            default_similarity_threshold: 0.6,
+            debug: false,
+        };
+        let daemon = FaceAuthDaemon::new(config).unwrap();
+        (temp, FaceAuthInterface::new(daemon))
+    }
+
+    /// `check_user_permission` compares against the *real* process UID, not
+    /// anything injectable — so "acting on your own UID" in a test means
+    /// this, and "a different UID" means anything else.
+    fn my_uid() -> u32 {
+        unsafe { libc::getuid() }
+    }
+
+    fn not_my_uid() -> u32 {
+        let uid = my_uid();
+        if uid == 1 {
+            2
+        } else {
+            1
+        }
+    }
+
+    #[tokio::test]
+    async fn test_ping_returns_pong() {
+        let (_temp, iface) = test_interface();
+        assert_eq!(iface.ping().await.unwrap(), "pong");
+    }
+
+    #[tokio::test]
+    async fn test_version_property_matches_crate_version() {
+        let (_temp, iface) = test_interface();
+        assert_eq!(iface.version(), env!("CARGO_PKG_VERSION"));
+    }
+
+    #[tokio::test]
+    async fn test_storage_path_property_matches_config() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let config = DaemonConfig {
+            storage_path: temp.path().to_path_buf(),
+            root_mode: false,
+            current_uid: None,
+            default_similarity_threshold: 0.6,
+            debug: false,
+        };
+        let daemon = FaceAuthDaemon::new(config).unwrap();
+        let iface = FaceAuthInterface::new(daemon);
+        assert_eq!(iface.storage_path(), temp.path().to_string_lossy());
+    }
+
+    #[tokio::test]
+    async fn test_root_mode_property_reflects_config() {
+        let (_temp, iface) = test_interface();
+        assert!(!iface.root_mode());
+    }
+
+    #[tokio::test]
+    async fn test_camera_available_property_does_not_panic_without_hardware() {
+        let (_temp, iface) = test_interface();
+        // Whether it's true/false depends on the test machine's actual
+        // camera inventory — just exercise the try_read/fallback path.
+        let _ = iface.camera_available();
+    }
+
+    #[tokio::test]
+    async fn test_camera_info_returns_well_formed_json() {
+        let (_temp, iface) = test_interface();
+        let json = iface.camera_info().await.unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert!(parsed.get("has_ir").is_some());
+    }
+
+    #[tokio::test]
+    async fn test_register_face_rejects_malformed_json() {
+        let (_temp, iface) = test_interface();
+        assert!(iface.register_face("not json").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_delete_face_rejects_malformed_json() {
+        let (_temp, iface) = test_interface();
+        assert!(iface.delete_face("not json").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_verify_rejects_malformed_json() {
+        let (_temp, iface) = test_interface();
+        assert!(iface.verify("not json").await.is_err());
+    }
+
+    // Permission-denied paths: these all return before ever touching the
+    // camera/detector, so — unlike a happy-path register_face/verify call —
+    // they're safe to exercise without real hardware or an ONNX model.
+
+    #[tokio::test]
+    async fn test_register_face_rejects_a_different_users_uid() {
+        if my_uid() == 0 {
+            return; // root can act on any UID; the check is a no-op then
+        }
+        let (_temp, iface) = test_interface();
+        let request = RegisterFaceRequest {
+            user_id: not_my_uid(),
+            context: "test".to_string(),
+            timeout_ms: 100,
+            num_samples: 1,
+        };
+        let json = serde_json::to_string(&request).unwrap();
+        assert!(iface.register_face(&json).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_delete_face_rejects_a_different_users_uid() {
+        if my_uid() == 0 {
+            return;
+        }
+        let (_temp, iface) = test_interface();
+        let request = DeleteFaceRequest {
+            user_id: not_my_uid(),
+            face_id: None,
+        };
+        let json = serde_json::to_string(&request).unwrap();
+        assert!(iface.delete_face(&json).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_verify_rejects_a_different_users_uid() {
+        if my_uid() == 0 {
+            return;
+        }
+        let (_temp, iface) = test_interface();
+        let request = VerifyRequest {
+            user_id: not_my_uid(),
+            context: "test".to_string(),
+            timeout_ms: 100,
+        };
+        let json = serde_json::to_string(&request).unwrap();
+        assert!(iface.verify(&json).await.is_err());
+    }
+
+    // Happy paths that never touch the camera/detector at all (list/delete
+    // are pure storage operations) — safe to run for real.
+
+    #[tokio::test]
+    async fn test_list_faces_for_a_fresh_user_returns_an_empty_json_array() {
+        let (_temp, iface) = test_interface();
+        assert_eq!(iface.list_faces(my_uid()).await.unwrap(), "[]");
+    }
+
+    #[tokio::test]
+    async fn test_delete_all_faces_on_a_fresh_user_succeeds() {
+        let (_temp, iface) = test_interface();
+        let request = DeleteFaceRequest {
+            user_id: my_uid(),
+            face_id: None,
+        };
+        let json = serde_json::to_string(&request).unwrap();
+        assert!(iface.delete_face(&json).await.is_ok());
+    }
+}

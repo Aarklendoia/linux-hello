@@ -656,4 +656,51 @@ mod tests {
         assert_eq!(config.width, 640);
         assert_eq!(config.height, 480);
     }
+
+    #[test]
+    fn test_yuyv_to_rgb_strided_gray_input_is_gray_output() {
+        // Y=128, U=128, V=128 -> u=v=0 -> R=G=B=Y for both pixels.
+        let data = [128u8, 128, 128, 128];
+        let rgb = yuyv_to_rgb_strided(&data, 2, 1, 4);
+        assert_eq!(rgb, vec![128, 128, 128, 128, 128, 128]);
+    }
+
+    #[test]
+    fn test_yuyv_to_rgb_strided_applies_chrominance() {
+        // Y=128, U=128 (u=0), V=200 (v=72): R=128+100=228, G=128-0-51=77, B=128.
+        let data = [128u8, 128, 128, 200];
+        let rgb = yuyv_to_rgb_strided(&data, 2, 1, 4);
+        assert_eq!(rgb, vec![228, 77, 128, 228, 77, 128]);
+    }
+
+    #[test]
+    fn test_yuyv_to_rgb_strided_skips_row_padding() {
+        // stride=6 > row_bytes=4: 2 padding bytes per row that must be
+        // skipped, not fed into the conversion, and must not misalign the
+        // next row's start offset.
+        #[rustfmt::skip]
+        let data = [
+            128u8, 128, 128, 128, 9, 9, // row 0: gray, then 2 padding bytes
+            200u8, 128, 200, 128, 9, 9, // row 1: brighter gray, then padding
+        ];
+        let rgb = yuyv_to_rgb_strided(&data, 2, 2, 6);
+        assert_eq!(
+            rgb,
+            vec![
+                128, 128, 128, 128, 128, 128, // row 0
+                200, 200, 200, 200, 200, 200, // row 1
+            ]
+        );
+    }
+
+    #[test]
+    fn test_yuyv_to_rgb_strided_stops_early_on_a_truncated_buffer() {
+        // Declares height=3 but only supplies enough data for 2 rows —
+        // matching a truncated/mismatched V4L2 capture. Must return the
+        // rows it actually has instead of panicking on an out-of-bounds
+        // slice.
+        let data = [128u8, 128, 128, 128, 128, 128, 128, 128]; // 2 rows worth
+        let rgb = yuyv_to_rgb_strided(&data, 2, 3, 4);
+        assert_eq!(rgb.len(), 2 * 2 * 3, "only 2 of 3 rows should be produced");
+    }
 }
