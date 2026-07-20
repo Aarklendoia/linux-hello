@@ -404,16 +404,18 @@ Login/Sudo/Screenlock
 
 ## Current Limitations
 
-- Uses simulated camera (virtual frames)
-- No multi-face support per probe
-- Global timeout for capture+matching
-- No persistent logging
+- No multi-face support per probe — only the best-confidence detected face
+  is used; multiple people in frame aren't distinguished.
+- Global timeout for the whole capture+matching window, not enforced
+  per-frame.
+- The RGB-only liveness fallback used when there's no IR camera is far less
+  validated than the IR gate — see [Security](#security) above.
 
 ## Future Improvements
 
-- [ ] Real camera integration (V4L2/PipeWire)
-- [ ] Real machine learning (ONNX/TensorFlow)
-- [ ] Multi-modal support (IR, Depth)
-- [ ] Polkit for sudo without PAM
+- [ ] Multi-face support per probe
+- [ ] Depth-camera liveness signal (IR is already supported, see
+      [Security](#security))
 - [ ] REST API in addition to D-Bus
-- [ ] Persistent database (sqlite)
+- [ ] Migrate embedding/metadata storage to SQLite — currently JSON files
+      under a per-user directory layout (see `hello_daemon::storage`)
