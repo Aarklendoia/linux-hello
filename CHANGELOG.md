@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.5.2](https://github.com/Aarklendoia/linux-hello/compare/v1.5.1...v1.5.2) (2026-07-21)
+
+
+### Bug Fixes
+
+* **daemon:** sample 5 IR frames for liveness and keep the best score ([4988db6](https://github.com/Aarklendoia/linux-hello/commit/4988db6c13a78f845f5b9ccf0d9f1c19a7d4ac07))
+* **daemon:** sample 5 IR frames for liveness and keep the best score ([067bfec](https://github.com/Aarklendoia/linux-hello/commit/067bfeca705bf374151387f90d3a8007326ca7b1))
+
 ## [1.5.1](https://github.com/Aarklendoia/linux-hello/compare/v1.5.0...v1.5.1) (2026-07-20)
 
 
