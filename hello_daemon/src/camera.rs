@@ -450,36 +450,35 @@ impl CameraManager {
             // Held for the whole attempt; released when this closure returns.
             let _camera_lock = CameraLock::try_acquire(&lock_path)?;
 
-            // Sample IR liveness once at the start of the attempt (same
-            // "first frame" semantics as capture_frames today).
+            // Sample IR liveness from several frames at the start of the
+            // attempt and keep the best score, rather than a single frame
+            // (same overall 2s budget as before). A lone frame can read low
+            // from a transient IR glare/blur/illuminator flicker, which
+            // used to condemn the entire attempt: the RGB match would keep
+            // succeeding every frame while this one fixed liveness score
+            // kept rejecting it for the whole timeout window, burning CPU
+            // on face detection/embedding extraction with no chance of
+            // ever succeeding. Taking the max over a handful of frames
+            // means one bad IR sample no longer dooms the session.
+            const IR_LIVENESS_SAMPLES: u32 = 5;
             let ir_liveness = ir_device.as_deref().and_then(|ir_path| {
-                let mut ir_frame: Option<Frame> = None;
-                let _ = hello_camera::capture_gray_stream_v4l2(ir_path, 1, 2000, |data, w, h| {
-                    ir_frame = Some(Frame {
-                        data,
-                        width: w,
-                        height: h,
-                        format: FrameFormat::Gray8,
-                        timestamp_ms: 0,
-                    });
-                });
-                let frame = ir_frame?;
-                let dummy_face = hello_face_core::FaceRegion {
-                    bounding_box: (
-                        frame.width / 4,
-                        frame.height / 5,
-                        frame.width / 2,
-                        frame.height * 3 / 5,
-                    ),
-                    confidence: 1.0,
-                    landmarks: vec![],
-                };
-                Some(hello_face_core::liveness::ir_liveness_score(
-                    &frame.data,
-                    frame.width,
-                    frame.height,
-                    &dummy_face,
-                ))
+                let mut best: Option<f32> = None;
+                let _ = hello_camera::capture_gray_stream_v4l2(
+                    ir_path,
+                    IR_LIVENESS_SAMPLES,
+                    2000,
+                    |data, w, h| {
+                        let dummy_face = hello_face_core::FaceRegion {
+                            bounding_box: (w / 4, h / 5, w / 2, h * 3 / 5),
+                            confidence: 1.0,
+                            landmarks: vec![],
+                        };
+                        let score =
+                            hello_face_core::liveness::ir_liveness_score(&data, w, h, &dummy_face);
+                        best = Some(best.map_or(score, |b: f32| b.max(score)));
+                    },
+                );
+                best
             });
 
             let mut frame_index: u32 = 0;
