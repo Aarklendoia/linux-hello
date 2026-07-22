@@ -16,11 +16,14 @@ serde_json.workspace = true
 thiserror.workspace = true
 anyhow.workspace = true
 tracing.workspace = true
+dirs.workspace = true
 
 [build-dependencies]
-# For downloading the ONNX models in build.rs
-# (std dependencies are sufficient: std::net is not available in a pure build.rs,
-# curl/wget will be used via std::process::Command)
+# Downloading the ONNX models in build.rs uses std::process::Command for
+# curl/wget (std::net isn't available in a pure build.rs) — dirs is just for
+# resolving the XDG data dir the models get cached under, same as lib.rs's
+# own default_models_dir().
+dirs.workspace = true
 
 [features]
 default = ["backends"]

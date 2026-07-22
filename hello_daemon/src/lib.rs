@@ -21,6 +21,7 @@ pub mod matcher;
 pub mod pam_helper;
 pub mod preview;
 pub mod screenlock;
+mod security_util;
 pub mod storage;
 #[cfg(test)]
 mod test_support;
@@ -84,9 +85,12 @@ impl Default for DaemonConfig {
             // Root mode: /var/lib/linux-hello/
             PathBuf::from("/var/lib/linux-hello")
         } else {
-            // User mode: ~/.local/share/linux-hello/
-            let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-            PathBuf::from(home).join(".local/share/linux-hello")
+            // User mode: $XDG_DATA_HOME/linux-hello, falling back to
+            // ~/.local/share/linux-hello (dirs::data_dir()'s own fallback
+            // chain), or "." if neither can be determined.
+            dirs::data_dir()
+                .unwrap_or_else(|| PathBuf::from("."))
+                .join("linux-hello")
         };
 
         Self {

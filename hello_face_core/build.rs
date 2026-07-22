@@ -34,15 +34,11 @@ const MODELS: &[(&str, &str)] = &[
 ];
 
 fn models_dir() -> PathBuf {
-    // Use XDG_DATA_HOME or fall back to HOME
-    let base = std::env::var("XDG_DATA_HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| {
-            std::env::var("HOME")
-                .map(|h| PathBuf::from(h).join(".local/share"))
-                .unwrap_or_else(|_| PathBuf::from("/tmp"))
-        });
-    base.join("linux-hello/models")
+    // $XDG_DATA_HOME, falling back to ~/.local/share (dirs::data_dir()'s own
+    // fallback chain), or /tmp if neither can be determined.
+    dirs::data_dir()
+        .unwrap_or_else(|| PathBuf::from("/tmp"))
+        .join("linux-hello/models")
 }
 
 /// Hex sha256 of `path`, via the `sha256sum` binary (matches this file's

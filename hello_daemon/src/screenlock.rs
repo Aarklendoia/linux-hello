@@ -374,36 +374,6 @@ fn control_token_file_path() -> Option<String> {
         .map(|dir| format!("{}/hello-daemon-screenlock-ctrl.token", dir))
 }
 
-/// Generates a random 64-hex-char token, the same way
-/// `crate::preview::generate_mjpeg_token`/`linux_hello_config`'s control
-/// server do (reads 32 bytes directly from /dev/urandom via `read_exact`,
-/// not `fs::read` — the latter would block forever on a character device
-/// that never returns EOF).
-fn generate_control_token() -> String {
-    use std::io::Read;
-    let mut buf = [0u8; 32];
-    std::fs::File::open("/dev/urandom")
-        .and_then(|mut f| f.read_exact(&mut buf))
-        .expect("Unable to read /dev/urandom for the screenlock control server token");
-    buf.iter().map(|b| format!("{:02x}", b)).collect()
-}
-
-/// Compares two strings in time that doesn't depend on *where* they first
-/// differ (see `crate::preview::constant_time_eq`, which this mirrors — the
-/// token's length isn't secret, always 64 hex chars by construction, so the
-/// length check may still return early).
-fn constant_time_eq(a: &str, b: &str) -> bool {
-    let (a, b) = (a.as_bytes(), b.as_bytes());
-    if a.len() != b.len() {
-        return false;
-    }
-    let mut diff = 0u8;
-    for (x, y) in a.iter().zip(b.iter()) {
-        diff |= x ^ y;
-    }
-    diff == 0
-}
-
 /// Extracts the `X-Linux-Hello-Token:` header's value from a raw HTTP
 /// request (same hand-rolled parsing style used elsewhere in this
 /// project — see `linux_hello_config::main::extract_token_header`).
@@ -453,7 +423,7 @@ pub async fn start_screenlock_control_server(
         ),
     }
 
-    let token = generate_control_token();
+    let token = crate::security_util::generate_token();
     match control_token_file_path() {
         Some(path) => {
             if let Err(e) = std::fs::write(&path, &token) {
@@ -517,7 +487,7 @@ async fn handle_control_conn(
     let request_line = request.lines().next().unwrap_or("");
 
     let token_ok = extract_token_header(&request)
-        .map(|t| constant_time_eq(t, expected_token))
+        .map(|t| crate::security_util::constant_time_eq(t, expected_token))
         .unwrap_or(false);
 
     let (status_code, body) = if !token_ok {
@@ -616,24 +586,6 @@ mod tests {
     fn test_extract_token_header_none_when_missing() {
         let req = "GET /status HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n";
         assert_eq!(extract_token_header(req), None);
-    }
-
-    #[test]
-    fn test_constant_time_eq_matches_regular_equality() {
-        assert!(constant_time_eq("abc123", "abc123"));
-        assert!(!constant_time_eq("abc123", "abc124"));
-        assert!(!constant_time_eq("abc123", "abc12"));
-    }
-
-    #[test]
-    fn test_generate_control_token_is_64_lowercase_hex_chars_and_varies() {
-        let a = generate_control_token();
-        let b = generate_control_token();
-        assert_eq!(a.len(), 64);
-        assert!(a
-            .chars()
-            .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
-        assert_ne!(a, b);
     }
 
     #[test]

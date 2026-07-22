@@ -23,19 +23,6 @@ static LATEST_JPEG: OnceLock<Mutex<Option<Vec<u8>>>> = OnceLock::new();
 type SmoothBoxState = Mutex<Option<(f32, f32, f32, f32)>>;
 static SMOOTH_BOX: OnceLock<SmoothBoxState> = OnceLock::new();
 
-/// Generates a random 64-hex-char token, the same way
-/// `linux_hello_config`'s control server does (reads 32 bytes directly from
-/// /dev/urandom via `read_exact`, not `fs::read` — the latter would block
-/// forever on a character device that never returns EOF).
-fn generate_mjpeg_token() -> String {
-    use std::io::Read;
-    let mut buf = [0u8; 32];
-    std::fs::File::open("/dev/urandom")
-        .and_then(|mut f| f.read_exact(&mut buf))
-        .expect("Unable to read /dev/urandom for the MJPEG server token");
-    buf.iter().map(|b| format!("{:02x}", b)).collect()
-}
-
 /// Path of the file the GUI reads to learn the current MJPEG token — under
 /// `$XDG_RUNTIME_DIR` (mode 0700, owned solely by this UID), not `/tmp`:
 /// see `linux_hello_config::main::runtime_dir`'s doc comment for why a
@@ -48,22 +35,6 @@ fn mjpeg_token_file_path() -> Option<String> {
         .map(|dir| format!("{}/hello-daemon-mjpeg.token", dir))
 }
 
-/// Compares two strings in time that doesn't depend on *where* they first
-/// differ (see `linux_hello_config::main::constant_time_eq`, which this
-/// mirrors — the token's length isn't secret, always 64 hex chars by
-/// construction, so the length check may still return early).
-fn constant_time_eq(a: &str, b: &str) -> bool {
-    let (a, b) = (a.as_bytes(), b.as_bytes());
-    if a.len() != b.len() {
-        return false;
-    }
-    let mut diff = 0u8;
-    for (x, y) in a.iter().zip(b.iter()) {
-        diff |= x ^ y;
-    }
-    diff == 0
-}
-
 /// Extracts the `token` query-string parameter from an HTTP request line
 /// (e.g. `GET /snapshot?token=abc&t=123 HTTP/1.1`). QML's `Image { source }`
 /// can't set custom request headers, so unlike the GUI's own control-server
@@ -74,26 +45,6 @@ fn extract_token_param(request_line: &str) -> Option<&str> {
     query
         .split('&')
         .find_map(|pair| pair.strip_prefix("token="))
-}
-
-/// Writes `contents` to `path` at mode 0600, owned by the current process.
-/// Removes whatever is at `path` first, then creates fresh with
-/// `create_new` (`O_CREAT|O_EXCL`) — see
-/// `linux_hello_config::main::write_owner_only_file`, which this mirrors,
-/// for the full reasoning (guards a stale/planted file at `path`, and
-/// applies the mode atomically at creation rather than via a separate
-/// `set_permissions` call that would leave a moment where the file exists
-/// with default/umask permissions).
-fn write_owner_only_file(path: &str, contents: &str) -> std::io::Result<()> {
-    use std::io::Write;
-    use std::os::unix::fs::OpenOptionsExt;
-    let _ = std::fs::remove_file(path);
-    let mut f = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(path)?;
-    f.write_all(contents.as_bytes())
 }
 
 /// Start the MJPEG HTTP server on 127.0.0.1:17823.
@@ -111,10 +62,10 @@ pub async fn start_mjpeg_server() -> anyhow::Result<()> {
     // whoever is enrolling or authenticating (loopback TCP has no per-user
     // ACL of its own). Written once at startup; the GUI reads it back the
     // same way it already reads the daemon's other runtime-dir files.
-    let token = generate_mjpeg_token();
+    let token = crate::security_util::generate_token();
     match mjpeg_token_file_path() {
         Some(path) => {
-            if let Err(e) = write_owner_only_file(&path, &token) {
+            if let Err(e) = crate::security_util::write_owner_only_file(&path, &token) {
                 tracing::warn!(
                     "Could not write MJPEG token file {}: {} (camera preview in the GUI won't authenticate)",
                     path,
@@ -144,7 +95,9 @@ pub async fn start_mjpeg_server() -> anyhow::Result<()> {
                         let request_line = String::from_utf8_lossy(&buf[..n]);
 
                         let request_token = extract_token_param(&request_line);
-                        if request_token.map(|t| constant_time_eq(t, &token)) != Some(true) {
+                        if request_token.map(|t| crate::security_util::constant_time_eq(t, &token))
+                            != Some(true)
+                        {
                             let _ = writer
                                 .write_all(b"HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n")
                                 .await;
@@ -496,48 +449,6 @@ mod tests {
         );
         assert_eq!(extract_token_param("GET /snapshot HTTP/1.1\r\n"), None);
         assert_eq!(extract_token_param(""), None);
-    }
-
-    #[test]
-    fn constant_time_eq_matches_regular_equality() {
-        assert!(constant_time_eq("abc123", "abc123"));
-        assert!(!constant_time_eq("abc123", "abc124"));
-        assert!(!constant_time_eq("abc123", "abc12"));
-        assert!(!constant_time_eq("", "abc123"));
-    }
-
-    #[test]
-    fn generate_mjpeg_token_is_64_lowercase_hex_chars_and_varies() {
-        let a = generate_mjpeg_token();
-        let b = generate_mjpeg_token();
-        assert_eq!(a.len(), 64);
-        assert!(a
-            .chars()
-            .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
-        assert_ne!(a, b);
-    }
-
-    #[test]
-    fn write_owner_only_file_sets_mode_0600_and_replaces_existing_content() {
-        use std::os::unix::fs::PermissionsExt;
-        let path = std::env::temp_dir().join(format!(
-            "hello-daemon-mjpeg-test-{}-{}.tmp",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
-        let path_str = path.to_str().unwrap();
-        std::fs::write(path_str, "stale content").unwrap();
-        std::fs::set_permissions(path_str, std::fs::Permissions::from_mode(0o666)).unwrap();
-
-        write_owner_only_file(path_str, "fresh token").unwrap();
-
-        let mode = std::fs::metadata(path_str).unwrap().permissions().mode();
-        assert_eq!(mode & 0o777, 0o600);
-        assert_eq!(std::fs::read_to_string(path_str).unwrap(), "fresh token");
-        let _ = std::fs::remove_file(path_str);
     }
 
     #[test]
