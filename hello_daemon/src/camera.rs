@@ -213,18 +213,79 @@ impl CameraManager {
         let ir_device = self.ir_device.clone();
         let lock_path = self.resolved_lock_path();
 
-        // RGB capture in a blocking thread (V4L2 is not async)
-        let (rgb_frames, ir_frames) =
-            tokio::task::spawn_blocking(move || -> Result<_, CameraError> {
-                // Held for the whole capture; released when this closure returns.
-                let _camera_lock = CameraLock::try_acquire(&lock_path)?;
+        // Acquired once up front and shared (via Arc) with both capture
+        // tasks below, released once both finish — the lock's purpose is
+        // mutual exclusion against another *process* (e.g. the SDDM system
+        // listener) touching the camera at the same time, not serializing
+        // RGB against IR within this one call: they're different V4L2
+        // devices, so nothing requires this process to talk to them one
+        // at a time.
+        let camera_lock = Arc::new(
+            tokio::task::spawn_blocking(move || CameraLock::try_acquire(&lock_path))
+                .await
+                .map_err(|e| CameraError::CaptureError(e.to_string()))??,
+        );
 
-                let mut rgb_frames: Vec<Frame> = Vec::new();
+        // RGB and IR are two independent V4L2 devices — captured on two
+        // separate blocking-pool threads concurrently instead of RGB then
+        // IR back to back (the previous code's "IR capture (parallel,
+        // optional)" comment described the *intent*, but both captures
+        // actually ran sequentially inside the same blocking closure).
+        let rgb_lock = Arc::clone(&camera_lock);
+        let rgb_task = tokio::task::spawn_blocking(move || -> Vec<Frame> {
+            let _lock = rgb_lock;
+            let mut rgb_frames: Vec<Frame> = Vec::new();
+
+            let rgb_result = hello_camera::capture_rgb_stream_v4l2(
+                &rgb_device,
+                num_frames,
+                timeout,
+                |data, w, h| {
+                    let ts = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis() as u64;
+                    rgb_frames.push(Frame {
+                        data,
+                        width: w,
+                        height: h,
+                        format: FrameFormat::Rgb8,
+                        timestamp_ms: ts,
+                    });
+                },
+            );
+
+            if let Err(e) = rgb_result {
+                warn!(
+                    "RGB V4L2 capture failed ({}), falling back to simulation",
+                    e
+                );
+                rgb_frames.clear();
+            }
+
+            // Pad with stub frames if the capture didn't provide enough frames
+            let existing = rgb_frames.len() as u32;
+            for i in existing..num_frames {
+                rgb_frames.push(Frame {
+                    data: vec![0u8; 640 * 480 * 3],
+                    width: 640,
+                    height: 480,
+                    format: FrameFormat::Rgb8,
+                    timestamp_ms: i as u64 * 33,
+                });
+            }
+
+            rgb_frames
+        });
+
+        let ir_task = ir_device.map(|ir_path| {
+            let ir_lock = Arc::clone(&camera_lock);
+            tokio::task::spawn_blocking(move || -> Vec<Frame> {
+                let _lock = ir_lock;
                 let mut ir_frames: Vec<Frame> = Vec::new();
 
-                // RGB capture
-                let rgb_result = hello_camera::capture_rgb_stream_v4l2(
-                    &rgb_device,
+                let ir_result = hello_camera::capture_gray_stream_v4l2(
+                    &ir_path,
                     num_frames,
                     timeout,
                     |data, w, h| {
@@ -232,71 +293,39 @@ impl CameraManager {
                             .duration_since(UNIX_EPOCH)
                             .unwrap_or_default()
                             .as_millis() as u64;
-                        rgb_frames.push(Frame {
+                        ir_frames.push(Frame {
                             data,
                             width: w,
                             height: h,
-                            format: FrameFormat::Rgb8,
+                            format: FrameFormat::Gray8,
                             timestamp_ms: ts,
                         });
                     },
                 );
-
-                if let Err(e) = rgb_result {
-                    warn!(
-                        "RGB V4L2 capture failed ({}), falling back to simulation",
-                        e
-                    );
-                    rgb_frames.clear();
+                if let Err(e) = ir_result {
+                    warn!("IR capture failed ({}), disabled for this session", e);
                 }
 
-                // Pad with stub frames if the capture didn't provide enough frames
-                let existing = rgb_frames.len() as u32;
-                for i in existing..num_frames {
-                    rgb_frames.push(Frame {
-                        data: vec![0u8; 640 * 480 * 3],
-                        width: 640,
-                        height: 480,
-                        format: FrameFormat::Rgb8,
-                        timestamp_ms: i as u64 * 33,
-                    });
-                }
+                ir_frames
+            })
+        });
 
-                // IR capture (parallel, optional)
-                if let Some(ref ir_path) = ir_device {
-                    let ir_result = hello_camera::capture_gray_stream_v4l2(
-                        ir_path,
-                        num_frames,
-                        timeout,
-                        |data, w, h| {
-                            let ts = SystemTime::now()
-                                .duration_since(UNIX_EPOCH)
-                                .unwrap_or_default()
-                                .as_millis() as u64;
-                            ir_frames.push(Frame {
-                                data,
-                                width: w,
-                                height: h,
-                                format: FrameFormat::Gray8,
-                                timestamp_ms: ts,
-                            });
-                        },
-                    );
-                    if let Err(e) = ir_result {
-                        warn!("IR capture failed ({}), disabled for this session", e);
-                    }
-                }
-
-                let ir_opt = if ir_frames.is_empty() {
+        let rgb_frames = rgb_task
+            .await
+            .map_err(|e| CameraError::CaptureError(e.to_string()))?;
+        let ir_frames = match ir_task {
+            Some(task) => {
+                let frames = task
+                    .await
+                    .map_err(|e| CameraError::CaptureError(e.to_string()))?;
+                if frames.is_empty() {
                     None
                 } else {
-                    Some(ir_frames)
-                };
-
-                Ok((rgb_frames, ir_opt))
-            })
-            .await
-            .map_err(|e| CameraError::CaptureError(e.to_string()))??;
+                    Some(frames)
+                }
+            }
+            None => None,
+        };
 
         // Extract embeddings from the RGB frames via detector + extractor
         let detector = Arc::clone(&self.detector);
