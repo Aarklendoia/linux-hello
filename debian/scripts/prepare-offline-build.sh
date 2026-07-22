@@ -89,15 +89,28 @@ echo "==> Pre-fetching ONNX models into debian/offline-models/ (in-tree)"
 MODELS_DIR="$REPO_ROOT/debian/offline-models/linux-hello/models"
 mkdir -p "$MODELS_DIR"
 MODEL_PACK_URL="https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_sc.zip"
+# Pinned so a compromised/tampered release asset can't silently end up in the
+# source tarball this script feeds into debuild -S -sa (which publish-ppa.yml
+# runs unattended, with no human reviewing the fetched bytes) — mirrors
+# hello_face_core/build.rs's MODEL_PACK_SHA256; update both together if
+# upstream ever re-cuts this release asset. Verified with sha256sum on
+# 2026-07-22.
+MODEL_PACK_SHA256="57d31b56b6ffa911c8a73cfc1707c73cab76efe7f13b675a05223bf42de47c72"
 ZIP_PATH="$(mktemp -t linux-hello-buffalo_sc-XXXXXX.zip)"
 
 if [ -f "$MODELS_DIR/det_500m.onnx" ] && [ -f "$MODELS_DIR/w600k_mbf.onnx" ]; then
   echo "    already present in $MODELS_DIR, skipping download"
 else
   curl -L --silent --max-time 60 --output "$ZIP_PATH" "$MODEL_PACK_URL"
+  actual_sha256="$(sha256sum "$ZIP_PATH" | cut -d' ' -f1)"
+  if [ "$actual_sha256" != "$MODEL_PACK_SHA256" ]; then
+    rm -f "$ZIP_PATH"
+    echo "    ERROR: model pack checksum mismatch (got $actual_sha256, expected $MODEL_PACK_SHA256) — refusing to use it" >&2
+    exit 1
+  fi
   unzip -o -j "$ZIP_PATH" det_500m.onnx w600k_mbf.onnx -d "$MODELS_DIR"
   rm -f "$ZIP_PATH"
-  echo "    fetched into $MODELS_DIR"
+  echo "    fetched into $MODELS_DIR (checksum verified)"
 fi
 
 cat <<EOF
