@@ -480,13 +480,9 @@ pub async fn verify_with_storage(
     }
 
     // Load the stored embeddings
-    let mut stored_embeddings = std::collections::HashMap::new();
-    for face in &faces {
-        let embedding = storage
-            .load_face_embedding(request.user_id, &face.face_id)
-            .map_err(|e| DaemonError::StorageError(e.to_string()))?;
-        stored_embeddings.insert(face.face_id.clone(), embedding);
-    }
+    let stored_embeddings = storage
+        .load_face_embeddings(request.user_id, faces.iter().map(|f| &f.face_id))
+        .map_err(|e| DaemonError::StorageError(e.to_string()))?;
     let stored_embeddings = Arc::new(stored_embeddings);
 
     // Camera stays engaged (no on/off blink) and keeps trying for the whole

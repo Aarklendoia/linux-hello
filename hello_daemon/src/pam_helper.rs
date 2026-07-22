@@ -111,6 +111,25 @@ async fn reject(
     Ok(())
 }
 
+/// polkitd's UID, resolved from `/etc/passwd` once and cached — this is
+/// constant for the process's lifetime, but `handle_pam_request` re-read and
+/// re-parsed the file on every single PAM authentication request (i.e. every
+/// login/sudo/polkit prompt) before this cache existed.
+fn polkitd_uid() -> u32 {
+    static CACHED: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
+    *CACHED.get_or_init(|| {
+        std::fs::read_to_string("/etc/passwd")
+            .ok()
+            .and_then(|s| {
+                s.lines()
+                    .find(|l| l.starts_with("polkitd:"))
+                    .and_then(|l| l.split(':').nth(2))
+                    .and_then(|u| u.parse().ok())
+            })
+            .unwrap_or(987)
+    })
+}
+
 /// Process an incoming PAM connection
 async fn handle_pam_request(
     mut stream: tokio::net::UnixStream,
@@ -142,15 +161,7 @@ async fn handle_pam_request(
     // - uid=65534  (nobody)  : sudo-rs sandbox
     // - uid=polkitd          : pkexec and polkit graphical dialogs
     const NOBODY: u32 = 65534;
-    let polkitd_uid: u32 = std::fs::read_to_string("/etc/passwd")
-        .ok()
-        .and_then(|s| {
-            s.lines()
-                .find(|l| l.starts_with("polkitd:"))
-                .and_then(|l| l.split(':').nth(2))
-                .and_then(|u| u.parse().ok())
-        })
-        .unwrap_or(987);
+    let polkitd_uid = polkitd_uid();
     if let Some(uid) = peer_uid {
         if uid != 0 && uid != req.user_id && uid != NOBODY && uid != polkitd_uid {
             error!(

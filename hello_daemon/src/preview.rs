@@ -223,9 +223,11 @@ pub fn export_preview_frame(data: &[u8], width: u32, height: u32) -> anyhow::Res
 
 /// Write the preview for GUI display (data already in RGB, no conversion).
 /// Detects the face via skin color (YCbCr) and draws a green rectangle around it.
-pub fn export_preview_frame_rgb(data: &[u8], width: u32, height: u32) -> anyhow::Result<()> {
-    let mut pixels = data.to_vec();
-
+pub fn export_preview_frame_rgb(
+    mut pixels: Vec<u8>,
+    width: u32,
+    height: u32,
+) -> anyhow::Result<()> {
     // Skin-color detection + EMA smoothing of the rectangle
     if let Some((rx, ry, rw, rh)) = detect_face_region(&pixels, width, height) {
         let lock = SMOOTH_BOX.get_or_init(|| Mutex::new(None));
