@@ -306,7 +306,6 @@ mod tests {
         let record = FaceRecord {
             face_id: "test_face_1".to_string(),
             user_id: 1000,
-            embedding_json: "{}".to_string(),
             quality_score: 0.95,
             registered_at: 0,
             context: "test".to_string(),
@@ -336,7 +335,6 @@ mod tests {
         let record1 = FaceRecord {
             face_id: "face_1".to_string(),
             user_id: 1000,
-            embedding_json: "{}".to_string(),
             quality_score: 0.95,
             registered_at: 0,
             context: "test".to_string(),
@@ -345,7 +343,6 @@ mod tests {
         let record2 = FaceRecord {
             face_id: "face_2".to_string(),
             user_id: 1000,
-            embedding_json: "{}".to_string(),
             quality_score: 0.92,
             registered_at: 0,
             context: "test".to_string(),
@@ -394,7 +391,6 @@ mod tests {
         let record = FaceRecord {
             face_id: "face_1".to_string(),
             user_id: 1000,
-            embedding_json: "[]".to_string(),
             quality_score: 0.9,
             registered_at: 0,
             context: "sddm".to_string(),
@@ -439,7 +435,6 @@ mod tests {
         let record = FaceRecord {
             face_id: "face_1000_1735036800".to_string(),
             user_id: 1000,
-            embedding_json: "{}".to_string(),
             quality_score: 0.95,
             registered_at: 0,
             context: "test".to_string(),
@@ -501,7 +496,6 @@ mod tests {
         let record = FaceRecord {
             face_id: "face_1000_1735036800".to_string(),
             user_id: 1000,
-            embedding_json: "{}".to_string(),
             quality_score: 0.95,
             registered_at: 0,
             context: "test".to_string(),
