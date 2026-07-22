@@ -71,9 +71,15 @@ override_dh_auto_install:
 	cp $(CURDIR)/hello-daemon.service $(CURDIR)/debian/tmp/usr/lib/systemd/user/
 
 	# Install systemd tmpfiles.d (creates /run/hello-pam/ at boot, sticky+world-writable,
-	# and the cross-process camera lock used by hello_daemon::camera::CameraLock)
+	# and the cross-process camera lock used by hello_daemon::camera::CameraLock).
+	# Also pre-creates /run/lock/linux-hello-pam.lock as a root-owned regular
+	# file before any user session can start: tmpfiles-setup.service runs very
+	# early in boot, so this closes the window an unprivileged local user would
+	# otherwise have to pre-plant a symlink at that predictable path (pam-lib.sh
+	# and install-pam.sh/linux-hello-pam-autoconfigure just open the existing
+	# file, they don't create it themselves).
 	mkdir -p $(CURDIR)/debian/tmp/usr/lib/tmpfiles.d
-	printf 'd /run/hello-pam 1777 root root -\nf /run/lock/linux-hello-camera.lock 0666 root root -\n' > $(CURDIR)/debian/tmp/usr/lib/tmpfiles.d/linux-hello.conf
+	printf 'd /run/hello-pam 1777 root root -\nf /run/lock/linux-hello-camera.lock 0666 root root -\nf /run/lock/linux-hello-pam.lock 0600 root root -\n' > $(CURDIR)/debian/tmp/usr/lib/tmpfiles.d/linux-hello.conf
 
 	# Install PAM auto-activation: system unit + timer + detection script + shared lib
 	mkdir -p $(CURDIR)/debian/tmp/usr/lib/systemd/system
