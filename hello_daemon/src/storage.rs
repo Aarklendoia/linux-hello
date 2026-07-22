@@ -93,7 +93,7 @@ impl FaceStorage {
         harden_dir(&user_dir)?;
 
         // Save metadata to a JSON file
-        let metadata_path = user_dir.join(format!("{}.meta.json", record.face_id));
+        let metadata_path = face_path(&user_dir, &record.face_id, ".meta.json")?;
         let metadata_json =
             serde_json::to_string_pretty(&record).map_err(DaemonError::JsonError)?;
 
@@ -102,7 +102,7 @@ impl FaceStorage {
         })?;
 
         // Save the embedding
-        let embedding_path = user_dir.join(format!("{}.embedding.json", record.face_id));
+        let embedding_path = face_path(&user_dir, &record.face_id, ".embedding.json")?;
         let embedding_json =
             serde_json::to_string_pretty(&embedding).map_err(DaemonError::JsonError)?;
 
@@ -153,7 +153,7 @@ impl FaceStorage {
         user_dir: &Path,
         face_id: &str,
     ) -> Result<Embedding, DaemonError> {
-        let embedding_path = user_dir.join(format!("{}.embedding.json", face_id));
+        let embedding_path = face_path(user_dir, face_id, ".embedding.json")?;
 
         let content = std::fs::read_to_string(&embedding_path)
             .map_err(|e| DaemonError::StorageError(format!("Embedding read: {}", e)))?;
@@ -204,24 +204,15 @@ impl FaceStorage {
     /// Delete a face
     pub fn delete_face(&self, user_id: u32, face_id: &str) -> Result<(), DaemonError> {
         // face_id is attacker-controlled (it comes straight from the D-Bus
-        // DeleteFace request body) and, unlike user_id (a plain u32),
-        // wasn't validated before being joined onto a path — user_dir()
-        // guards against user_id escaping base_path, but a face_id like
+        // DeleteFace request body) and, unlike user_id (a plain u32), needs
+        // validating before being joined onto a path — user_dir() guards
+        // against user_id escaping base_path, but a face_id like
         // "../../../../etc/cron.d/x" would still escape *this* user's own
-        // directory once appended below. Real face_ids are always
-        // "face_<uid>_<timestamp>" (see register_face), so anything outside
-        // that safe character set can only be a traversal attempt.
-        if !is_safe_face_id(face_id) {
-            return Err(DaemonError::AccessDenied(format!(
-                "Invalid face_id: {}",
-                face_id
-            )));
-        }
-
+        // directory once appended below. face_path() does that check.
         let user_dir = self.user_dir(user_id)?;
 
-        let meta_path = user_dir.join(format!("{}.meta.json", face_id));
-        let emb_path = user_dir.join(format!("{}.embedding.json", face_id));
+        let meta_path = face_path(&user_dir, face_id, ".meta.json")?;
+        let emb_path = face_path(&user_dir, face_id, ".embedding.json")?;
 
         if meta_path.exists() {
             std::fs::remove_file(&meta_path)
@@ -296,6 +287,25 @@ fn is_safe_face_id(face_id: &str) -> bool {
         && face_id
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+}
+
+/// Joins `face_id` onto `user_dir` with the given filename suffix (e.g.
+/// `.meta.json`), rejecting an unsafe `face_id` — the shared path-joining
+/// layer every method that touches a face's files goes through, so the
+/// `is_safe_face_id` check can't be missed by a future caller the way it
+/// almost was here: only `delete_face` validated its (D-Bus-attacker-
+/// controlled) `face_id` before this, while `save_face`/
+/// `load_face_embedding_from_dir` built the identical kind of path with no
+/// check of their own, safe only because their current callers happen to
+/// always supply a machine-generated `face_id`.
+fn face_path(user_dir: &Path, face_id: &str, suffix: &str) -> Result<PathBuf, DaemonError> {
+    if !is_safe_face_id(face_id) {
+        return Err(DaemonError::AccessDenied(format!(
+            "Invalid face_id: {}",
+            face_id
+        )));
+    }
+    Ok(user_dir.join(format!("{}{}", face_id, suffix)))
 }
 
 #[cfg(test)]
@@ -495,6 +505,39 @@ mod tests {
             canary.exists(),
             "the file outside the user dir must survive"
         );
+    }
+
+    #[test]
+    fn test_save_face_rejects_a_path_traversal_face_id() {
+        // face_path() is the shared path-joining layer save_face/
+        // load_face_embedding/delete_face all now go through — this checks
+        // it actually gates save_face too, not just delete_face (the one
+        // call site that had its own bespoke is_safe_face_id check before
+        // face_path existed).
+        let temp = TempDir::new().unwrap();
+        let storage = FaceStorage::new(temp.path()).unwrap();
+
+        let record = FaceRecord {
+            face_id: "../../../etc/cron.d/evil".to_string(),
+            user_id: 1000,
+            quality_score: 0.95,
+            registered_at: 0,
+            context: "test".to_string(),
+        };
+        let embedding = Embedding {
+            vector: vec![0.1, 0.2, 0.3],
+            metadata: hello_face_core::EmbeddingMetadata {
+                model: "test".to_string(),
+                model_version: "0.1.0".to_string(),
+                extracted_at: 0,
+                quality_score: 0.95,
+            },
+        };
+
+        assert!(storage.save_face(&record, &embedding).is_err());
+        assert!(storage
+            .load_face_embedding(1000, "../../../etc/cron.d/evil")
+            .is_err());
     }
 
     /// Regression test: biometric data must never be left readable by other

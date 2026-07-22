@@ -340,7 +340,6 @@ impl CameraManager {
             .iter()
             .enumerate()
             .map(|(i, frame)| {
-                // 1. Detect faces in the frame
                 debug!(
                     "Frame {}: {}×{} {} bytes",
                     i,
@@ -348,38 +347,29 @@ impl CameraManager {
                     frame.height,
                     frame.data.len()
                 );
-                let faces = match detector.detect(&frame.data, frame.width, frame.height, 3) {
-                    Ok(f) => f,
-                    Err(e) => {
-                        warn!("SCRFD detection error frame {}: {}", i, e);
-                        vec![]
-                    }
-                };
-
-                // 2. Take the face with the highest confidence
-                let best_face = faces
-                    .into_iter()
-                    .max_by(|a, b| a.confidence.total_cmp(&b.confidence));
-
-                // 3. Extract the embedding
-                if let Some(face) = best_face {
-                    match extractor.extract(&face, &frame.data, frame.width, frame.height, 3) {
-                        Ok(emb) => return emb,
-                        Err(e) => warn!("Embedding extraction frame {}: {}", i, e),
-                    }
-                } else {
-                    warn!("No face detected in frame {}", i);
-                }
-
-                // No face detected or extraction failed: empty marker (quality 0)
-                // Never use a fake embedding that would skew the comparison
-                Embedding {
-                    vector: vec![],
-                    metadata: hello_face_core::EmbeddingMetadata {
-                        model: "no-face".to_string(),
-                        model_version: "0.0.0".to_string(),
-                        extracted_at: now_secs + i as u64,
-                        quality_score: 0.0,
+                // rgb_liveness isn't used here (this loop only reports
+                // per-frame embeddings, not liveness — see ir_liveness just
+                // below, computed separately from the IR frames instead).
+                match score_frame(
+                    &**detector,
+                    &**extractor,
+                    i as u32,
+                    &frame.data,
+                    frame.width,
+                    frame.height,
+                ) {
+                    Some((embedding, _rgb_liveness)) => embedding,
+                    // No face detected or extraction failed: empty marker
+                    // (quality 0). Never use a fake embedding that would
+                    // skew the comparison.
+                    None => Embedding {
+                        vector: vec![],
+                        metadata: hello_face_core::EmbeddingMetadata {
+                            model: "no-face".to_string(),
+                            model_version: "0.0.0".to_string(),
+                            extracted_at: now_secs + i as u64,
+                            quality_score: 0.0,
+                        },
                     },
                 }
             })

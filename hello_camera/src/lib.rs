@@ -470,6 +470,38 @@ pub fn scan_cameras() -> CameraInventory {
     }
 }
 
+/// Opens `device_path` and negotiates 640x480 capture in the given FourCC
+/// pixel format — shared by capture_gray_stream_v4l2/capture_rgb_stream_v4l2/
+/// capture_rgb_stream_until, which each repeated this exact open/negotiate
+/// sequence, differing only in the FourCC.
+#[cfg(feature = "v4l2")]
+fn open_and_configure(
+    device_path: &str,
+    fourcc: &[u8; 4],
+) -> Result<(v4l::Device, v4l::Format), CameraError> {
+    use v4l::video::Capture;
+
+    let dev = v4l::Device::with_path(device_path)
+        .map_err(|e| CameraError::NotAvailable(format!("{}: {}", device_path, e)))?;
+
+    let mut fmt = dev
+        .format()
+        .map_err(|e| CameraError::OpenFailed(e.to_string()))?;
+    fmt.width = 640;
+    fmt.height = 480;
+    fmt.fourcc = v4l::format::FourCC::new(fourcc);
+
+    let applied = dev.set_format(&fmt).map_err(|e| {
+        CameraError::OpenFailed(format!(
+            "set_format {}: {}",
+            String::from_utf8_lossy(fourcc),
+            e
+        ))
+    })?;
+
+    Ok((dev, applied))
+}
+
 /// Capture `num_frames` frames in GREY (8-bit grayscale) from a V4L2 device.
 ///
 /// Used for IR cameras (e.g. Logitech Brio infrared channel).
@@ -486,22 +518,8 @@ where
 {
     use v4l::buffer::Type;
     use v4l::io::traits::CaptureStream;
-    use v4l::video::Capture;
 
-    let dev = v4l::Device::with_path(device_path)
-        .map_err(|e| CameraError::NotAvailable(format!("{}: {}", device_path, e)))?;
-
-    let mut fmt = dev
-        .format()
-        .map_err(|e| CameraError::OpenFailed(e.to_string()))?;
-    fmt.width = 640;
-    fmt.height = 480;
-    fmt.fourcc = v4l::format::FourCC::new(b"GREY");
-
-    let applied = dev
-        .set_format(&fmt)
-        .map_err(|e| CameraError::OpenFailed(format!("set_format GREY: {}", e)))?;
-
+    let (dev, applied) = open_and_configure(device_path, b"GREY")?;
     let width = applied.width;
     let height = applied.height;
 
@@ -541,23 +559,8 @@ where
 {
     use v4l::buffer::Type;
     use v4l::io::traits::CaptureStream;
-    use v4l::video::Capture;
 
-    let dev = v4l::Device::with_path(device_path)
-        .map_err(|e| CameraError::NotAvailable(format!("{}: {}", device_path, e)))?;
-
-    // Configure YUYV 640x480
-    let mut fmt = dev
-        .format()
-        .map_err(|e| CameraError::OpenFailed(e.to_string()))?;
-    fmt.width = 640;
-    fmt.height = 480;
-    fmt.fourcc = v4l::format::FourCC::new(b"YUYV");
-
-    let applied = dev
-        .set_format(&fmt)
-        .map_err(|e| CameraError::OpenFailed(format!("set_format YUYV: {}", e)))?;
-
+    let (dev, applied) = open_and_configure(device_path, b"YUYV")?;
     let width = applied.width;
     let height = applied.height;
 
@@ -610,22 +613,8 @@ where
 {
     use v4l::buffer::Type;
     use v4l::io::traits::CaptureStream;
-    use v4l::video::Capture;
 
-    let dev = v4l::Device::with_path(device_path)
-        .map_err(|e| CameraError::NotAvailable(format!("{}: {}", device_path, e)))?;
-
-    let mut fmt = dev
-        .format()
-        .map_err(|e| CameraError::OpenFailed(e.to_string()))?;
-    fmt.width = 640;
-    fmt.height = 480;
-    fmt.fourcc = v4l::format::FourCC::new(b"YUYV");
-
-    let applied = dev
-        .set_format(&fmt)
-        .map_err(|e| CameraError::OpenFailed(format!("set_format YUYV: {}", e)))?;
-
+    let (dev, applied) = open_and_configure(device_path, b"YUYV")?;
     let width = applied.width;
     let height = applied.height;
 

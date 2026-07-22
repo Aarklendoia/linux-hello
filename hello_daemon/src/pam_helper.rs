@@ -130,6 +130,34 @@ fn polkitd_uid() -> u32 {
     })
 }
 
+/// Maps a `tokio::time::timeout`-wrapped verify() outcome to the response
+/// sent back over the PAM helper socket — shared by `handle_pam_request` and
+/// `compute_verify_response`, which each independently matched out the same
+/// four cases (success, recognized-but-no-match, a daemon error, or the
+/// timeout firing first).
+fn verify_outcome_to_response(
+    result: Result<Result<VerifyResult, crate::DaemonError>, tokio::time::error::Elapsed>,
+) -> PamHelperResponse {
+    match result {
+        Ok(Ok(VerifyResult::Success {
+            face_id,
+            similarity_score,
+        })) => PamHelperResponse::Success {
+            face_id,
+            similarity_score,
+        },
+        Ok(Ok(_)) => PamHelperResponse::Failure {
+            reason: "Face not recognized".to_string(),
+        },
+        Ok(Err(e)) => PamHelperResponse::Failure {
+            reason: e.to_string(),
+        },
+        Err(_) => PamHelperResponse::Failure {
+            reason: "Timeout".to_string(),
+        },
+    }
+}
+
 /// Process an incoming PAM connection
 async fn handle_pam_request(
     mut stream: tokio::net::UnixStream,
@@ -188,24 +216,7 @@ async fn handle_pam_request(
     let result = tokio::time::timeout(timeout, daemon_guard.verify(verify_req)).await;
     drop(daemon_guard);
 
-    let response = match result {
-        Ok(Ok(crate::dbus_interface::VerifyResult::Success {
-            face_id,
-            similarity_score,
-        })) => PamHelperResponse::Success {
-            face_id,
-            similarity_score,
-        },
-        Ok(Ok(_)) => PamHelperResponse::Failure {
-            reason: "Face not recognized".to_string(),
-        },
-        Ok(Err(e)) => PamHelperResponse::Failure {
-            reason: e.to_string(),
-        },
-        Err(_) => PamHelperResponse::Failure {
-            reason: "Timeout".to_string(),
-        },
-    };
+    let response = verify_outcome_to_response(result);
 
     let response_json = serde_json::to_string(&response)?;
     stream.write_all(response_json.as_bytes()).await?;
@@ -373,24 +384,7 @@ async fn compute_verify_response(
                     )
                     .await;
 
-                    match result {
-                        Ok(Ok(VerifyResult::Success {
-                            face_id,
-                            similarity_score,
-                        })) => PamHelperResponse::Success {
-                            face_id,
-                            similarity_score,
-                        },
-                        Ok(Ok(_)) => PamHelperResponse::Failure {
-                            reason: "Face not recognized".to_string(),
-                        },
-                        Ok(Err(e)) => PamHelperResponse::Failure {
-                            reason: e.to_string(),
-                        },
-                        Err(_) => PamHelperResponse::Failure {
-                            reason: "Timeout".to_string(),
-                        },
-                    }
+                    verify_outcome_to_response(result)
                 }
                 Err(e) => PamHelperResponse::Failure {
                     reason: e.to_string(),
