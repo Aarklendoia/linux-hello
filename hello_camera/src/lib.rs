@@ -139,9 +139,6 @@ pub trait CameraBackend: Send + Sync {
     /// Number of pending frames
     fn pending_frames(&self) -> usize;
 
-    /// Flush the buffer (useful before verification)
-    fn flush_buffers(&mut self) -> Result<(), CameraError>;
-
     /// Check whether the camera is open
     fn is_open(&self) -> bool;
 
@@ -297,18 +294,6 @@ pub mod v4l2_backend {
             } else {
                 0
             }
-        }
-
-        fn flush_buffers(&mut self) -> Result<(), CameraError> {
-            // Drain old buffers by capturing and discarding a few frames
-            // Note: with the mmap approach, it's simpler
-            if self.is_open {
-                // Try a few quick captures to flush the buffers
-                for _ in 0..3 {
-                    let _ = self.capture(100);
-                }
-            }
-            Ok(())
         }
 
         fn is_open(&self) -> bool {
