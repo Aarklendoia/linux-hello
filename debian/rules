@@ -101,6 +101,10 @@ override_dh_auto_install:
 	# / --disable-sddm) shows a branded prompt instead of the generic pkexec one.
 	mkdir -p $(CURDIR)/debian/tmp/usr/share/polkit-1/actions
 	cp $(CURDIR)/debian/polkit/com.linuxhello.pam-setup.policy $(CURDIR)/debian/tmp/usr/share/polkit-1/actions/
+	# Polkit action gating hello-daemon's RegisterFace/DeleteFace D-Bus
+	# methods (see hello_daemon::authz) behind a fresh interactive
+	# re-authentication, since a successfully enrolled face unlocks sudo.
+	cp $(CURDIR)/debian/polkit/com.linuxhello.manage-faces.policy $(CURDIR)/debian/tmp/usr/share/polkit-1/actions/
 
 	# Install documentation
 	mkdir -p $(CURDIR)/debian/tmp/usr/share/doc/linux-hello

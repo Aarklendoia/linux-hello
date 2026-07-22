@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<policyconfig>
+  <vendor>Linux Hello</vendor>
+  <vendor_url>https://github.com/Aarklendoia/linux-hello</vendor_url>
+
+  <!--
+    Gates hello-daemon's RegisterFace/DeleteFace D-Bus methods (see
+    hello_daemon::authz). Any local process running as you can already
+    reach those over the session bus with no OS-level barrier of its own —
+    this is what makes the check cost something real: a fresh, interactive
+    password prompt, the same way changing a login password or an SSH
+    authorized key would. auth_self (not auth_admin): this only needs to
+    prove you are this session's own user, not an administrator.
+  -->
+  <action id="com.linuxhello.manage-faces">
+    <description>Add or remove an enrolled face for Linux Hello</description>
+    <message>Authentication is required to change your enrolled Linux Hello faces</message>
+    <icon_name>linux-hello</icon_name>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_self_keep</allow_active>
+    </defaults>
+  </action>
+</policyconfig>
