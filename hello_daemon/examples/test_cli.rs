@@ -78,9 +78,6 @@ async fn main() -> anyhow::Result<()> {
     let config = DaemonConfig {
         storage_path: cli.storage.clone(),
         root_mode: false,
-        current_uid: None,
-        default_similarity_threshold: 0.6,
-        debug: cli.debug,
     };
 
     let daemon = FaceAuthDaemon::new(config)?;

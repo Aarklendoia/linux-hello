@@ -8,7 +8,7 @@ use crate::FaceAuthDaemon;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info};
-use zbus::{interface, Connection};
+use zbus::interface;
 
 /// D-Bus wrapper around the daemon
 pub struct FaceAuthInterface {
@@ -30,25 +30,9 @@ impl FaceAuthInterface {
         }
     }
 
-    /// Create a new interface with a D-Bus signal emitter
-    pub fn new_with_connection(daemon: FaceAuthDaemon, connection: Connection) -> Self {
-        let storage_path = daemon.config().storage_path.to_string_lossy().into_owned();
-        let signal_emitter = Arc::new(StreamingSignalEmitter::new(Arc::new(connection)));
-        Self {
-            daemon: Arc::new(RwLock::new(daemon)),
-            signal_emitter: Some(signal_emitter),
-            version: env!("CARGO_PKG_VERSION").to_string(),
-            storage_path,
-        }
-    }
-
     /// Create from a shared Arc (allows sharing the daemon with the PAM helper)
-    pub fn from_arc(
-        daemon: Arc<RwLock<FaceAuthDaemon>>,
-        storage_path: String,
-        connection: Connection,
-    ) -> Self {
-        let signal_emitter = Arc::new(StreamingSignalEmitter::new(Arc::new(connection)));
+    pub fn from_arc(daemon: Arc<RwLock<FaceAuthDaemon>>, storage_path: String) -> Self {
+        let signal_emitter = Arc::new(StreamingSignalEmitter::new());
         Self {
             daemon,
             signal_emitter: Some(signal_emitter),
@@ -348,9 +332,6 @@ mod tests {
         let config = DaemonConfig {
             storage_path: temp.path().to_path_buf(),
             root_mode: false,
-            current_uid: None,
-            default_similarity_threshold: 0.6,
-            debug: false,
         };
         let daemon = FaceAuthDaemon::new(config).unwrap();
         (temp, FaceAuthInterface::new(daemon))
@@ -367,9 +348,6 @@ mod tests {
         let config = DaemonConfig {
             storage_path: temp.path().to_path_buf(),
             root_mode: false,
-            current_uid: None,
-            default_similarity_threshold: 0.6,
-            debug: false,
         };
         let daemon = FaceAuthDaemon::new_for_test(config, camera).unwrap();
         (temp, FaceAuthInterface::new(daemon))
@@ -409,9 +387,6 @@ mod tests {
         let config = DaemonConfig {
             storage_path: temp.path().to_path_buf(),
             root_mode: false,
-            current_uid: None,
-            default_similarity_threshold: 0.6,
-            debug: false,
         };
         let daemon = FaceAuthDaemon::new(config).unwrap();
         let iface = FaceAuthInterface::new(daemon);
@@ -565,9 +540,6 @@ mod tests {
         let config = DaemonConfig {
             storage_path: temp.path().to_path_buf(),
             root_mode: false,
-            current_uid: None,
-            default_similarity_threshold: 0.6,
-            debug: false,
         };
         let daemon = FaceAuthDaemon::new_for_test(config, camera)
             .unwrap()
@@ -590,9 +562,6 @@ mod tests {
         let config = DaemonConfig {
             storage_path: temp.path().to_path_buf(),
             root_mode: false,
-            current_uid: None,
-            default_similarity_threshold: 0.6,
-            debug: false,
         };
         let daemon = FaceAuthDaemon::new(config)
             .unwrap()

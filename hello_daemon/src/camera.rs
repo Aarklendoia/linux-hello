@@ -537,7 +537,6 @@ impl CameraManager {
                         width,
                         height,
                         face_detected: false,
-                        face_box: None,
                         quality_score: 0.85,
                         timestamp_ms: 0,
                     };
@@ -586,7 +585,6 @@ impl CameraManager {
                 width: 640,
                 height: 480,
                 face_detected: false,
-                face_box: None,
                 quality_score: 0.85,
                 timestamp_ms: ts,
             });

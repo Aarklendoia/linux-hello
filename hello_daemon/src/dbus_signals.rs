@@ -3,54 +3,21 @@
 //! Allows emitting a D-Bus signal for each captured frame,
 //! letting the GUI receive real-time updates.
 
-use crate::capture_stream::CaptureFrameEvent;
-use std::sync::Arc;
-use tracing::{debug, error};
-use zbus::Connection;
+use tracing::debug;
 
 /// D-Bus signal manager for streaming
-pub struct StreamingSignalEmitter {
-    #[allow(dead_code)]
-    connection: Arc<Connection>,
+pub struct StreamingSignalEmitter;
+
+impl Default for StreamingSignalEmitter {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl StreamingSignalEmitter {
     /// Create a new signal emitter
-    pub fn new(connection: Arc<Connection>) -> Self {
-        Self { connection }
-    }
-
-    /// Emit a capture progress signal
-    ///
-    /// Sends the event serialized as JSON via D-Bus
-    ///
-    /// # Arguments
-    /// * `event` - Capture event to emit
-    ///
-    /// # Returns
-    /// Ok(()) on success, Err on failure
-    pub async fn emit_capture_progress(&self, event: &CaptureFrameEvent) -> Result<(), String> {
-        // Serialize the event to JSON
-        let event_json = match serde_json::to_string(&event) {
-            Ok(j) => j,
-            Err(e) => {
-                error!("Event serialization error: {}", e);
-                return Err(format!("Serialization failed: {}", e));
-            }
-        };
-
-        debug!(
-            "Emitting CaptureProgress signal: frame {}/{}, size={}",
-            event.frame_number + 1,
-            event.total_frames,
-            event_json.len()
-        );
-
-        // For MVP: just log the signal
-        // In production: use the zbus connection to emit
-        debug!("Signal JSON: {}", event_json);
-
-        Ok(())
+    pub fn new() -> Self {
+        Self
     }
 
     /// Emit a capture completed signal
@@ -71,9 +38,15 @@ impl StreamingSignalEmitter {
 
 #[cfg(test)]
 mod tests {
-    #[test]
-    fn test_streaming_signal_emitter_creation() {
-        // This test just verifies that the structure compiles
-        // Real tests require a working D-Bus connection
+    use super::*;
+
+    #[tokio::test]
+    async fn emit_capture_completed_and_error_both_succeed() {
+        let emitter = StreamingSignalEmitter::new();
+        assert!(emitter.emit_capture_completed(1000).await.is_ok());
+        assert!(emitter
+            .emit_capture_error(1000, "no face detected")
+            .await
+            .is_ok());
     }
 }

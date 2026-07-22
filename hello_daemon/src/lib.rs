@@ -67,15 +67,6 @@ pub struct DaemonConfig {
 
     /// Root mode (true) or user mode (false)
     pub root_mode: bool,
-
-    /// Current UID if in user mode
-    pub current_uid: Option<u32>,
-
-    /// Default similarity threshold
-    pub default_similarity_threshold: f32,
-
-    /// Enable verbose logging
-    pub debug: bool,
 }
 
 impl Default for DaemonConfig {
@@ -92,9 +83,6 @@ impl Default for DaemonConfig {
         Self {
             storage_path,
             root_mode: unsafe { libc::getuid() } == 0,
-            current_uid: None,
-            default_similarity_threshold: 0.6,
-            debug: false,
         }
     }
 }
@@ -153,7 +141,7 @@ impl FaceAuthDaemon {
         let camera = CameraManager::new(5000); // 5s default timeout
 
         // Create the matcher with the configured threshold
-        let matcher = FaceMatcher::new(config.default_similarity_threshold);
+        let matcher = FaceMatcher::new();
 
         info!("Daemon created with config: {:?}", config);
 
@@ -180,7 +168,7 @@ impl FaceAuthDaemon {
     ) -> Result<Self, DaemonError> {
         let storage = FaceStorage::new(&config.storage_path)
             .map_err(|e| DaemonError::StorageError(e.to_string()))?;
-        let matcher = FaceMatcher::new(config.default_similarity_threshold);
+        let matcher = FaceMatcher::new();
         Ok(Self {
             config,
             storage: Arc::new(storage),
@@ -670,9 +658,6 @@ mod tests {
         DaemonConfig {
             storage_path,
             root_mode: false,
-            current_uid: None,
-            default_similarity_threshold: 0.6,
-            debug: false,
         }
     }
 
@@ -875,7 +860,7 @@ mod tests {
                 },
             },
         );
-        let matcher = FaceMatcher::new(0.6);
+        let matcher = FaceMatcher::new();
         let mut state = VerifyLoopState::default();
 
         for _ in 0..2 {
@@ -912,7 +897,7 @@ mod tests {
                 },
             },
         );
-        let matcher = FaceMatcher::new(0.6);
+        let matcher = FaceMatcher::new();
         let mut state = VerifyLoopState::default();
 
         let (embedding, rgb_liveness) =

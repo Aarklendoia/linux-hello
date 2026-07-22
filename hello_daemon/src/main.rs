@@ -18,10 +18,6 @@ struct Args {
     /// Debug mode
     #[arg(short, long)]
     debug: bool,
-
-    /// Similarity threshold (0.0-1.0)
-    #[arg(long, default_value = "0.6")]
-    similarity_threshold: f32,
 }
 
 #[tokio::main]
@@ -45,14 +41,8 @@ async fn main() -> anyhow::Result<()> {
     if let Some(path) = args.storage_path {
         config.storage_path = path;
     }
-    config.debug = args.debug;
-    config.default_similarity_threshold = args.similarity_threshold;
 
     info!("Storage: {}", config.storage_path.display());
-    info!(
-        "Similarity threshold: {}",
-        config.default_similarity_threshold
-    );
 
     // Create the daemon
     let daemon = FaceAuthDaemon::new(config)?;
@@ -128,7 +118,7 @@ async fn main() -> anyhow::Result<()> {
         e
     })?;
 
-    let iface = FaceAuthInterface::from_arc(daemon_arc, storage_path, connection.clone());
+    let iface = FaceAuthInterface::from_arc(daemon_arc, storage_path);
 
     connection
         .request_name("com.linuxhello.FaceAuth")
