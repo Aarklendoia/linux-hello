@@ -56,10 +56,41 @@ async fn main() -> anyhow::Result<()> {
 
     // Wrap in Arc<RwLock> for sharing with the PAM helper
     let daemon_arc = std::sync::Arc::new(tokio::sync::RwLock::new(daemon));
-
-    // Start the PAM helper socket (/run/hello-pam/<uid>.socket)
     let uid = unsafe { libc::getuid() };
-    if let Err(e) = hello_daemon::pam_helper::start_pam_helper(uid, daemon_arc.clone()).await {
+
+    // These five each bind their own socket/listener and don't depend on any
+    // of the others' results, so they're started concurrently rather than
+    // one at a time — each is a fast local bind, but there's no reason to
+    // pay five round trips of startup latency in sequence when none of them
+    // wait on each other.
+    let screenlock_status = std::sync::Arc::new(std::sync::Mutex::new(
+        hello_daemon::screenlock::ScreenlockStatus::default(),
+    ));
+    let screenlock_retry_notify = std::sync::Arc::new(tokio::sync::Notify::new());
+
+    let (
+        pam_helper_result,
+        screenlock_watcher_result,
+        screenlock_ctrl_result,
+        mjpeg_result,
+        connection_result,
+    ) = tokio::join!(
+        hello_daemon::pam_helper::start_pam_helper(uid, daemon_arc.clone()),
+        hello_daemon::screenlock::start_screenlock_watcher(
+            daemon_arc.clone(),
+            uid,
+            screenlock_status.clone(),
+            screenlock_retry_notify.clone(),
+        ),
+        hello_daemon::screenlock::start_screenlock_control_server(
+            screenlock_status,
+            screenlock_retry_notify,
+        ),
+        hello_daemon::preview::start_mjpeg_server(),
+        zbus::Connection::session(),
+    );
+
+    if let Err(e) = pam_helper_result {
         warn!(
             "PAM helper socket not started: {} (biometric PAM auth unavailable)",
             e
@@ -68,23 +99,7 @@ async fn main() -> anyhow::Result<()> {
         info!("✓ PAM helper socket: /run/hello-pam/{}.socket", uid);
     }
 
-    // Start monitoring the screen lock (automatic unlock via face), sharing
-    // live status + a retry trigger with the control server below so
-    // qml/lockscreen/MainBlock.qml can show progress and let the user
-    // retry on demand instead of getting exactly one attempt per lock.
-    let screenlock_status = std::sync::Arc::new(std::sync::Mutex::new(
-        hello_daemon::screenlock::ScreenlockStatus::default(),
-    ));
-    let screenlock_retry_notify = std::sync::Arc::new(tokio::sync::Notify::new());
-
-    if let Err(e) = hello_daemon::screenlock::start_screenlock_watcher(
-        daemon_arc.clone(),
-        uid,
-        screenlock_status.clone(),
-        screenlock_retry_notify.clone(),
-    )
-    .await
-    {
+    if let Err(e) = screenlock_watcher_result {
         warn!(
             "Screen lock monitoring not started: {} (automatic unlock unavailable)",
             e
@@ -93,12 +108,7 @@ async fn main() -> anyhow::Result<()> {
         info!("✓ Screen lock monitoring active");
     }
 
-    if let Err(e) = hello_daemon::screenlock::start_screenlock_control_server(
-        screenlock_status,
-        screenlock_retry_notify,
-    )
-    .await
-    {
+    if let Err(e) = screenlock_ctrl_result {
         warn!(
             "Screenlock control server not started: {} (status/retry UI in the lock screen unavailable)",
             e
@@ -107,13 +117,15 @@ async fn main() -> anyhow::Result<()> {
         info!("✓ Screenlock control server active");
     }
 
-    // Start the MJPEG server for the GUI preview (real-time video stream)
-    hello_daemon::preview::start_mjpeg_server().await?;
+    // Unlike the other three above, a failed MJPEG bind aborts startup
+    // entirely (matches this function's original, pre-parallelization
+    // behavior: `start_mjpeg_server().await?`).
+    mjpeg_result?;
 
     // Register on D-Bus
     info!("Registering on D-Bus...");
 
-    let connection = zbus::Connection::session().await.map_err(|e| {
+    let connection = connection_result.map_err(|e| {
         error!("D-Bus connection error: {}", e);
         e
     })?;
