@@ -140,6 +140,34 @@ impl FaceStorage {
         face_id: &str,
     ) -> Result<Embedding, DaemonError> {
         let user_dir = self.user_dir(user_id)?;
+        Self::load_face_embedding_from_dir(&user_dir, face_id)
+    }
+
+    /// Load several embeddings for the same user in one call — resolves
+    /// (and `canonicalize`s) `user_dir` once up front instead of once per
+    /// `face_id`, unlike calling `load_face_embedding` in a loop. Used by
+    /// `verify_with_storage`, which otherwise re-resolved the identical
+    /// directory once per registered face on every single verify() attempt.
+    pub fn load_face_embeddings(
+        &self,
+        user_id: u32,
+        face_ids: impl IntoIterator<Item = impl AsRef<str>>,
+    ) -> Result<std::collections::HashMap<String, Embedding>, DaemonError> {
+        let user_dir = self.user_dir(user_id)?;
+        face_ids
+            .into_iter()
+            .map(|face_id| {
+                let face_id = face_id.as_ref();
+                let embedding = Self::load_face_embedding_from_dir(&user_dir, face_id)?;
+                Ok((face_id.to_string(), embedding))
+            })
+            .collect()
+    }
+
+    fn load_face_embedding_from_dir(
+        user_dir: &Path,
+        face_id: &str,
+    ) -> Result<Embedding, DaemonError> {
         let embedding_path = user_dir.join(format!("{}.embedding.json", face_id));
 
         let content = std::fs::read_to_string(&embedding_path)

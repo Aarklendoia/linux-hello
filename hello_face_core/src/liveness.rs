@@ -54,7 +54,7 @@ pub fn ir_liveness_score(gray_frame: &[u8], w: u32, h: u32, face: &FaceRegion) -
     // Normalize the ROI pixels to [0, 255].
     // Makes the algorithm independent of the IR camera's exposure level
     // (e.g. camera without active illuminator -> raw values ~30, Brio -> ~120).
-    let normalized = normalize_roi(gray_frame, w, x1, y1, x2, y2);
+    let (normalized, roi_min, roi_max) = normalize_roi(gray_frame, w, x1, y1, x2, y2);
     let norm_frame: &[u8] = &normalized;
     let norm_w = x2 - x1;
     let norm_h = y2 - y1;
@@ -62,18 +62,7 @@ pub fn ir_liveness_score(gray_frame: &[u8], w: u32, h: u32, face: &FaceRegion) -
     // If the dynamic range is too low, the IR image is unusable
     // (camera out of frame, shutter closed, no signal at all).
     // Return 0.5 = no decision rather than penalizing.
-    let raw_range = {
-        let mut mn = 255u8;
-        let mut mx = 0u8;
-        for y in y1..y2 {
-            for x in x1..x2 {
-                let v = gray_frame[(y * w + x) as usize];
-                mn = mn.min(v);
-                mx = mx.max(v);
-            }
-        }
-        mx.saturating_sub(mn)
-    };
+    let raw_range = roi_max.saturating_sub(roi_min);
     if raw_range < 5 {
         tracing::debug!(
             "Liveness IR: dynamic range too low ({}), no decision",
@@ -207,8 +196,12 @@ fn rgb_to_gray(rgb: &[u8], w: u32, h: u32) -> Option<Vec<u8>> {
     Some(gray)
 }
 
-/// Extracts the ROI and normalizes the pixels to [0, 255] (contrast stretching).
-fn normalize_roi(gray: &[u8], w: u32, x1: u32, y1: u32, x2: u32, y2: u32) -> Vec<u8> {
+/// Extracts the ROI and normalizes the pixels to [0, 255] (contrast
+/// stretching). Also returns the pre-normalization (min, max) — the caller
+/// needs those too (as `raw_range`), and this is the only place that already
+/// scans every ROI pixel, so it hands them back instead of making the
+/// caller re-scan the same pixels a second time just to recompute them.
+fn normalize_roi(gray: &[u8], w: u32, x1: u32, y1: u32, x2: u32, y2: u32) -> (Vec<u8>, u8, u8) {
     let mut roi: Vec<u8> = Vec::with_capacity(((x2 - x1) * (y2 - y1)) as usize);
     let mut mn = 255u8;
     let mut mx = 0u8;
@@ -224,13 +217,13 @@ fn normalize_roi(gray: &[u8], w: u32, x1: u32, y1: u32, x2: u32, y2: u32) -> Vec
 
     let range = mx.saturating_sub(mn);
     if range == 0 {
-        return roi; // uniform image, normalization not possible
+        return (roi, mn, mx); // uniform image, normalization not possible
     }
 
     for v in roi.iter_mut() {
         *v = ((*v as u32 - mn as u32) * 255 / range as u32) as u8;
     }
-    roi
+    (roi, mn, mx)
 }
 
 /// Computes the 3x3 Laplacian filter variance over the ROI

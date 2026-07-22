@@ -259,12 +259,15 @@ impl FaceAuthInterface {
                     event.total_frames,
                     event.frame_data.len()
                 );
-                // Export the frame to JPEG for the GUI preview
-                if let Err(e) = crate::preview::export_preview_frame_rgb(
-                    &event.frame_data,
-                    event.width,
-                    event.height,
-                ) {
+                // Export the frame to JPEG for the GUI preview. Takes
+                // event.frame_data by value: `event` is otherwise dropped
+                // right after this closure returns, so handing over
+                // ownership here avoids a full-frame (~920 KB) clone per
+                // streamed enrollment frame.
+                let (width, height) = (event.width, event.height);
+                if let Err(e) =
+                    crate::preview::export_preview_frame_rgb(event.frame_data, width, height)
+                {
                     error!("Preview frame export error: {}", e);
                 }
             })
