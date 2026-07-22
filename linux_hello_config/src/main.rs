@@ -403,12 +403,23 @@ fn request_method(req: &str) -> &str {
         .unwrap_or("")
 }
 
-/// Escapes a string for embedding in a JSON string literal. Needed for
-/// `/license-text`: unlike this file's other JSON bodies (short, known-shape
-/// values), the GPL text is arbitrary long-form content — it contains
-/// double quotes (license section headers) and real newlines that a naive
-/// `format!` would emit unescaped into the response body, breaking parsing
-/// on the QML side.
+/// Runs `cmd`, returning its stdout as a `String` on success (exit code 0),
+/// or the raw stderr text on failure (a spawn failure's `io::Error` message
+/// takes its place) — shared by every control-server route below that shells
+/// out to busctl/pkexec, which each repeated this same
+/// output-capture-then-branch-on-exit-status pattern. Callers that embed the
+/// returned error into a JSON response body are responsible for running it
+/// through `json_escape` themselves at that point; this only runs the
+/// process.
+fn run_command(cmd: &mut Command) -> Result<String, String> {
+    match cmd.output() {
+        Ok(out) if out.status.success() => Ok(String::from_utf8_lossy(&out.stdout).into_owned()),
+        Ok(out) => Err(String::from_utf8_lossy(&out.stderr).into_owned()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+/// Escapes a string for embedding in a JSON string literal.
 fn json_escape(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 16);
     for c in s.chars() {
@@ -496,43 +507,29 @@ fn handle_ctrl_connection(
             r#"{{"user_id":{},"context":"gui","timeout_ms":10000,"num_samples":5}}"#,
             uid
         );
-        match Command::new("busctl")
-            .args([
-                "--user",
-                "call",
-                "com.linuxhello.FaceAuth",
-                "/com/linuxhello/FaceAuth",
-                "com.linuxhello.FaceAuth",
-                "RegisterFace",
-                "s",
-                &request_json,
-            ])
-            .output()
-        {
-            Ok(out) if out.status.success() => {
-                let stdout = String::from_utf8_lossy(&out.stdout);
+        match run_command(Command::new("busctl").args([
+            "--user",
+            "call",
+            "com.linuxhello.FaceAuth",
+            "/com/linuxhello/FaceAuth",
+            "com.linuxhello.FaceAuth",
+            "RegisterFace",
+            "s",
+            &request_json,
+        ])) {
+            Ok(stdout) => {
                 let face_id =
                     extract_face_id_from_busctl(&stdout).unwrap_or_else(|| "unknown".to_string());
                 (
                     "200 OK",
-                    format!(r#"{{"ok":true,"face_id":"{}"}}"#, face_id),
+                    format!(r#"{{"ok":true,"face_id":"{}"}}"#, json_escape(&face_id)),
                 )
             }
-            Ok(out) => {
-                let err = String::from_utf8_lossy(&out.stderr)
-                    .replace('"', "\\\"")
-                    .replace('\n', " ");
-                eprintln!("✗ RegisterFace busctl stderr: {}", err);
+            Err(err) => {
+                eprintln!("✗ RegisterFace busctl error: {}", err);
                 (
                     "500 Internal Server Error",
-                    format!(r#"{{"ok":false,"error":"{}"}}"#, err),
-                )
-            }
-            Err(e) => {
-                eprintln!("✗ RegisterFace spawn error: {}", e);
-                (
-                    "500 Internal Server Error",
-                    format!(r#"{{"ok":false,"error":"{}"}}"#, e),
+                    format!(r#"{{"ok":false,"error":"{}"}}"#, json_escape(&err)),
                 )
             }
         }
@@ -591,21 +588,14 @@ fn handle_ctrl_connection(
         } else {
             "--disable-sddm"
         };
-        match Command::new("pkexec")
-            .args(["/usr/bin/install-pam.sh", flag])
-            .output()
-        {
-            Ok(out) if out.status.success() => ("200 OK", r#"{"ok":true}"#.to_string()),
-            Ok(out) => {
-                let err = String::from_utf8_lossy(&out.stderr)
-                    .replace('"', "\\\"")
-                    .replace('\n', " ");
+        match run_command(Command::new("pkexec").args(["/usr/bin/install-pam.sh", flag])) {
+            Ok(_) => ("200 OK", r#"{"ok":true}"#.to_string()),
+            Err(err) => {
                 eprintln!("✗ {} failed: {}", flag, err);
-                ("200 OK", format!(r#"{{"ok":false,"error":"{}"}}"#, err))
-            }
-            Err(e) => {
-                eprintln!("✗ {} spawn error: {}", flag, e);
-                ("200 OK", format!(r#"{{"ok":false,"error":"{}"}}"#, e))
+                (
+                    "200 OK",
+                    format!(r#"{{"ok":false,"error":"{}"}}"#, json_escape(&err)),
+                )
             }
         }
     } else if req.contains("/camera-info") {
@@ -613,102 +603,71 @@ fn handle_ctrl_connection(
         // hello_daemon::dbus::camera_info's doc comment. No liveness gate
         // without one, so the Enrollment screen warns the user their setup
         // is more spoofable than the common (IR-equipped) case.
-        match Command::new("busctl")
-            .args([
-                "--user",
-                "call",
-                "com.linuxhello.FaceAuth",
-                "/com/linuxhello/FaceAuth",
-                "com.linuxhello.FaceAuth",
-                "CameraInfo",
-            ])
-            .output()
-        {
-            Ok(out) if out.status.success() => {
-                let stdout = String::from_utf8_lossy(&out.stdout);
+        match run_command(Command::new("busctl").args([
+            "--user",
+            "call",
+            "com.linuxhello.FaceAuth",
+            "/com/linuxhello/FaceAuth",
+            "com.linuxhello.FaceAuth",
+            "CameraInfo",
+        ])) {
+            Ok(stdout) => {
                 let json = extract_busctl_json(&stdout)
                     .unwrap_or_else(|| r#"{"has_ir":true}"#.to_string());
                 ("200 OK", json)
             }
-            Ok(out) => {
-                let err = String::from_utf8_lossy(&out.stderr)
-                    .replace('"', "\\\"")
-                    .replace('\n', " ");
-                eprintln!("✗ CameraInfo busctl stderr: {}", err);
+            Err(err) => {
+                eprintln!("✗ CameraInfo error: {}", err);
                 // Fail open toward "has IR" rather than flashing a false
                 // security warning if the daemon is briefly unreachable —
                 // the actual liveness gate isn't affected either way, this
                 // route only feeds an informational banner.
                 ("200 OK", r#"{"has_ir":true}"#.to_string())
             }
-            Err(e) => {
-                eprintln!("✗ CameraInfo spawn error: {}", e);
-                ("200 OK", r#"{"has_ir":true}"#.to_string())
-            }
         }
     } else if req.contains("/list-faces") {
-        match Command::new("busctl")
-            .args([
-                "--user",
-                "call",
-                "com.linuxhello.FaceAuth",
-                "/com/linuxhello/FaceAuth",
-                "com.linuxhello.FaceAuth",
-                "ListFaces",
-                "u",
-                &uid.to_string(),
-            ])
-            .output()
-        {
-            Ok(out) if out.status.success() => {
-                let stdout = String::from_utf8_lossy(&out.stdout);
+        match run_command(Command::new("busctl").args([
+            "--user",
+            "call",
+            "com.linuxhello.FaceAuth",
+            "/com/linuxhello/FaceAuth",
+            "com.linuxhello.FaceAuth",
+            "ListFaces",
+            "u",
+            &uid.to_string(),
+        ])) {
+            Ok(stdout) => {
                 let json = extract_busctl_json(&stdout).unwrap_or_else(|| "[]".to_string());
                 ("200 OK", json)
             }
-            Ok(out) => {
-                let err = String::from_utf8_lossy(&out.stderr)
-                    .replace('"', "\\\"")
-                    .replace('\n', " ");
-                eprintln!("✗ ListFaces busctl stderr: {}", err);
-                ("200 OK", "[]".to_string())
-            }
-            Err(e) => {
-                eprintln!("✗ ListFaces spawn error: {}", e);
+            Err(err) => {
+                eprintln!("✗ ListFaces error: {}", err);
                 ("200 OK", "[]".to_string())
             }
         }
     } else if req.contains("/delete-face") {
         let face_id = extract_query_param(&req, "id").unwrap_or_default();
-        let request_json = format!(r#"{{"user_id":{},"face_id":"{}"}}"#, uid, face_id);
-        match Command::new("busctl")
-            .args([
-                "--user",
-                "call",
-                "com.linuxhello.FaceAuth",
-                "/com/linuxhello/FaceAuth",
-                "com.linuxhello.FaceAuth",
-                "DeleteFace",
-                "s",
-                &request_json,
-            ])
-            .output()
-        {
-            Ok(out) if out.status.success() => ("200 OK", r#"{"ok":true}"#.to_string()),
-            Ok(out) => {
-                let err = String::from_utf8_lossy(&out.stderr)
-                    .replace('"', "\\\"")
-                    .replace('\n', " ");
-                eprintln!("✗ DeleteFace busctl stderr: {}", err);
+        let request_json = format!(
+            r#"{{"user_id":{},"face_id":"{}"}}"#,
+            uid,
+            json_escape(&face_id)
+        );
+        match run_command(Command::new("busctl").args([
+            "--user",
+            "call",
+            "com.linuxhello.FaceAuth",
+            "/com/linuxhello/FaceAuth",
+            "com.linuxhello.FaceAuth",
+            "DeleteFace",
+            "s",
+            &request_json,
+        ])) {
+            Ok(_) => ("200 OK", r#"{"ok":true}"#.to_string()),
+            Err(err) => {
+                eprintln!("✗ DeleteFace error: {}", err);
                 (
                     "500 Internal Server Error",
-                    format!(r#"{{"ok":false,"error":"{}"}}"#, err),
-                )
-            }
-            Err(e) => {
-                eprintln!("✗ DeleteFace spawn error: {}", e);
-                (
-                    "500 Internal Server Error",
-                    format!(r#"{{"ok":false,"error":"{}"}}"#, e),
+                    format!(r#"{{"ok":false,"error":"{}"}}"#, json_escape(&err)),
                 )
             }
         }
@@ -745,6 +704,26 @@ fn handle_ctrl_connection(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn run_command_returns_stdout_on_success() {
+        let out = run_command(Command::new("echo").arg("hello"));
+        assert_eq!(out.unwrap().trim(), "hello");
+    }
+
+    #[test]
+    fn run_command_returns_stderr_on_nonzero_exit() {
+        let out = run_command(Command::new("sh").args(["-c", "echo oops >&2; exit 1"]));
+        assert_eq!(out.unwrap_err().trim(), "oops");
+    }
+
+    #[test]
+    fn run_command_returns_an_error_message_when_spawn_fails() {
+        let out = run_command(&mut Command::new(
+            "linux-hello-definitely-not-a-real-binary",
+        ));
+        assert!(out.is_err());
+    }
 
     #[test]
     fn sddm_pam_line_present_detects_configured_line() {

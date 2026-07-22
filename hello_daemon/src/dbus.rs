@@ -18,6 +18,17 @@ pub struct FaceAuthInterface {
     storage_path: String,
 }
 
+/// Parses a D-Bus method's `request_json` argument into `T`, logging and
+/// mapping a parse failure into the `zbus::fdo::Error` each method returns —
+/// shared by register_face/delete_face/verify, which each repeated this
+/// identical match block for their own request type.
+fn parse_request<T: serde::de::DeserializeOwned>(request_json: &str) -> zbus::fdo::Result<T> {
+    serde_json::from_str(request_json).map_err(|e| {
+        error!("JSON parse error: {}", e);
+        zbus::fdo::Error::Failed(format!("JSON parse error: {}", e))
+    })
+}
+
 impl FaceAuthInterface {
     /// Create a new interface without a signal emitter (backward compatible)
     pub fn new(daemon: FaceAuthDaemon) -> Self {
@@ -63,13 +74,7 @@ impl FaceAuthInterface {
     pub async fn register_face(&self, request_json: &str) -> zbus::fdo::Result<String> {
         debug!("D-Bus call: register_face");
 
-        let request: RegisterFaceRequest = match serde_json::from_str(request_json) {
-            Ok(r) => r,
-            Err(e) => {
-                error!("JSON parse error: {}", e);
-                return Err(zbus::fdo::Error::Failed(format!("JSON parse error: {}", e)));
-            }
-        };
+        let request: RegisterFaceRequest = parse_request(request_json)?;
 
         let daemon = self.daemon.read().await;
         let response = daemon.register_face(request).await;
@@ -93,13 +98,7 @@ impl FaceAuthInterface {
     pub async fn delete_face(&self, request_json: &str) -> zbus::fdo::Result<()> {
         debug!("D-Bus call: delete_face");
 
-        let request: DeleteFaceRequest = match serde_json::from_str(request_json) {
-            Ok(r) => r,
-            Err(e) => {
-                error!("JSON parse error: {}", e);
-                return Err(zbus::fdo::Error::Failed(format!("JSON parse error: {}", e)));
-            }
-        };
+        let request: DeleteFaceRequest = parse_request(request_json)?;
 
         let daemon = self.daemon.read().await;
         let response = daemon.delete_face(request).await;
@@ -126,13 +125,7 @@ impl FaceAuthInterface {
     pub async fn verify(&self, request_json: &str) -> zbus::fdo::Result<String> {
         debug!("D-Bus call: verify");
 
-        let request: VerifyRequest = match serde_json::from_str(request_json) {
-            Ok(r) => r,
-            Err(e) => {
-                error!("JSON parse error: {}", e);
-                return Err(zbus::fdo::Error::Failed(format!("JSON parse error: {}", e)));
-            }
-        };
+        let request: VerifyRequest = parse_request(request_json)?;
 
         let daemon = self.daemon.read().await;
         let result = daemon.verify(request).await;

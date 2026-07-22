@@ -291,16 +291,14 @@ pub fn export_preview_frame_rgb(
 /// Looks for the centroid in the upper third of the image (forehead/cheeks)
 /// to avoid hands near the chin biasing the result.
 /// Returns (x, y, width, height) or None if no face is found.
-fn detect_face_region(rgb: &[u8], width: u32, height: u32) -> Option<(u32, u32, u32, u32)> {
-    // Search from 10% to 60% of the height: avoids the ceiling at the top
-    // and hands/shoulders at the bottom. The centroid falls on the eyes/nose.
-    let y_start = height / 10;
-    let search_height = height * 3 / 5;
-    let mut sum_x: u64 = 0;
-    let mut sum_y: u64 = 0;
-    let mut count: u64 = 0;
+/// Accumulates (sum_x, sum_y, count) of skin-colored pixels within `y_range`
+/// — shared by `detect_face_region`'s two passes (a first pass over the main
+/// search band, and a conditional second pass extending it), which used to
+/// duplicate this exact loop body for each.
+fn scan_skin_pixels(rgb: &[u8], width: u32, y_range: std::ops::Range<u32>) -> (u64, u64, u64) {
+    let (mut sum_x, mut sum_y, mut count) = (0u64, 0u64, 0u64);
 
-    for y in y_start..search_height {
+    for y in y_range {
         for x in 0..width {
             let idx = ((y * width + x) * 3) as usize;
             if idx + 2 >= rgb.len() {
@@ -328,32 +326,24 @@ fn detect_face_region(rgb: &[u8], width: u32, height: u32) -> Option<(u32, u32, 
         }
     }
 
+    (sum_x, sum_y, count)
+}
+
+fn detect_face_region(rgb: &[u8], width: u32, height: u32) -> Option<(u32, u32, u32, u32)> {
+    // Search from 10% to 60% of the height: avoids the ceiling at the top
+    // and hands/shoulders at the bottom. The centroid falls on the eyes/nose.
+    let y_start = height / 10;
+    let search_height = height * 3 / 5;
+    let (mut sum_x, mut sum_y, mut count) = scan_skin_pixels(rgb, width, y_start..search_height);
+
     // Not enough skin in the main area → extend up to 70%
     if count < 400 {
         let search_height2 = height * 7 / 10;
-        for y in search_height..search_height2 {
-            for x in 0..width {
-                let idx = ((y * width + x) * 3) as usize;
-                if idx + 2 >= rgb.len() {
-                    continue;
-                }
-                let r = rgb[idx] as f32;
-                let g = rgb[idx + 1] as f32;
-                let b = rgb[idx + 2] as f32;
-
-                let luma = 0.299 * r + 0.587 * g + 0.114 * b;
-                if luma < 40.0 {
-                    continue;
-                }
-                let cb = 128.0 - 0.168736 * r - 0.331264 * g + 0.5 * b;
-                let cr = 128.0 + 0.5 * r - 0.418688 * g - 0.081312 * b;
-                if (77.0..=127.0).contains(&cb) && (133.0..=173.0).contains(&cr) {
-                    sum_x += x as u64;
-                    sum_y += y as u64;
-                    count += 1;
-                }
-            }
-        }
+        let (extra_x, extra_y, extra_count) =
+            scan_skin_pixels(rgb, width, search_height..search_height2);
+        sum_x += extra_x;
+        sum_y += extra_y;
+        count += extra_count;
     }
 
     // Global minimum threshold
