@@ -34,10 +34,6 @@ struct Cli {
 enum Commands {
     /// Launch the daemon
     Daemon {
-        /// Debug mode
-        #[arg(short, long)]
-        debug: bool,
-
         /// Custom storage path
         #[arg(short, long)]
         storage: Option<std::path::PathBuf>,
@@ -110,7 +106,7 @@ async fn main() -> anyhow::Result<()> {
     info!("Linux Hello CLI v{}", env!("CARGO_PKG_VERSION"));
 
     match cli.command {
-        Commands::Daemon { debug, storage } => command_daemon(debug, storage).await,
+        Commands::Daemon { storage } => command_daemon(storage).await,
         Commands::Enroll {
             user_id,
             context,
@@ -127,14 +123,13 @@ async fn main() -> anyhow::Result<()> {
     }
 }
 
-async fn command_daemon(debug: bool, storage: Option<std::path::PathBuf>) -> anyhow::Result<()> {
+async fn command_daemon(storage: Option<std::path::PathBuf>) -> anyhow::Result<()> {
     info!("Starting daemon");
 
     let mut config = hello_daemon::DaemonConfig::default();
     if let Some(path) = storage {
         config.storage_path = path;
     }
-    config.debug = debug;
 
     let _daemon = hello_daemon::FaceAuthDaemon::new(config)?;
 
@@ -434,11 +429,10 @@ mod tests {
     }
 
     #[test]
-    fn test_daemon_parses_debug_and_storage_flags() {
-        let cli = parse(&["daemon", "--debug", "--storage", "/tmp/x"]);
+    fn test_daemon_parses_storage_flag() {
+        let cli = parse(&["daemon", "--storage", "/tmp/x"]);
         match cli.command {
-            Commands::Daemon { debug, storage } => {
-                assert!(debug);
+            Commands::Daemon { storage } => {
                 assert_eq!(storage, Some(std::path::PathBuf::from("/tmp/x")));
             }
             _ => panic!("expected Daemon"),

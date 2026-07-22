@@ -834,30 +834,6 @@ fn log_pam(message: &str) {
     }
 }
 
-// The old functions remain for compatibility (unused)
-#[allow(dead_code)]
-/// D-Bus request structure for Verify
-#[derive(Serialize, Deserialize, Debug)]
-struct VerifyRequest {
-    user_id: u32,
-    context: String,
-    timeout_ms: u64,
-}
-
-#[allow(dead_code)]
-/// D-Bus response structure for Verify
-#[derive(Serialize, Deserialize, Debug)]
-#[serde(untagged)]
-enum VerifyResponse {
-    Success {
-        face_id: String,
-        similarity_score: f32,
-    },
-    Failure {
-        reason: String,
-    },
-}
-
 // Test
 #[cfg(test)]
 mod tests {

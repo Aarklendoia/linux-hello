@@ -80,7 +80,6 @@ The `hello_daemon` daemon is now **fully implemented** with all critical feature
 - ✅ CLI with arguments:
   - `-s/--storage-path`: custom storage path
   - `-d/--debug`: log verbosity
-  - `--similarity-threshold`: default threshold
   
 - ✅ Tracing initialization (logs with environment filter)
 - ✅ Startup in user or root mode depending on getuid()

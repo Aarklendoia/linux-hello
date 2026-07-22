@@ -512,7 +512,7 @@ mod tests {
     #[tokio::test]
     async fn test_compute_verify_response_unknown_user_is_a_fast_failure() {
         let camera = crate::camera::CameraManager::new(1000);
-        let matcher = Arc::new(crate::matcher::FaceMatcher::new(0.6));
+        let matcher = Arc::new(crate::matcher::FaceMatcher::new());
         let req = unknown_user_req(5000);
 
         let response = compute_verify_response(&camera, matcher, &req).await;
@@ -531,7 +531,7 @@ mod tests {
     #[tokio::test]
     async fn test_respond_with_floor_pads_a_fast_failure_up_to_timeout_ms() {
         let camera = crate::camera::CameraManager::new(1000);
-        let matcher = Arc::new(crate::matcher::FaceMatcher::new(0.6));
+        let matcher = Arc::new(crate::matcher::FaceMatcher::new());
         let req = unknown_user_req(150);
 
         let start = std::time::Instant::now();
@@ -637,9 +637,6 @@ mod tests {
         let config = crate::DaemonConfig {
             storage_path: storage_dir.path().to_path_buf(),
             root_mode: false,
-            current_uid: None,
-            default_similarity_threshold: 0.6,
-            debug: false,
         };
         let daemon = crate::FaceAuthDaemon::new_for_test(config, camera).unwrap();
         (

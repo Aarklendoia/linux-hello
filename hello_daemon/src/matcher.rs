@@ -34,9 +34,18 @@ pub struct FaceMatcher {
     context_thresholds: HashMap<String, f32>,
 }
 
+impl Default for FaceMatcher {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FaceMatcher {
-    /// Create a new matcher
-    pub fn new(_default_threshold: f32) -> Self {
+    /// Create a new matcher. Thresholds are fixed (see `context_thresholds`
+    /// below) — this crate previously accepted a `default_threshold`
+    /// parameter here, but every caller's value was silently discarded; see
+    /// the removed `--similarity-threshold` CLI flag/`DaemonConfig` field.
+    pub fn new() -> Self {
         let default_threshold = 0.58;
         let mut context_thresholds = HashMap::new();
 
@@ -230,7 +239,7 @@ mod tests {
 
     #[test]
     fn test_cosine_similarity() {
-        let matcher = FaceMatcher::new(0.6);
+        let matcher = FaceMatcher::new();
 
         // Identical vectors = 1.0
         let v1 = vec![1.0, 0.0, 0.0];
@@ -247,7 +256,7 @@ mod tests {
 
     #[test]
     fn test_match_embedding() {
-        let matcher = FaceMatcher::new(0.6);
+        let matcher = FaceMatcher::new();
 
         let probe = Embedding {
             vector: vec![1.0, 0.0, 0.0, 0.0, 0.0],
@@ -293,7 +302,7 @@ mod tests {
 
     #[test]
     fn test_context_thresholds() {
-        let matcher = FaceMatcher::new(0.6);
+        let matcher = FaceMatcher::new();
 
         assert_eq!(matcher.get_threshold("login"), 0.60);
         assert_eq!(matcher.get_threshold("sudo"), 0.62);
@@ -328,7 +337,7 @@ mod tests {
 
     #[test]
     fn test_match_with_liveness_ir_gate_rejects_below_threshold() {
-        let matcher = FaceMatcher::new(0.6);
+        let matcher = FaceMatcher::new();
         let (probe, stored) = matching_probe_and_stored();
 
         // A recognizable face, but IR liveness reads as a flat photo
@@ -342,7 +351,7 @@ mod tests {
 
     #[test]
     fn test_match_with_liveness_ir_gate_accepts_above_threshold() {
-        let matcher = FaceMatcher::new(0.6);
+        let matcher = FaceMatcher::new();
         let (probe, stored) = matching_probe_and_stored();
 
         let result = matcher.match_with_liveness(&probe, &stored, "test", Some(0.9), 1.0);
@@ -353,7 +362,7 @@ mod tests {
 
     #[test]
     fn test_match_with_liveness_falls_back_to_rgb_gate_without_ir() {
-        let matcher = FaceMatcher::new(0.6);
+        let matcher = FaceMatcher::new();
         let (probe, stored) = matching_probe_and_stored();
 
         // No IR camera (None): a strong RGB match must still be rejected

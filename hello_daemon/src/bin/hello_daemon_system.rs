@@ -14,7 +14,6 @@ use std::sync::Arc;
 use tracing::{error, info, warn};
 
 const DEFAULT_TIMEOUT_MS: u64 = 5000;
-const DEFAULT_SIMILARITY_THRESHOLD: f32 = 0.6;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -36,7 +35,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     let camera = Arc::new(CameraManager::new(DEFAULT_TIMEOUT_MS));
-    let matcher = Arc::new(FaceMatcher::new(DEFAULT_SIMILARITY_THRESHOLD));
+    let matcher = Arc::new(FaceMatcher::new());
 
     if let Err(e) = start_system_pam_helper(camera, matcher).await {
         error!("Failed to start the system PAM listener: {}", e);
