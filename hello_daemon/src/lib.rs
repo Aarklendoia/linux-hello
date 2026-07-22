@@ -97,7 +97,17 @@ impl Default for DaemonConfig {
     }
 }
 
-/// Metadata for a registered face
+/// Metadata for a registered face.
+///
+/// Deliberately does NOT carry the embedding vector itself (that lives only
+/// in the separate `<face_id>.embedding.json` file, see
+/// `FaceStorage::save_face`/`load_face_embedding`): this struct is also what
+/// `list_faces` returns verbatim over the session D-Bus bus, which has no
+/// access-control policy of its own beyond "same UID as the daemon" — any
+/// local process on that bus can call it. A raw face-recognition embedding is
+/// reconstructable/comparable biometric data, so it must never round-trip
+/// through that channel, even though the D-Bus caller is already the same
+/// user the data belongs to.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct FaceRecord {
     /// Unique ID
@@ -105,9 +115,6 @@ pub struct FaceRecord {
 
     /// Owning UID
     pub user_id: u32,
-
-    /// Serialized embedding (JSON)
-    pub embedding_json: String,
 
     /// Quality score
     pub quality_score: f32,
@@ -244,7 +251,6 @@ impl FaceAuthDaemon {
         let record = FaceRecord {
             face_id: face_id.clone(),
             user_id: request.user_id,
-            embedding_json: serde_json::to_string(&embedding.vector)?,
             quality_score: capture.quality_score,
             registered_at: now,
             context: request.context.clone(),
@@ -516,7 +522,6 @@ mod tests {
         let record = FaceRecord {
             face_id: "face_1".to_string(),
             user_id: 1000,
-            embedding_json: "[]".to_string(),
             quality_score: 0.95,
             registered_at: 0,
             context: "login".to_string(),
