@@ -283,35 +283,25 @@ async fn command_delete(user_id: u32, face_id: Option<String>) -> anyhow::Result
 async fn command_camera(duration: u64) -> anyhow::Result<()> {
     info!("Camera test for {}s", duration);
 
-    let config = hello_camera::CameraConfig::default();
-    let mut camera = hello_camera::create_camera(config)?;
-
-    camera.open()?;
-    info!("Camera opened: {}", camera.backend_name());
-
-    let start = std::time::Instant::now();
-    let mut frame_count = 0;
-
-    while start.elapsed().as_secs() < duration {
-        match camera.capture(1000) {
-            Ok(frame) => {
-                frame_count += 1;
-                info!(
-                    "Frame {}: {}x{}, size={}B",
-                    frame_count,
-                    frame.width,
-                    frame.height,
-                    frame.data.len()
-                );
-            }
-            Err(e) => {
-                eprintln!("Capture error: {}", e);
-                break;
-            }
-        }
+    let mut frame_count = 0u32;
+    if let Err(e) = hello_camera::capture_rgb_stream_until(
+        "/dev/video0",
+        duration * 1000,
+        |data, width, height| {
+            frame_count += 1;
+            info!(
+                "Frame {}: {}x{}, size={}B",
+                frame_count,
+                width,
+                height,
+                data.len()
+            );
+            false
+        },
+    ) {
+        eprintln!("Capture error: {}", e);
     }
 
-    camera.close()?;
     info!("Test finished: {} frames captured", frame_count);
 
     Ok(())
