@@ -542,6 +542,7 @@ where
     Ok(())
 }
 
+/// Capture `num_frames` RGB frames from a V4L2 device using a single
 /// persistent mmap stream (more efficient than creating one per frame), then calls
 /// `on_frame(rgb_data, width, height)` for each captured frame.
 ///
