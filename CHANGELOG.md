@@ -1,5 +1,39 @@
 # Changelog
 
+## [1.5.3](https://github.com/Aarklendoia/linux-hello/compare/v1.5.2...v1.5.3) (2026-07-22)
+
+
+### Bug Fixes
+
+* **build:** verify the ONNX model pack's checksum before using it ([dad7551](https://github.com/Aarklendoia/linux-hello/commit/dad7551075e07bf66d0d487665666273c26e0de7))
+* **build:** verify the ONNX model pack's checksum before using it ([93e5272](https://github.com/Aarklendoia/linux-hello/commit/93e527284f527eb636e3b8b1343a479def65412b))
+* **daemon:** require interactive re-auth before enrollment changes ([369e279](https://github.com/Aarklendoia/linux-hello/commit/369e279c95c8b5acf23c513a42caa02261fad7a0))
+* **daemon:** require interactive re-auth before enrollment changes ([488ceb3](https://github.com/Aarklendoia/linux-hello/commit/488ceb39a67f6d19ba1c622d648a2bdaf5c9c1ac))
+* **daemon:** stop leaking the raw face embedding through FaceRecord ([6294a70](https://github.com/Aarklendoia/linux-hello/commit/6294a70a4dfa6aaf150b15f0a0305de65b4cc72c))
+* **daemon:** stop leaking the raw face embedding through FaceRecord ([6d6cc22](https://github.com/Aarklendoia/linux-hello/commit/6d6cc22336f95f126a3895d60fab6e56f559c869))
+* **gui:** move config-app lock file off /tmp to $XDG_RUNTIME_DIR ([6635be7](https://github.com/Aarklendoia/linux-hello/commit/6635be70a3bafc9ab6dc41b520ef8fd9cbeee5b1))
+* **gui:** move config-app lock file off /tmp to $XDG_RUNTIME_DIR ([a9bdca6](https://github.com/Aarklendoia/linux-hello/commit/a9bdca6ee37849e4f6438fa207728ca5e5a40ec2))
+* **pam:** close symlink attack window on /run/lock/linux-hello-pam.lock ([8bd56c7](https://github.com/Aarklendoia/linux-hello/commit/8bd56c7e53445456f64056a751edf91ce3bea30f))
+* **pam:** close symlink attack window on /run/lock/linux-hello-pam.lock ([dc66f4e](https://github.com/Aarklendoia/linux-hello/commit/dc66f4ee16f2e75ddd64682e8ac79db222d7f89f))
+
+
+### Performance Improvements
+
+* cache/avoid repeated hot-path work found by a full-codebase audit ([a6dc4d2](https://github.com/Aarklendoia/linux-hello/commit/a6dc4d2ab77b124dc1e99058a96571ee4b967cab))
+* cache/avoid repeated hot-path work found by a full-codebase audit ([0b11d01](https://github.com/Aarklendoia/linux-hello/commit/0b11d01db8ad2c6a3dc75f3fceacf456c41d4b55))
+* **daemon:** parallelize independent startup steps and RGB/IR capture ([3b54d9b](https://github.com/Aarklendoia/linux-hello/commit/3b54d9bc6eab5354942cd98d573981278ab6ea92))
+* **daemon:** parallelize independent startup steps and RGB/IR capture ([d1b0806](https://github.com/Aarklendoia/linux-hello/commit/d1b0806d0ca85e01c426f6a7dcc45e1f0117947f))
+* **daemon:** use a read lock for D-Bus calls that don't mutate the daemon ([e7d5455](https://github.com/Aarklendoia/linux-hello/commit/e7d54550a4c80ba58331a9759ef898d1b4bc5e9f))
+* **daemon:** use a read lock for D-Bus calls that don't mutate the daemon ([4946903](https://github.com/Aarklendoia/linux-hello/commit/4946903e4018694f36e0cc078e5a44369e65a14a))
+
+
+### Code Refactoring
+
+* dedupe security helpers and use the already-declared `dirs` crate ([6cebe6c](https://github.com/Aarklendoia/linux-hello/commit/6cebe6ce7dc2417522534113098b51f0968502f1))
+* dedupe security helpers and use the already-declared dirs crate ([5380488](https://github.com/Aarklendoia/linux-hello/commit/538048858f8b3dbc19b780ef557392ea116e6a7c))
+* remaining structural simplifications from a full-codebase audit ([43f831f](https://github.com/Aarklendoia/linux-hello/commit/43f831f5d429ac96199ab6c2ba41840cbc16853e))
+* remaining structural simplifications from a full-codebase audit ([fd7a471](https://github.com/Aarklendoia/linux-hello/commit/fd7a4718932f6a22f3ff1768cd61f5381c2ae3d0))
+
 ## [1.5.2](https://github.com/Aarklendoia/linux-hello/compare/v1.5.1...v1.5.2) (2026-07-21)
 
 
