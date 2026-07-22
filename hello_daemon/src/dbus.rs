@@ -58,6 +58,15 @@ impl FaceAuthInterface {
     }
 }
 
+// All four methods below take `self.daemon.read().await`, not `.write()`:
+// FaceAuthDaemon::register_face/delete_face/verify/list_faces all take
+// `&self` (storage/camera/matcher are internally Arc-shared, not mutated
+// through this lock), so an exclusive write lock only serialized unrelated
+// requests behind whichever one got there first — most costly for verify(),
+// which can hold the lock for the whole multi-second capture window,
+// blocking even a concurrent read-only list_faces(). pam_helper's own
+// verify() call already used a read lock; this just makes the D-Bus surface
+// consistent with it.
 #[interface(name = "com.linuxhello.FaceAuth")]
 impl FaceAuthInterface {
     /// Register a new face for a user
@@ -78,7 +87,7 @@ impl FaceAuthInterface {
             }
         };
 
-        let daemon = self.daemon.write().await;
+        let daemon = self.daemon.read().await;
         let response = daemon.register_face(request).await;
 
         match response {
@@ -108,7 +117,7 @@ impl FaceAuthInterface {
             }
         };
 
-        let daemon = self.daemon.write().await;
+        let daemon = self.daemon.read().await;
         let response = daemon.delete_face(request).await;
 
         match response {
@@ -141,7 +150,7 @@ impl FaceAuthInterface {
             }
         };
 
-        let daemon = self.daemon.write().await;
+        let daemon = self.daemon.read().await;
         let result = daemon.verify(request).await;
 
         match result {
@@ -173,7 +182,7 @@ impl FaceAuthInterface {
     pub async fn list_faces(&self, user_id: u32) -> zbus::fdo::Result<String> {
         debug!("D-Bus call: list_faces for user_id={}", user_id);
 
-        let daemon = self.daemon.write().await;
+        let daemon = self.daemon.read().await;
         let result = daemon.list_faces(user_id).await;
 
         match result {
