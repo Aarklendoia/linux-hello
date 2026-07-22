@@ -233,13 +233,10 @@ pub fn default_models_dir() -> std::path::PathBuf {
             return path;
         }
     }
-    // 4. XDG_DATA_HOME
-    if let Ok(xdg) = std::env::var("XDG_DATA_HOME") {
-        return std::path::PathBuf::from(xdg).join("linux-hello/models");
-    }
-    // 5. HOME/.local/share
-    if let Ok(home) = std::env::var("HOME") {
-        return std::path::PathBuf::from(home).join(".local/share/linux-hello/models");
+    // 4. $XDG_DATA_HOME, falling back to ~/.local/share (dirs::data_dir()'s
+    //    own fallback chain)
+    if let Some(data_dir) = dirs::data_dir() {
+        return data_dir.join("linux-hello/models");
     }
     system_path
 }

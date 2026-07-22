@@ -3,10 +3,10 @@
 //! - SQLite for metadata (user_id, face_id, quality_score, registered_at)
 //! - JSON files for embeddings (for flexibility)
 
+use crate::security_util::write_owner_only_file;
 use crate::{DaemonError, FaceRecord};
 use hello_face_core::Embedding;
-use std::io::Write;
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use tracing::{debug, info};
 
@@ -20,25 +20,6 @@ use tracing::{debug, info};
 fn harden_dir(path: &Path) -> Result<(), DaemonError> {
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))
         .map_err(|e| DaemonError::StorageError(format!("chmod 700 on {}: {}", path.display(), e)))
-}
-
-/// Write `contents` to `path` at mode `0600`, owned by the current process.
-///
-/// Removes whatever is at `path` first, then creates fresh with `create_new`
-/// (`O_CREAT|O_EXCL`) so the mode is applied atomically at creation, rather
-/// than via a separate `set_permissions` call that would leave a moment
-/// where the file exists with default/umask permissions — same pattern as
-/// `preview::write_owner_only_file`.
-fn write_owner_only_file(path: &Path, contents: &str) -> Result<(), DaemonError> {
-    let _ = std::fs::remove_file(path);
-    let mut f = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(path)
-        .map_err(|e| DaemonError::StorageError(format!("create {}: {}", path.display(), e)))?;
-    f.write_all(contents.as_bytes())
-        .map_err(|e| DaemonError::StorageError(format!("write {}: {}", path.display(), e)))
 }
 
 /// Face storage manager
@@ -116,14 +97,18 @@ impl FaceStorage {
         let metadata_json =
             serde_json::to_string_pretty(&record).map_err(DaemonError::JsonError)?;
 
-        write_owner_only_file(&metadata_path, &metadata_json)?;
+        write_owner_only_file(&metadata_path, &metadata_json).map_err(|e| {
+            DaemonError::StorageError(format!("write {}: {}", metadata_path.display(), e))
+        })?;
 
         // Save the embedding
         let embedding_path = user_dir.join(format!("{}.embedding.json", record.face_id));
         let embedding_json =
             serde_json::to_string_pretty(&embedding).map_err(DaemonError::JsonError)?;
 
-        write_owner_only_file(&embedding_path, &embedding_json)?;
+        write_owner_only_file(&embedding_path, &embedding_json).map_err(|e| {
+            DaemonError::StorageError(format!("write {}: {}", embedding_path.display(), e))
+        })?;
 
         debug!(
             "Face saved: user_id={}, face_id={}",
