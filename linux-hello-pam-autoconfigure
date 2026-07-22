@@ -38,8 +38,7 @@ fi
 # ── Locking ──────────────────────────────────────────────────────────────────
 # Non-blocking: this runs every few minutes, so if install-pam.sh is doing an
 # interactive edit right now, just skip this run rather than wait.
-mkdir -p "$(dirname "$LH_LOCK_FILE")" 2>/dev/null || true
-exec 9>"$LH_LOCK_FILE"
+lh_acquire_lock_fd
 if ! flock -n 9; then
     log "another linux-hello PAM operation is in progress, skipping this run"
     exit 0

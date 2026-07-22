@@ -71,8 +71,7 @@ fi
 # Guards against racing with linux-hello-pam-autoconfigure's unattended timer,
 # which edits the same /etc/pam.d/* files. Interactive, so wait briefly for
 # the lock rather than failing outright.
-mkdir -p "$(dirname "$LH_LOCK_FILE")" 2>/dev/null || true
-exec 9>"$LH_LOCK_FILE"
+lh_acquire_lock_fd
 if ! flock -w 15 9; then
     err "Could not acquire the PAM configuration lock after 15s (another linux-hello PAM operation in progress?)"
     exit 1

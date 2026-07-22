@@ -47,6 +47,26 @@ lh_pam_autoconfig_clear_disabled() {
     rm -f "$LH_OPTOUT_MARKER"
 }
 
+# ── Lock file ─────────────────────────────────────────────────────────────────
+# Opens fd 9 on $LH_LOCK_FILE for flock'ing. The packaged tmpfiles.d config
+# (see debian/rules) pre-creates this as a root-owned regular file at every
+# boot, before any user session can start — /run is tmpfs, so that closes the
+# window an unprivileged local user would otherwise have to pre-plant a
+# symlink at this predictable /run/lock path pointing at an arbitrary
+# root-writable file. This -L check is a second layer for the case this runs
+# outside the package (e.g. a dev checkout, with no tmpfiles.d entry active):
+# it refuses a symlink outright rather than following it, at the cost of a
+# narrow, non-attacker-acceleratable TOCTOU gap between this check and the
+# exec below.
+lh_acquire_lock_fd() {
+    if [[ -L "$LH_LOCK_FILE" ]]; then
+        echo "Refusing to use $LH_LOCK_FILE: it is a symlink, not a regular file" >&2
+        exit 1
+    fi
+    mkdir -p "$(dirname "$LH_LOCK_FILE")" 2>/dev/null || true
+    exec 9>"$LH_LOCK_FILE"
+}
+
 # ── "Already fully configured?" short-circuit ────────────────────────────────
 # Services covered by automatic activation: sudo family + polkit-1. Screenlock
 # unlocking is handled entirely by hello-daemon's own watcher (polls
