@@ -7,6 +7,7 @@ use crate::capture_stream::CaptureFrameEvent;
 use hello_camera::{Frame, FrameFormat};
 use hello_face_core::{Embedding, EmbeddingExtractor, FaceDetector};
 use std::os::unix::io::AsRawFd;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use thiserror::Error;
@@ -424,13 +425,24 @@ impl CameraManager {
     /// Capture RGB frames continuously (device opened once, for the whole
     /// attempt) for up to `timeout_ms`, extracting an embedding from each
     /// frame with a detected face and handing it to `on_frame` together
-    /// with a once-per-session IR liveness score (sampled from a single IR
-    /// frame at the very start — same "first frame" semantics
-    /// `capture_frames` already used; periodic re-sampling across the
-    /// window would be a nice future improvement, not required now) and a
-    /// per-frame RGB-only liveness score (always computed fresh — see
-    /// `hello_face_core::liveness::rgb_liveness_score` — since it's the
-    /// fallback used when there's no IR camera to sample from at all).
+    /// with a once-per-session IR liveness score (sampled from several IR
+    /// frames over a 2s budget and kept as the max — periodic re-sampling
+    /// across the whole window would be a nice future improvement, not
+    /// required now) and a per-frame RGB-only liveness score (always
+    /// computed fresh — see `hello_face_core::liveness::rgb_liveness_score`
+    /// — since it's the fallback used when there's no IR camera to sample
+    /// from at all).
+    ///
+    /// IR sampling and RGB capture run concurrently on two independent V4L2
+    /// devices (see `capture_frames`'s equivalent overlap) instead of IR
+    /// running to completion before RGB even opens. RGB frames that arrive
+    /// before IR sampling resolves are buffered rather than judged with a
+    /// premature `ir_liveness = None` — that value means "no IR camera at
+    /// all" to `match_with_liveness`'s gate and would silently fall back to
+    /// the much weaker RGB-only threshold, exactly the anti-spoofing
+    /// weakening this must not introduce. Buffered frames are replayed
+    /// through `on_frame` as soon as the real IR result is known.
+    ///
     /// Stops as soon as `on_frame` returns `true` ("I've decided, stop") or
     /// the deadline elapses.
     ///
@@ -465,25 +477,46 @@ impl CameraManager {
         let extractor = Arc::clone(&self.extractor);
         let lock_path = self.resolved_lock_path();
 
-        tokio::task::spawn_blocking(move || -> Result<(), CameraError> {
-            // Held for the whole attempt; released when this closure returns.
-            let _camera_lock = CameraLock::try_acquire(&lock_path)?;
+        // Shared with both capture tasks below, released once both finish —
+        // same reasoning as `capture_frames`: this only arbitrates against
+        // another *process* touching the camera, not RGB against IR within
+        // this call.
+        let camera_lock = Arc::new(
+            tokio::task::spawn_blocking(move || CameraLock::try_acquire(&lock_path))
+                .await
+                .map_err(|e| CameraError::CaptureError(e.to_string()))??,
+        );
 
-            // Sample IR liveness from several frames at the start of the
-            // attempt and keep the best score, rather than a single frame
-            // (same overall 2s budget as before). A lone frame can read low
-            // from a transient IR glare/blur/illuminator flicker, which
-            // used to condemn the entire attempt: the RGB match would keep
-            // succeeding every frame while this one fixed liveness score
-            // kept rejecting it for the whole timeout window, burning CPU
-            // on face detection/embedding extraction with no chance of
-            // ever succeeding. Taking the max over a handful of frames
-            // means one bad IR sample no longer dooms the session.
-            const IR_LIVENESS_SAMPLES: u32 = 5;
-            let ir_liveness = ir_device.as_deref().and_then(|ir_path| {
+        // `None` = IR sampling still in flight, `Some(iv)` = resolved (with
+        // or without an actual score). Resolved immediately when there's no
+        // IR device at all, so the no-IR path behaves exactly as before
+        // (immediate RGB-only fallback, no buffering).
+        let (ir_tx, mut ir_rx) =
+            tokio::sync::watch::channel::<Option<Option<f32>>>(if ir_device.is_none() {
+                Some(None)
+            } else {
+                None
+            });
+
+        let ir_task = ir_device.map(|ir_path| {
+            let ir_lock = Arc::clone(&camera_lock);
+            tokio::task::spawn_blocking(move || {
+                let _lock = ir_lock;
+
+                // Sample IR liveness from several frames and keep the best
+                // score, rather than a single frame. A lone frame can read
+                // low from a transient IR glare/blur/illuminator flicker,
+                // which used to condemn the entire attempt: the RGB match
+                // would keep succeeding every frame while this one fixed
+                // liveness score kept rejecting it for the whole timeout
+                // window, burning CPU on face detection/embedding
+                // extraction with no chance of ever succeeding. Taking the
+                // max over a handful of frames means one bad IR sample no
+                // longer dooms the session.
+                const IR_LIVENESS_SAMPLES: u32 = 5;
                 let mut best: Option<f32> = None;
                 let _ = hello_camera::capture_gray_stream_v4l2(
-                    ir_path,
+                    &ir_path,
                     IR_LIVENESS_SAMPLES,
                     2000,
                     |data, w, h| {
@@ -497,19 +530,37 @@ impl CameraManager {
                         best = Some(best.map_or(score, |b: f32| b.max(score)));
                     },
                 );
-                best
-            });
+                let _ = ir_tx.send(Some(best));
+            })
+        });
 
+        // Frames with a detected face flow from the blocking capture thread
+        // to the async consumer below over this channel, so the "is IR
+        // resolved yet?" decision (and any buffering it requires) can live
+        // in one place instead of duplicated shared state.
+        let (frame_tx, mut frame_rx) = tokio::sync::mpsc::channel::<(Embedding, f32)>(8);
+        // Set once the consumer has decided to stop; checked by the capture
+        // loop after each frame so a decision made once IR resolves can
+        // still halt an RGB capture that's already in flight.
+        let stop_requested = Arc::new(AtomicBool::new(false));
+
+        let rgb_lock = Arc::clone(&camera_lock);
+        let rgb_stop = Arc::clone(&stop_requested);
+        let rgb_task = tokio::task::spawn_blocking(move || {
+            let _lock = rgb_lock;
             let mut frame_index: u32 = 0;
             let result =
                 hello_camera::capture_rgb_stream_until(&rgb_device, timeout, |data, w, h| {
                     frame_index += 1;
-                    match score_frame(&**detector, &**extractor, frame_index, &data, w, h) {
-                        Some((embedding, rgb_liveness)) => {
-                            on_frame(embedding, ir_liveness, rgb_liveness)
+                    if let Some((embedding, rgb_liveness)) =
+                        score_frame(&**detector, &**extractor, frame_index, &data, w, h)
+                    {
+                        if frame_tx.blocking_send((embedding, rgb_liveness)).is_err() {
+                            // Consumer is gone (decided already) — stop.
+                            return true;
                         }
-                        None => false, // no face / detection or extraction error: keep going
                     }
+                    rgb_stop.load(Ordering::Acquire)
                 });
 
             if let Err(e) = result {
@@ -519,10 +570,63 @@ impl CameraManager {
                 // one exception that does propagate).
                 warn!("Continuous RGB capture ended: {}", e);
             }
-            Ok(())
-        })
-        .await
-        .map_err(|e| CameraError::CaptureError(e.to_string()))?
+        });
+
+        // Frames whose face was detected before IR sampling resolved: held
+        // here and replayed through `on_frame` the moment the real IR
+        // result lands, instead of ever being judged with a premature
+        // `ir_liveness = None`.
+        let mut pending: Vec<(Embedding, f32)> = Vec::new();
+        loop {
+            tokio::select! {
+                biased;
+                changed = ir_rx.changed(), if ir_rx.borrow().is_none() => {
+                    if changed.is_err() {
+                        break;
+                    }
+                    if let Some(iv) = *ir_rx.borrow() {
+                        let mut stop = false;
+                        for (embedding, rgb_liveness) in pending.drain(..) {
+                            if on_frame(embedding, iv, rgb_liveness) {
+                                stop = true;
+                                break;
+                            }
+                        }
+                        if stop {
+                            stop_requested.store(true, Ordering::Release);
+                            frame_rx.close();
+                            break;
+                        }
+                    }
+                }
+                maybe_frame = frame_rx.recv() => {
+                    match maybe_frame {
+                        Some((embedding, rgb_liveness)) => {
+                            match *ir_rx.borrow() {
+                                Some(iv) => {
+                                    if on_frame(embedding, iv, rgb_liveness) {
+                                        stop_requested.store(true, Ordering::Release);
+                                        frame_rx.close();
+                                        break;
+                                    }
+                                }
+                                None => pending.push((embedding, rgb_liveness)),
+                            }
+                        }
+                        None => break, // capture finished, sender dropped
+                    }
+                }
+            }
+        }
+
+        rgb_task
+            .await
+            .map_err(|e| CameraError::CaptureError(e.to_string()))?;
+        if let Some(task) = ir_task {
+            task.await
+                .map_err(|e| CameraError::CaptureError(e.to_string()))?;
+        }
+        Ok(())
     }
 
     /// Start a capture session with live streaming
@@ -901,5 +1005,83 @@ mod tests {
             assert_eq!(event.frame_data.len(), 640 * 480 * 3);
             assert!(!event.face_detected);
         }
+    }
+
+    /// Manual, real-hardware check for the IR/RGB overlap in `capture_until`
+    /// (issue #128): not run in CI (needs an actual camera + ORT_DYLIB_PATH),
+    /// but exercises the exact production `CameraManager::new()` path —
+    /// real device scan, real detector/extractor, real production lock file
+    /// — so it correctly serializes with a live `hello-daemon` instead of
+    /// racing it at the V4L2 level. The callback never returns `true`, so it
+    /// can never influence a real authentication decision; this only
+    /// observes timing and confirms the camera lock is fully released
+    /// afterwards.
+    ///
+    /// Run with: `ORT_DYLIB_PATH=/usr/lib/x86_64-linux-gnu/libonnxruntime.so.1.23 \
+    /// cargo test -p hello_daemon camera::tests::test_capture_until_overlaps_ir_and_rgb_on_real_hardware -- --ignored --nocapture`
+    #[tokio::test]
+    #[ignore = "touches real camera hardware; run manually with --ignored"]
+    async fn test_capture_until_overlaps_ir_and_rgb_on_real_hardware() {
+        let camera = CameraManager::new(5000);
+        if !camera.is_available() {
+            eprintln!("skipping: no RGB camera detected on this machine");
+            return;
+        }
+
+        let start = std::time::Instant::now();
+        let frame_log = Arc::new(std::sync::Mutex::new(Vec::<(u128, Option<f32>, f32)>::new()));
+        let frame_log_clone = Arc::clone(&frame_log);
+
+        let result = camera
+            .capture_until(3000, move |_embedding, ir_liveness, rgb_liveness| {
+                frame_log_clone.lock().unwrap().push((
+                    start.elapsed().as_millis(),
+                    ir_liveness,
+                    rgb_liveness,
+                ));
+                false // read-only diagnostic: never signal "stop"
+            })
+            .await;
+
+        if matches!(result, Err(CameraError::Busy)) {
+            eprintln!("skipping: camera busy (a real daemon is capturing concurrently)");
+            return;
+        }
+        assert!(result.is_ok(), "capture_until failed: {:?}", result.err());
+
+        let elapsed = start.elapsed();
+        let frames = frame_log.lock().unwrap();
+        eprintln!(
+            "capture_until: {} frames over {:?} (rgb={}, ir={})",
+            frames.len(),
+            elapsed,
+            camera.rgb_device,
+            camera.ir_device.as_deref().unwrap_or("none"),
+        );
+        for (t, ir, rgb) in frames.iter() {
+            eprintln!("  t={}ms ir_liveness={:?} rgb_liveness={:.3}", t, ir, rgb);
+        }
+
+        // The whole call must not run meaningfully longer than the
+        // requested budget — confirms IR sampling (up to 2s) overlapped
+        // with RGB capture instead of stacking in front of it (previously:
+        // up to 2s of IR sampling, then the RGB budget on top).
+        assert!(
+            elapsed < Duration::from_millis(3800),
+            "capture_until took {:?}, expected close to the 3000ms budget",
+            elapsed
+        );
+
+        // The camera lock must be fully released once capture_until
+        // returns — both the RGB and (if present) IR blocking tasks must
+        // have finished, or a subsequent real auth attempt would wrongly
+        // see Busy.
+        let lock_path = std::path::PathBuf::from(camera_lock_path());
+        let reacquired = CameraLock::try_acquire(&lock_path);
+        assert!(
+            reacquired.is_ok(),
+            "camera lock should be released after capture_until returns, got {:?}",
+            reacquired.err()
+        );
     }
 }
