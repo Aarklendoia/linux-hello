@@ -11,6 +11,7 @@ use std::sync::Arc;
 use thiserror::Error;
 use tracing::info;
 
+pub mod authz;
 pub mod camera;
 pub mod capture_stream;
 pub mod dbus;
@@ -24,6 +25,7 @@ pub mod storage;
 #[cfg(test)]
 mod test_support;
 
+use authz::EnrollmentAuthorizer;
 use camera::CameraManager;
 use dbus_interface::{DeleteFaceRequest, RegisterFaceRequest, VerifyRequest, VerifyResult};
 use matcher::{FaceMatcher, MatchResult};
@@ -132,6 +134,13 @@ pub struct FaceAuthDaemon {
     storage: Arc<FaceStorage>,
     camera: Arc<CameraManager>,
     matcher: Arc<FaceMatcher>,
+    /// Gate on register_face/delete_face — see `authz` module docs. Defaults
+    /// to `AllowAll` (no gate) here so every existing test constructing a
+    /// daemon via `new`/`new_for_test` is unaffected; production wires the
+    /// real check explicitly via `with_enrollment_authorizer` (see main.rs),
+    /// the same opt-in pattern `new_with_connection`/`from_arc` already use
+    /// for `FaceAuthInterface`'s signal emitter.
+    enrollment_authorizer: EnrollmentAuthorizer,
 }
 
 impl FaceAuthDaemon {
@@ -153,6 +162,10 @@ impl FaceAuthDaemon {
             storage: Arc::new(storage),
             camera: Arc::new(camera),
             matcher: Arc::new(matcher),
+            #[cfg(test)]
+            enrollment_authorizer: EnrollmentAuthorizer::AllowAll,
+            #[cfg(not(test))]
+            enrollment_authorizer: EnrollmentAuthorizer::from_env(),
         })
     }
 
@@ -173,12 +186,36 @@ impl FaceAuthDaemon {
             storage: Arc::new(storage),
             camera: Arc::new(camera),
             matcher: Arc::new(matcher),
+            enrollment_authorizer: EnrollmentAuthorizer::AllowAll,
         })
+    }
+
+    /// Swaps in a different enrollment authorizer — production (`main.rs`)
+    /// uses this to wire up the real polkit-backed check; tests that
+    /// specifically exercise the gate use it to wire `DenyAll`.
+    #[cfg(test)]
+    pub(crate) fn with_enrollment_authorizer(mut self, authorizer: EnrollmentAuthorizer) -> Self {
+        self.enrollment_authorizer = authorizer;
+        self
     }
 
     pub async fn register_face(&self, request: RegisterFaceRequest) -> Result<String, DaemonError> {
         // Check permissions
         self.check_user_permission(request.user_id)?;
+
+        // A successfully enrolled face unlocks sudo (via pam_linux_hello.so),
+        // so this can't be a same-UID-only decision like the check above —
+        // see the `authz` module docs for why this needs a fresh, interactive
+        // re-authentication instead.
+        if !self
+            .enrollment_authorizer
+            .authorize(authz::MANAGE_FACES_ACTION)
+            .await
+        {
+            return Err(DaemonError::AccessDenied(
+                "Enrollment was not authorized".to_string(),
+            ));
+        }
 
         info!(
             "Registering face for user_id={}, context={}",
@@ -275,6 +312,21 @@ impl FaceAuthDaemon {
 
     pub async fn delete_face(&self, request: DeleteFaceRequest) -> Result<(), DaemonError> {
         self.check_user_permission(request.user_id)?;
+
+        // Same re-authentication requirement as register_face — see its
+        // comment and the `authz` module docs. Deleting a face isn't itself
+        // a privilege gain, but combined with an unauthorized register_face
+        // it lets an attacker silently replace the legitimate user's sudo
+        // credential with their own.
+        if !self
+            .enrollment_authorizer
+            .authorize(authz::MANAGE_FACES_ACTION)
+            .await
+        {
+            return Err(DaemonError::AccessDenied(
+                "Enrollment change was not authorized".to_string(),
+            ));
+        }
 
         info!(
             "Deleting face for user_id={}, face_id={:?}",

@@ -1,6 +1,7 @@
 usr/bin/hello-daemon
 usr/lib/systemd/user/hello-daemon.service
 usr/lib/tmpfiles.d/linux-hello.conf
+usr/share/polkit-1/actions/com.linuxhello.manage-faces.policy
 usr/share/linux-hello/lockscreen/MainBlock.qml
 usr/share/doc/linux-hello/README.md
 usr/share/doc/linux-hello/QUICKSTART.md

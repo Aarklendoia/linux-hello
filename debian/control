@@ -52,6 +52,7 @@ Depends:
   ${misc:Depends},
   dbus,
   systemd,
+  policykit-1,
   libonnxruntime1.23,
   linux-hello-models
 Description: Face Authentication System for Linux — daemon

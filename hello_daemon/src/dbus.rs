@@ -554,6 +554,60 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_register_face_rejects_when_enrollment_not_authorized() {
+        let (_cam_dir, camera) = fake_camera(
+            crate::test_support::FakeDetector::always_detects(
+                crate::test_support::default_face_region(640, 480),
+            ),
+            crate::test_support::FakeExtractor::with_vector(vec![1.0, 0.0, 0.0], 0.9),
+        );
+        let temp = tempfile::TempDir::new().unwrap();
+        let config = DaemonConfig {
+            storage_path: temp.path().to_path_buf(),
+            root_mode: false,
+            current_uid: None,
+            default_similarity_threshold: 0.6,
+            debug: false,
+        };
+        let daemon = FaceAuthDaemon::new_for_test(config, camera)
+            .unwrap()
+            .with_enrollment_authorizer(crate::authz::EnrollmentAuthorizer::DenyAll);
+        let iface = FaceAuthInterface::new(daemon);
+
+        let request = RegisterFaceRequest {
+            user_id: my_uid(),
+            context: "test".to_string(),
+            timeout_ms: 1000,
+            num_samples: 1,
+        };
+        let json = serde_json::to_string(&request).unwrap();
+        assert!(iface.register_face(&json).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_delete_face_rejects_when_enrollment_not_authorized() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let config = DaemonConfig {
+            storage_path: temp.path().to_path_buf(),
+            root_mode: false,
+            current_uid: None,
+            default_similarity_threshold: 0.6,
+            debug: false,
+        };
+        let daemon = FaceAuthDaemon::new(config)
+            .unwrap()
+            .with_enrollment_authorizer(crate::authz::EnrollmentAuthorizer::DenyAll);
+        let iface = FaceAuthInterface::new(daemon);
+
+        let request = DeleteFaceRequest {
+            user_id: my_uid(),
+            face_id: None,
+        };
+        let json = serde_json::to_string(&request).unwrap();
+        assert!(iface.delete_face(&json).await.is_err());
+    }
+
+    #[tokio::test]
     async fn test_register_face_happy_path_returns_well_formed_response_json() {
         let (_cam_dir, camera) = fake_camera(
             crate::test_support::FakeDetector::always_detects(
