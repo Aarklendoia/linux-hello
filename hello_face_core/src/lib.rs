@@ -241,7 +241,44 @@ pub fn default_models_dir() -> std::path::PathBuf {
     system_path
 }
 
-/// Ensures `ORT_DYLIB_PATH` is set before the first `ort` call.
+/// What `ensure_ort_dylib_path` should do about `ORT_DYLIB_PATH`.
+#[cfg(feature = "tract")]
+#[derive(Debug, PartialEq, Eq)]
+enum OrtDylibPath {
+    /// Already set to a path that exists on disk — leave it alone.
+    Unchanged,
+    /// Not set, or set to a path that doesn't exist — use this instead.
+    Fallback(String),
+    /// Not set, or set to a path that doesn't exist, and none of the
+    /// standard candidates exist either.
+    NotFound,
+}
+
+/// Decide what to do about `ORT_DYLIB_PATH`, given its current value (if
+/// any) and a way to check whether a candidate path exists on disk.
+///
+/// An explicit value (e.g. from `hello-daemon.service`) is trusted only if
+/// it actually points to a real file — a stale/wrong value (e.g. after an
+/// onnxruntime version bump changes the `.so` suffix, or on a non-multiarch
+/// layout) must not block the fallback probing below, since that's exactly
+/// the case this whole mechanism exists to guard against.
+#[cfg(feature = "tract")]
+fn resolve_ort_dylib_path(current: Option<&str>, exists: impl Fn(&str) -> bool) -> OrtDylibPath {
+    if current.is_some_and(&exists) {
+        return OrtDylibPath::Unchanged;
+    }
+    const CANDIDATES: &[&str] = &[
+        "/usr/lib/x86_64-linux-gnu/libonnxruntime.so.1.23",
+        "/usr/lib/aarch64-linux-gnu/libonnxruntime.so.1.23",
+        "/usr/lib/libonnxruntime.so.1.23",
+    ];
+    match CANDIDATES.iter().find(|c| exists(c)) {
+        Some(c) => OrtDylibPath::Fallback(c.to_string()),
+        None => OrtDylibPath::NotFound,
+    }
+}
+
+/// Ensures `ORT_DYLIB_PATH` is set to a real file before the first `ort` call.
 ///
 /// `hello-daemon.service` sets it explicitly, but a developer running the
 /// daemon/CLI/tests directly from a shell typically won't have it set. When
@@ -253,32 +290,36 @@ pub fn default_models_dir() -> std::path::PathBuf {
 /// default to that instead of leaving it to `ort` to figure out.
 #[cfg(feature = "tract")]
 fn ensure_ort_dylib_path() {
-    if std::env::var_os("ORT_DYLIB_PATH").is_some() {
-        return;
-    }
-    const CANDIDATES: &[&str] = &[
-        "/usr/lib/x86_64-linux-gnu/libonnxruntime.so.1.23",
-        "/usr/lib/aarch64-linux-gnu/libonnxruntime.so.1.23",
-        "/usr/lib/libonnxruntime.so.1.23",
-    ];
-    for candidate in CANDIDATES {
-        if std::path::Path::new(candidate).exists() {
-            tracing::debug!(
-                "ORT_DYLIB_PATH not set, defaulting to {} (found on disk)",
-                candidate
+    let current = std::env::var("ORT_DYLIB_PATH").ok();
+    let exists = |p: &str| std::path::Path::new(p).exists();
+
+    if let Some(val) = &current {
+        if !exists(val) {
+            tracing::warn!(
+                "ORT_DYLIB_PATH is set to {:?} but that file doesn't exist; falling back to standard locations",
+                val
             );
-            // SAFETY: called once, at the very start of detector/extractor
-            // creation, before any other thread reads this process's env vars.
-            unsafe {
-                std::env::set_var("ORT_DYLIB_PATH", candidate);
-            }
-            return;
         }
     }
-    tracing::warn!(
-        "ORT_DYLIB_PATH not set and libonnxruntime.so.1.23 not found in standard locations; \
-         ONNX model loading may hang or fail. Set ORT_DYLIB_PATH explicitly to fix this."
-    );
+
+    match resolve_ort_dylib_path(current.as_deref(), exists) {
+        OrtDylibPath::Unchanged => {}
+        OrtDylibPath::Fallback(path) => {
+            tracing::debug!("Defaulting ORT_DYLIB_PATH to {} (found on disk)", path);
+            // SAFETY: called once per detector/extractor creation, at daemon
+            // startup, before any other thread reads this process's env vars.
+            unsafe {
+                std::env::set_var("ORT_DYLIB_PATH", &path);
+            }
+        }
+        OrtDylibPath::NotFound => {
+            tracing::warn!(
+                "ORT_DYLIB_PATH not usable and libonnxruntime.so.1.23 not found in standard \
+                 locations; ONNX model loading may hang or fail. Set ORT_DYLIB_PATH explicitly \
+                 to fix this."
+            );
+        }
+    }
 }
 
 /// Creates the most capable face detector available.
@@ -390,6 +431,77 @@ mod factory_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "tract")]
+    #[test]
+    fn test_resolve_ort_dylib_path_keeps_an_existing_explicit_value() {
+        let result = resolve_ort_dylib_path(Some("/some/real/path"), |p| p == "/some/real/path");
+        assert_eq!(result, OrtDylibPath::Unchanged);
+    }
+
+    #[cfg(feature = "tract")]
+    #[test]
+    fn test_resolve_ort_dylib_path_falls_back_when_explicit_value_is_missing_on_disk() {
+        // The systemd unit's hardcoded value points at a file that no longer
+        // exists (e.g. after an onnxruntime version bump) — must not trust
+        // it blindly, must probe the standard candidates instead.
+        let result = resolve_ort_dylib_path(Some("/stale/path.so.1.23"), |p| {
+            p == "/usr/lib/libonnxruntime.so.1.23"
+        });
+        assert_eq!(
+            result,
+            OrtDylibPath::Fallback("/usr/lib/libonnxruntime.so.1.23".to_string())
+        );
+    }
+
+    #[cfg(feature = "tract")]
+    #[test]
+    fn test_resolve_ort_dylib_path_falls_back_when_unset() {
+        let result = resolve_ort_dylib_path(None, |p| p == "/usr/lib/libonnxruntime.so.1.23");
+        assert_eq!(
+            result,
+            OrtDylibPath::Fallback("/usr/lib/libonnxruntime.so.1.23".to_string())
+        );
+    }
+
+    #[cfg(feature = "tract")]
+    #[test]
+    fn test_resolve_ort_dylib_path_tries_candidates_in_multiarch_then_generic_order() {
+        // aarch64 exists but x86_64 doesn't — must pick aarch64, not fall
+        // through to the generic /usr/lib candidate.
+        let result = resolve_ort_dylib_path(None, |p| {
+            p == "/usr/lib/aarch64-linux-gnu/libonnxruntime.so.1.23"
+        });
+        assert_eq!(
+            result,
+            OrtDylibPath::Fallback("/usr/lib/aarch64-linux-gnu/libonnxruntime.so.1.23".to_string())
+        );
+    }
+
+    #[cfg(feature = "tract")]
+    #[test]
+    fn test_resolve_ort_dylib_path_not_found_when_nothing_exists() {
+        assert_eq!(
+            resolve_ort_dylib_path(None, |_| false),
+            OrtDylibPath::NotFound
+        );
+        assert_eq!(
+            resolve_ort_dylib_path(Some("/stale/path"), |_| false),
+            OrtDylibPath::NotFound
+        );
+    }
+
+    #[cfg(feature = "tract")]
+    #[test]
+    fn test_resolve_ort_dylib_path_treats_an_empty_explicit_value_as_unset() {
+        // std::env::var returns Some("") for `ORT_DYLIB_PATH=""`, not None —
+        // must not treat that as a valid explicit path.
+        let result = resolve_ort_dylib_path(Some(""), |p| p == "/usr/lib/libonnxruntime.so.1.23");
+        assert_eq!(
+            result,
+            OrtDylibPath::Fallback("/usr/lib/libonnxruntime.so.1.23".to_string())
+        );
+    }
 
     #[test]
     fn test_embedding_serialization() {
