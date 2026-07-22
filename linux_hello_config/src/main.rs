@@ -33,8 +33,15 @@ fn main() {
 
     let uid = get_current_uid();
 
-    // Prevent multiple simultaneous instances
-    let lock_path = format!("/tmp/linux-hello-config-{}.lock", uid);
+    // Prevent multiple simultaneous instances. Lives under $XDG_RUNTIME_DIR
+    // (mode 0700, owned solely by this UID) rather than /tmp: a different-UID
+    // attacker could otherwise pre-plant a symlink at a predictable
+    // /tmp/linux-hello-config-<our-uid>.lock path pointing at a file we can
+    // write (e.g. ~/.ssh/authorized_keys), which the plain fs::write below
+    // would then follow and truncate — see `runtime_dir`'s doc comment for
+    // the same class of bug already fixed for the control-server's port/token
+    // files.
+    let lock_path = format!("{}/linux-hello-config.lock", runtime_dir(uid));
     if let Ok(content) = std::fs::read_to_string(&lock_path) {
         if let Ok(pid) = content.trim().parse::<u32>() {
             if std::path::Path::new(&format!("/proc/{}", pid)).exists() {
@@ -46,7 +53,7 @@ fn main() {
             }
         }
     }
-    let _ = std::fs::write(&lock_path, std::process::id().to_string());
+    let _ = write_owner_only_file(&lock_path, &std::process::id().to_string());
 
     let ctrl_token = generate_ctrl_token();
     // Whether the SDDM toggle is even usable at all (the GUI package doesn't
