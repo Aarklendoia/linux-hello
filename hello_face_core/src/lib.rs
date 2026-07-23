@@ -262,6 +262,12 @@ enum OrtDylibPath {
 /// onnxruntime version bump changes the `.so` suffix, or on a non-multiarch
 /// layout) must not block the fallback probing below, since that's exactly
 /// the case this whole mechanism exists to guard against.
+///
+/// The versioned `.1.23` candidates match Debian/Ubuntu's `libonnxruntime1.23`
+/// package; the unversioned `libonnxruntime.so` candidates are the
+/// version-agnostic fallback other distros need — e.g. Arch's `onnxruntime-cpu`
+/// package ships `libonnxruntime.so.1.27.1` with a `libonnxruntime.so` symlink,
+/// which the `.1.23`-only candidates would never match.
 #[cfg(feature = "tract")]
 fn resolve_ort_dylib_path(current: Option<&str>, exists: impl Fn(&str) -> bool) -> OrtDylibPath {
     if current.is_some_and(&exists) {
@@ -271,6 +277,9 @@ fn resolve_ort_dylib_path(current: Option<&str>, exists: impl Fn(&str) -> bool) 
         "/usr/lib/x86_64-linux-gnu/libonnxruntime.so.1.23",
         "/usr/lib/aarch64-linux-gnu/libonnxruntime.so.1.23",
         "/usr/lib/libonnxruntime.so.1.23",
+        "/usr/lib/x86_64-linux-gnu/libonnxruntime.so",
+        "/usr/lib/aarch64-linux-gnu/libonnxruntime.so",
+        "/usr/lib/libonnxruntime.so",
     ];
     match CANDIDATES.iter().find(|c| exists(c)) {
         Some(c) => OrtDylibPath::Fallback(c.to_string()),
@@ -475,6 +484,19 @@ mod tests {
         assert_eq!(
             result,
             OrtDylibPath::Fallback("/usr/lib/aarch64-linux-gnu/libonnxruntime.so.1.23".to_string())
+        );
+    }
+
+    #[cfg(feature = "tract")]
+    #[test]
+    fn test_resolve_ort_dylib_path_falls_back_to_unversioned_so_on_non_debian_layouts() {
+        // Arch's onnxruntime-cpu package ships libonnxruntime.so.1.27.1 with a
+        // libonnxruntime.so symlink, not the Debian-versioned .1.23 filename —
+        // none of the .1.23 candidates exist, only the unversioned one.
+        let result = resolve_ort_dylib_path(None, |p| p == "/usr/lib/libonnxruntime.so");
+        assert_eq!(
+            result,
+            OrtDylibPath::Fallback("/usr/lib/libonnxruntime.so".to_string())
         );
     }
 
