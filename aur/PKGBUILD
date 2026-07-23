@@ -1,0 +1,208 @@
+# Maintainer: Linux Hello Team <dev@linuxhello.local>
+#
+# Arch/AUR counterpart to the project's Debian/Ubuntu packaging under
+# debian/ — mirrors the same split (daemon / models / pam / cli / gui), same
+# systemd units, same pinned ONNX model pack. See docs/LAUNCHPAD.md and
+# GitHub issue #111 for the non-obvious gaps this had to work around:
+#
+#   - lh_module_path() and hello_face_core's ensure_ort_dylib_path() both
+#     used to assume a Debian multiarch layout; both now fall back to the
+#     flat /usr/lib(/security)/ layout Arch actually uses (see PRs #134,
+#     #135, #136 — fixed upstream, so this PKGBUILD doesn't need to work
+#     around either one).
+#   - The KDE lock-screen QML overlay (dpkg-divert on Debian) has no pacman
+#     equivalent, AND Plasma 6 on Arch specifically compiles the lock-screen
+#     UI into a binary resource — there is no on-disk QML file to divert or
+#     replace at all. The file is shipped for reference only; it has no
+#     effect. See issue #111 for the verified detail.
+#   - The SDDM greeter overlay (Login.qml) IS still a real, loose file on
+#     Arch's SDDM themes — shipped for reference, but not wired into any
+#     theme automatically, since doing so would mean shipping (and
+#     maintaining) a full derived SDDM theme. Opt-in only, same as upstream.
+
+pkgbase=linux-hello
+pkgname=(linux-hello linux-hello-daemon linux-hello-models linux-hello-pam linux-hello-tools linux-hello-gui)
+pkgver=1.5.3
+pkgrel=1
+arch=('x86_64' 'aarch64')
+url="https://github.com/Aarklendoia/linux-hello"
+license=('GPL-3.0-or-later')
+makedepends=(
+  'cargo' 'rust' 'git' 'clang' 'pkgconf' 'unzip'
+  'qt6-base' 'qt6-declarative'
+)
+source=(
+  "$pkgbase-$pkgver.tar.gz::https://github.com/Aarklendoia/linux-hello/archive/refs/tags/v$pkgver.tar.gz"
+  "buffalo_sc.zip::https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_sc.zip"
+)
+# buffalo_sc.zip pinned/verified the same way hello_face_core/build.rs and
+# debian/scripts/prepare-offline-build.sh do — update all three together if
+# upstream ever re-cuts this release asset.
+sha256sums=('SKIP'
+            '57d31b56b6ffa911c8a73cfc1707c73cab76efe7f13b675a05223bf42de47c72')
+
+prepare() {
+  cd "$srcdir/$pkgbase-$pkgver"
+  # No Cargo.lock is committed upstream (project convention, same as the
+  # non-vendored Debian build path) — cargo fetch resolves it fresh here
+  # and populates the local registry cache for the --offline build/check
+  # below.
+  cargo fetch --target "$(rustc -vV | sed -n 's/host: //p')"
+
+  # Pre-extract the two ONNX models build.rs otherwise fetches over the
+  # network mid-build — makepkg builds should not depend on that. build.rs
+  # skips its own download when both files already exist and are non-empty
+  # at $XDG_DATA_HOME/linux-hello/models.
+  mkdir -p "$srcdir/offline-models/linux-hello/models"
+  unzip -o -j "$srcdir/buffalo_sc.zip" det_500m.onnx w600k_mbf.onnx \
+    -d "$srcdir/offline-models/linux-hello/models"
+}
+
+build() {
+  cd "$srcdir/$pkgbase-$pkgver"
+  export XDG_DATA_HOME="$srcdir/offline-models"
+  export RUSTUP_TOOLCHAIN=stable
+  # The workspace release profile uses lto=true + codegen-units=1 (fat LTO,
+  # single codegen unit) for runtime performance. That makes the *final
+  # link* of each binary pulling in hello_face_core (tract/onnx) do a
+  # whole-dependency-graph LTO merge, which is extremely memory-hungry —
+  # observed: individual link jobs alone using 5.6+ GB RSS, and even two of
+  # them running concurrently (--jobs 2) was enough to exhaust 16GB and get
+  # SIGKILL'd by the OOM killer. Serializing entirely (--jobs 1) is the only
+  # reliable way to keep peak memory bounded regardless of how many cores
+  # the build machine has.
+  cargo build --release --workspace --offline --jobs 1
+}
+
+check() {
+  cd "$srcdir/$pkgbase-$pkgver"
+  export XDG_DATA_HOME="$srcdir/offline-models"
+  # Same standard fallback candidate onnxruntime-cpu installs at on Arch —
+  # without it, ort's own lookup can hang indefinitely instead of failing
+  # fast (see hello_face_core::ensure_ort_dylib_path's doc comment).
+  export ORT_DYLIB_PATH=/usr/lib/libonnxruntime.so
+  # See build()'s comment: same memory-per-job constraint applies to test
+  # binaries (also built with the release profile).
+  cargo test --release --workspace --offline --jobs 1
+}
+
+package_linux-hello() {
+  pkgdesc="Face Authentication System for Linux (metapackage)"
+  depends=("linux-hello-daemon=$pkgver-$pkgrel" "linux-hello-tools=$pkgver-$pkgrel" "linux-hello-pam=$pkgver-$pkgrel")
+}
+
+package_linux-hello-daemon() {
+  pkgdesc="Face Authentication System for Linux — daemon"
+  depends=('dbus' 'systemd' 'polkit' 'onnxruntime-cpu' "linux-hello-models=$pkgver-$pkgrel")
+  cd "$srcdir/$pkgbase-$pkgver"
+
+  install -Dm755 target/release/hello-daemon "$pkgdir/usr/bin/hello-daemon"
+  install -Dm644 hello-daemon.service "$pkgdir/usr/lib/systemd/user/hello-daemon.service"
+  # Arch's onnxruntime-cpu installs the unversioned libonnxruntime.so
+  # (no Debian-style multiarch path) — ensure_ort_dylib_path's fallback
+  # candidates already cover this (see PR #135), so no hardcoded
+  # Environment= line is needed/correct here the way Debian's unit has one.
+  sed -i '/^Environment=ORT_DYLIB_PATH=/d' "$pkgdir/usr/lib/systemd/user/hello-daemon.service"
+
+  install -Dm644 debian/polkit/com.linuxhello.manage-faces.policy \
+    "$pkgdir/usr/share/polkit-1/actions/com.linuxhello.manage-faces.policy"
+
+  # tmpfiles.d: creates /run/hello-pam/ and the cross-process camera/pam
+  # locks at boot — see debian/rules for the exact rationale (pre-creating
+  # the lock files closes a symlink-planting race before any session starts).
+  install -d "$pkgdir/usr/lib/tmpfiles.d"
+  printf 'd /run/hello-pam 1777 root root -\nf /run/lock/linux-hello-camera.lock 0666 root root -\nf /run/lock/linux-hello-pam.lock 0600 root root -\n' \
+    > "$pkgdir/usr/lib/tmpfiles.d/linux-hello.conf"
+
+  install -Dm644 README.md "$pkgdir/usr/share/doc/linux-hello/README.md"
+  install -Dm644 docs/QUICKSTART.md "$pkgdir/usr/share/doc/linux-hello/QUICKSTART.md"
+  install -Dm644 docs/INTEGRATION_GUIDE.md "$pkgdir/usr/share/doc/linux-hello/INTEGRATION_GUIDE.md"
+  install -Dm644 docs/PAM_MODULE.md "$pkgdir/usr/share/doc/linux-hello/PAM_MODULE.md"
+  install -Dm644 sudo-linux-hello.pam "$pkgdir/usr/share/doc/linux-hello/sudo-linux-hello.pam"
+  install -Dm644 linux-hello.config.toml.example "$pkgdir/etc/linux-hello/config.toml.example"
+
+  # KDE lock-screen QML overlay — shipped for reference only. Unlike Debian's
+  # dpkg-divert, there is no pacman-native way to take over a file owned by
+  # another package (verified empirically, see issue #111), AND Plasma 6 on
+  # Arch compiles the lock-screen UI into a binary resource, so there isn't
+  # even a loose file to divert in the first place. Not wired up anywhere.
+  install -Dm644 qml/lockscreen/MainBlock.qml \
+    "$pkgdir/usr/share/linux-hello/lockscreen/MainBlock.qml"
+}
+
+package_linux-hello-models() {
+  pkgdesc="ONNX models for Linux Hello face authentication"
+  depends=()
+  install -Dm644 "$srcdir/offline-models/linux-hello/models/det_500m.onnx" \
+    "$pkgdir/usr/share/linux-hello/models/det_500m.onnx"
+  install -Dm644 "$srcdir/offline-models/linux-hello/models/w600k_mbf.onnx" \
+    "$pkgdir/usr/share/linux-hello/models/w600k_mbf.onnx"
+}
+
+package_linux-hello-pam() {
+  pkgdesc="PAM module for Linux Hello"
+  depends=('pambase' "linux-hello-daemon=$pkgver-$pkgrel" "linux-hello-tools=$pkgver-$pkgrel")
+  cd "$srcdir/$pkgbase-$pkgver"
+
+  # Flat, non-multiarch security module dir — this is exactly the path
+  # lh_module_path() now checks for first (PR #136), so
+  # linux-hello-pam-autoconfigure finds it without any override needed.
+  install -Dm755 target/release/libpam_linux_hello.so \
+    "$pkgdir/usr/lib/security/pam_linux_hello.so"
+
+  install -Dm755 target/release/hello-daemon-system "$pkgdir/usr/bin/hello-daemon-system"
+  install -Dm644 hello-daemon-system.service \
+    "$pkgdir/usr/lib/systemd/system/hello-daemon-system.service"
+  sed -i '/^Environment=ORT_DYLIB_PATH=/d' \
+    "$pkgdir/usr/lib/systemd/system/hello-daemon-system.service"
+
+  install -Dm755 linux-hello-pam-autoconfigure "$pkgdir/usr/bin/linux-hello-pam-autoconfigure"
+  install -Dm644 linux-hello-pam-autoconfigure.service \
+    "$pkgdir/usr/lib/systemd/system/linux-hello-pam-autoconfigure.service"
+  install -Dm644 linux-hello-pam-autoconfigure.timer \
+    "$pkgdir/usr/lib/systemd/system/linux-hello-pam-autoconfigure.timer"
+
+  install -Dm755 install-pam.sh "$pkgdir/usr/bin/install-pam.sh"
+  install -Dm644 pam-lib.sh "$pkgdir/usr/lib/linux-hello/pam-lib.sh"
+
+  install -Dm644 debian/polkit/com.linuxhello.pam-setup.policy \
+    "$pkgdir/usr/share/polkit-1/actions/com.linuxhello.pam-setup.policy"
+
+  # SDDM greeter overlay — unlike the KDE lock-screen QML, this one is
+  # still a real, loose file on Arch's SDDM themes (verified, issue #111),
+  # but shipping it wired into a theme automatically would mean shipping
+  # and maintaining a full derived SDDM theme. Reference copy only, same
+  # opt-in posture as install-pam.sh's --enable-sddm on Debian.
+  install -Dm644 qml/sddm/Login.qml "$pkgdir/usr/share/linux-hello/sddm/Login.qml"
+}
+
+package_linux-hello-tools() {
+  pkgdesc="Command-line tools for Linux Hello"
+  depends=("linux-hello-daemon=$pkgver-$pkgrel")
+  cd "$srcdir/$pkgbase-$pkgver"
+  install -Dm755 target/release/linux-hello "$pkgdir/usr/bin/linux-hello"
+}
+
+package_linux-hello-gui() {
+  pkgdesc="Configuration GUI for Linux Hello"
+  depends=(
+    'polkit' "linux-hello-daemon=$pkgver-$pkgrel"
+    'qt6-declarative' 'kirigami' 'kirigami-addons'
+  )
+  optdepends=('plasma-desktop: native KDE Plasma integration')
+  cd "$srcdir/$pkgbase-$pkgver"
+
+  install -Dm755 target/release/linux_hello_config "$pkgdir/usr/bin/linux_hello_config"
+  install -Dm644 linux-hello.desktop "$pkgdir/usr/share/applications/linux-hello.desktop"
+  install -Dm644 linux_hello_config/qml/icons/app-icon.svg \
+    "$pkgdir/usr/share/icons/hicolor/scalable/apps/linux-hello.svg"
+  install -Dm644 docs/I18N_IMPLEMENTATION.md \
+    "$pkgdir/usr/share/doc/linux-hello-gui/I18N_IMPLEMENTATION.md"
+
+  # Arch's Qt6 QML import path is /usr/lib/qt6/qml (confirmed against
+  # sddm's own QML modules) — NOT /usr/share/qt6/qml like Debian's dh_qml
+  # helper assumes; installing there instead means Qt actually finds these
+  # at runtime without extra QML2_IMPORT_PATH configuration.
+  install -d "$pkgdir/usr/lib/qt6/qml/Linux/Hello"
+  cp -r linux_hello_config/qml/* "$pkgdir/usr/lib/qt6/qml/Linux/Hello/"
+}
