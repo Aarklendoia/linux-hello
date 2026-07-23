@@ -1,5 +1,34 @@
 # Changelog
 
+## [1.6.0](https://github.com/Aarklendoia/linux-hello/compare/v1.5.3...v1.6.0) (2026-07-23)
+
+
+### Features
+
+* **packaging:** add Arch/AUR PKGBUILD ([061cf95](https://github.com/Aarklendoia/linux-hello/commit/061cf958b9037e9777cda8070626015de4006532))
+
+
+### Bug Fixes
+
+* **face-core:** add version-agnostic ORT_DYLIB_PATH fallback candidates ([c312fba](https://github.com/Aarklendoia/linux-hello/commit/c312fba5e9b19cae2f3c902efa17207d2f700c74))
+* **face-core:** add version-agnostic ORT_DYLIB_PATH fallback candidates ([2da6409](https://github.com/Aarklendoia/linux-hello/commit/2da6409781a0c50e5d1c30c3f0893a4c48cfe297))
+* **face-core:** verify ORT_DYLIB_PATH actually exists before trusting it ([4a99ab0](https://github.com/Aarklendoia/linux-hello/commit/4a99ab0ecbd5c0f6b6673b63a649d186035e04ee))
+* **face-core:** verify ORT_DYLIB_PATH actually exists before trusting it ([edce256](https://github.com/Aarklendoia/linux-hello/commit/edce256b8feb169012d5c0b5dce888d1d74064c1))
+* **pam:** check the flat non-multiarch module path before guessing Debian's ([57f7a67](https://github.com/Aarklendoia/linux-hello/commit/57f7a6757a1198a7b3b428cae99c2d5eb44d7a10))
+* **pam:** check the flat non-multiarch module path before guessing Debian's ([b292a08](https://github.com/Aarklendoia/linux-hello/commit/b292a080bf3d817de2adf8d11c14b8cd7d86cf54))
+
+
+### Performance Improvements
+
+* **daemon:** overlap IR liveness sampling with RGB capture in capture_until ([f72a904](https://github.com/Aarklendoia/linux-hello/commit/f72a904e330a7095fa4b49a0198265e788bddcdf))
+* **daemon:** overlap IR liveness sampling with RGB capture in capture_until ([34f443c](https://github.com/Aarklendoia/linux-hello/commit/34f443c7b666d74170c579f8c56afd920ed16913))
+
+
+### Code Refactoring
+
+* **camera:** delete the unused V4L2Camera abstraction instead of fixing its stream reuse ([52bd82d](https://github.com/Aarklendoia/linux-hello/commit/52bd82dc8b90771c4c6fce076e853f03efb67968))
+* **camera:** delete the unused V4L2Camera abstraction instead of fixing its stream reuse ([652c644](https://github.com/Aarklendoia/linux-hello/commit/652c6447cfbc71867c0e8a9efaf690693816781d))
+
 ## [1.5.3](https://github.com/Aarklendoia/linux-hello/compare/v1.5.2...v1.5.3) (2026-07-22)
 
 
