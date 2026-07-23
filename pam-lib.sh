@@ -18,12 +18,20 @@ LH_LOCK_FILE="${LH_LOCK_FILE:-/run/lock/linux-hello-pam.lock}"
 LH_TIMESTAMP="$(date +%s)"
 
 # ── Module path ──────────────────────────────────────────────────────────────
-# PAM's default module search path is multiarch-specific
+# PAM's default module search path is multiarch-specific on Debian/Ubuntu
 # (e.g. /lib/x86_64-linux-gnu/security/) — a module dropped at /lib/security/
-# is silently unloadable on Debian/Ubuntu.
+# is silently unloadable there. Non-multiarch distros (Arch, Fedora) instead
+# use a single flat /usr/lib/security/ — and `gcc -dumpmachine` doesn't even
+# reliably fall back to the Debian guess there (Arch's gcc reports
+# "x86_64-pc-linux-gnu", not "x86_64-linux-gnu"), so checking for the actual
+# installed file at the flat path first avoids computing a nonexistent one.
 lh_module_path() {
     if [[ -n "${LH_MODULE_PATH_OVERRIDE:-}" ]]; then
         echo "$LH_MODULE_PATH_OVERRIDE"
+        return
+    fi
+    if [[ -f /usr/lib/security/pam_linux_hello.so ]]; then
+        echo "/usr/lib/security/pam_linux_hello.so"
         return
     fi
     local multiarch
