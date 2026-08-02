@@ -157,7 +157,7 @@ impl FaceAuthDaemon {
             #[cfg(test)]
             enrollment_authorizer: EnrollmentAuthorizer::AllowAll,
             #[cfg(not(test))]
-            enrollment_authorizer: EnrollmentAuthorizer::from_env(),
+            enrollment_authorizer: EnrollmentAuthorizer::Polkit,
         })
     }
 
@@ -191,6 +191,39 @@ impl FaceAuthDaemon {
         self
     }
 
+    /// Just the permission + interactive-authorization gate `register_face`
+    /// and `delete_face` both run before touching the camera or storage —
+    /// pulled out so the GUI can trigger it *before* starting the live
+    /// preview capture instead of only at the very end.
+    ///
+    /// Doing the interactive polkit prompt that early means the password/
+    /// confirmation dialog appears immediately on "Démarrer", with no
+    /// camera capture in flight yet at all — sidesteps the whole class of
+    /// bugs where a still-running preview capture and the interactive
+    /// re-auth's own camera use (`verify()`'s face check, if that's how
+    /// this session is configured) raced for the same V4L2 device. The
+    /// polkit action is `auth_self_keep` (see
+    /// `debian/polkit/com.linuxhello.manage-faces.policy`), so the
+    /// re-check `register_face`/`delete_face` still do internally (kept,
+    /// not removed — this call alone must never be trusted as a substitute
+    /// for the real gate right before the sensitive action, or a caller
+    /// could invoke this once and then call `RegisterFace` much later on a
+    /// stale grant) should reuse polkit's own short-lived cached grant
+    /// instead of prompting a second time.
+    pub async fn authorize_enrollment(&self, user_id: u32) -> Result<(), DaemonError> {
+        self.check_user_permission(user_id)?;
+        if !self
+            .enrollment_authorizer
+            .authorize(authz::MANAGE_FACES_ACTION)
+            .await
+        {
+            return Err(DaemonError::AccessDenied(
+                "Enrollment was not authorized".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
     pub async fn register_face(&self, request: RegisterFaceRequest) -> Result<String, DaemonError> {
         // Check permissions
         self.check_user_permission(request.user_id)?;
@@ -198,7 +231,9 @@ impl FaceAuthDaemon {
         // A successfully enrolled face unlocks sudo (via pam_linux_hello.so),
         // so this can't be a same-UID-only decision like the check above —
         // see the `authz` module docs for why this needs a fresh, interactive
-        // re-authentication instead.
+        // re-authentication instead. Same gate as authorize_enrollment()
+        // above, called again here (not trusting a prior call to it) so
+        // RegisterFace is safe to invoke directly over D-Bus on its own.
         if !self
             .enrollment_authorizer
             .authorize(authz::MANAGE_FACES_ACTION)

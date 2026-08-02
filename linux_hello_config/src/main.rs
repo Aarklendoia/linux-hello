@@ -484,6 +484,31 @@ fn handle_ctrl_connection(
         ("403 Forbidden", String::new())
     } else if is_options {
         ("200 OK", String::new())
+    } else if req.contains("/authorize-enrollment") {
+        // Blocking: waits for the interactive polkit prompt to resolve
+        // before the GUI proceeds to /start-capture. Doing the prompt this
+        // early means it appears immediately on "Démarrer", with no camera
+        // capture in flight yet to race against — see
+        // hello_daemon::dbus::authorize_enrollment's doc comment.
+        match run_command(Command::new("busctl").args([
+            "--user",
+            "call",
+            "com.linuxhello.FaceAuth",
+            "/com/linuxhello/FaceAuth",
+            "com.linuxhello.FaceAuth",
+            "AuthorizeEnrollment",
+            "u",
+            &uid.to_string(),
+        ])) {
+            Ok(_) => ("200 OK", r#"{"ok":true}"#.to_string()),
+            Err(err) => {
+                eprintln!("✗ AuthorizeEnrollment busctl error: {}", err);
+                (
+                    "500 Internal Server Error",
+                    format!(r#"{{"ok":false,"error":"{}"}}"#, json_escape(&err)),
+                )
+            }
+        }
     } else if req.contains("/start-capture") {
         // Non-blocking: launches the preview capture in the background
         let _ = Command::new("busctl")
@@ -534,7 +559,32 @@ fn handle_ctrl_connection(
             }
         }
     } else if req.contains("/stop-capture") {
-        ("200 OK", "STOPPED".to_string())
+        // Blocking: StopCaptureStream doesn't return until the daemon
+        // confirms the camera is actually free (see
+        // hello_daemon::camera::CameraManager::stop_preview_and_wait).
+        // Without waiting here, the GUI used to fire /register-face right
+        // after this returned while the preview capture (up to 25s) could
+        // still be holding the device, so register_face's own capture
+        // silently collided with it and enrollment failed with "No face
+        // detected". The GUI now calls this before /register-face instead
+        // of relying on the no-op this used to be.
+        match run_command(Command::new("busctl").args([
+            "--user",
+            "call",
+            "com.linuxhello.FaceAuth",
+            "/com/linuxhello/FaceAuth",
+            "com.linuxhello.FaceAuth",
+            "StopCaptureStream",
+        ])) {
+            Ok(_) => ("200 OK", "STOPPED".to_string()),
+            Err(err) => {
+                eprintln!("✗ StopCaptureStream busctl error: {}", err);
+                (
+                    "500 Internal Server Error",
+                    format!(r#"{{"ok":false,"error":"{}"}}"#, json_escape(&err)),
+                )
+            }
+        }
     } else if req.contains("/daemon-status") {
         // Cheap D-Bus liveness check for the Home screen's status card: does
         // the per-user session bus currently have an owner for

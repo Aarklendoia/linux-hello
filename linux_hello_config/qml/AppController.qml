@@ -222,6 +222,30 @@ QtObject {
         xhr.send();
     }
 
+    // Asks for the interactive polkit authorization (session password/
+    // confirmation) *before* touching the camera at all, then only starts
+    // the live preview capture once that's granted. Doing the prompt this
+    // early — right on "Démarrer", with no capture in flight yet — avoids
+    // ever having the preview and the confirmation step's own camera use
+    // racing for the same device (see
+    // hello_daemon::dbus::authorize_enrollment's doc comment). On denial,
+    // captureErrorSignal fires immediately and the camera is never engaged.
+    function beginEnrollment() {
+        var xhr = new XMLHttpRequest();
+        openAuthedRequest(xhr, "/authorize-enrollment");
+        xhr.onreadystatechange = function () {
+            if (xhr.readyState !== XMLHttpRequest.DONE)
+                return;
+            if (xhr.status === 200) {
+                controller.startCapture();
+            } else {
+                console.log("✗ authorize-enrollment failed:", xhr.status, xhr.responseText);
+                controller.captureErrorSignal("Autorisation refusée");
+            }
+        };
+        xhr.send();
+    }
+
     function startCapture() {
         capturing = true;
         progress = 0;
@@ -270,6 +294,28 @@ QtObject {
         capturing = false;
         var xhr = new XMLHttpRequest();
         openAuthedRequest(xhr, "/stop-capture");
+        xhr.send();
+    }
+
+    // Stops the live preview and only then registers the face, instead of
+    // firing both at once. /stop-capture now blocks until the daemon
+    // confirms the camera is actually free (see
+    // hello_daemon::camera::CameraManager::stop_preview_and_wait) — without
+    // this ordering, the preview's own capture (still running, up to 25s)
+    // could still be holding the device when register_face's interactive
+    // authorization step (and then its own capture) needed it, so the two
+    // silently collided and enrollment failed with "No face detected" even
+    // though the progress ring had already reached 100%.
+    function finishCaptureAndRegister() {
+        var xhr = new XMLHttpRequest();
+        openAuthedRequest(xhr, "/stop-capture");
+        xhr.onreadystatechange = function () {
+            if (xhr.readyState !== XMLHttpRequest.DONE)
+                return;
+            if (xhr.status !== 200)
+                console.log("✗ stop-capture before register failed:", xhr.status, xhr.responseText);
+            controller.registerFace();
+        };
         xhr.send();
     }
 
@@ -409,7 +455,7 @@ QtObject {
                 progress = 100;
             appProgressChanged(progress);
             if (progress >= 100) {
-                registerFace();
+                finishCaptureAndRegister();
             } else {
                 restartTimerNeeded();
             }

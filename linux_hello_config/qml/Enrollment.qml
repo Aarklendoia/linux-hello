@@ -331,7 +331,7 @@ Kirigami.Page {
                 palette.button: Kirigami.Theme.highlightColor
 
                 onClicked: {
-                    AppController.startCapture();
+                    AppController.beginEnrollment();
                 }
             }
         }

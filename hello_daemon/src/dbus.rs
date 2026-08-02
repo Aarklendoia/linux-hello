@@ -64,6 +64,34 @@ impl FaceAuthInterface {
 // consistent with it.
 #[interface(name = "com.linuxhello.FaceAuth")]
 impl FaceAuthInterface {
+    /// Runs register_face/delete_face's permission + interactive-
+    /// authorization gate on its own, with no camera capture attached.
+    ///
+    /// Meant to be called by the GUI right when the user clicks "Démarrer"
+    /// on the enrollment screen — *before* `StartCaptureStream` — so the
+    /// polkit password/confirmation prompt appears immediately, with no
+    /// live preview capture in flight yet to race against. `RegisterFace`
+    /// still runs this same check itself right before capturing, so
+    /// skipping this call (or calling `RegisterFace` directly) is safe,
+    /// just loses the earlier prompt.
+    ///
+    /// # Arguments
+    /// * `user_id` - UID of the user enrolling
+    pub async fn authorize_enrollment(&self, user_id: u32) -> zbus::fdo::Result<()> {
+        debug!("D-Bus call: authorize_enrollment user_id={}", user_id);
+        let daemon = self.daemon.read().await;
+        match daemon.authorize_enrollment(user_id).await {
+            Ok(()) => {
+                info!("authorize_enrollment succeeded");
+                Ok(())
+            }
+            Err(e) => {
+                error!("authorize_enrollment failed: {}", e);
+                Err(zbus::fdo::Error::Failed(e.to_string()))
+            }
+        }
+    }
+
     /// Register a new face for a user
     ///
     /// # Arguments
@@ -288,6 +316,26 @@ impl FaceAuthInterface {
                 Err(zbus::fdo::Error::Failed(e.to_string()))
             }
         }
+    }
+
+    /// Stops an in-flight `start_capture_stream` call and blocks until the
+    /// camera is actually free again.
+    ///
+    /// Needed because `register_face`'s interactive authorization step (and
+    /// then its own capture) can trigger a real face-verification capture
+    /// on the same V4L2 device the GUI's live enrollment preview is still
+    /// streaming from — without a way to actually stop the preview first
+    /// (and confirm it's gone), the two silently collided and enrollment
+    /// failed with "No face detected". The GUI now calls this and waits
+    /// for it to return before calling `RegisterFace`.
+    pub async fn stop_capture_stream(&self) -> zbus::fdo::Result<()> {
+        debug!("D-Bus call: stop_capture_stream");
+        let daemon = self.daemon.read().await;
+        daemon
+            .camera_manager()
+            .stop_preview_and_wait()
+            .await
+            .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))
     }
 
     #[zbus(property)]

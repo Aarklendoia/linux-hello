@@ -84,6 +84,37 @@ impl CameraLock {
         }
         Ok(Self { _file: file })
     }
+
+    /// Blocks until the lock can be acquired, then immediately releases it.
+    /// Doesn't keep the camera reserved for the caller — used purely to
+    /// confirm that whoever currently holds the lock (a preview we just
+    /// asked to stop, or anything else) has actually released it, before
+    /// telling a caller like the GUI it's safe to start its own capture.
+    fn wait_until_free(path: &std::path::Path) -> Result<(), CameraError> {
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(path)
+            .map_err(|e| CameraError::CaptureError(format!("Camera lock file: {}", e)))?;
+
+        // SAFETY: flock() on a valid, owned fd; no preconditions beyond that.
+        // Blocking (no LOCK_NB): that's the whole point here.
+        let ret = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) };
+        if ret != 0 {
+            return Err(CameraError::CaptureError(format!(
+                "Camera lock wait: {}",
+                std::io::Error::last_os_error()
+            )));
+        }
+        // SAFETY: same fd, still owned; releases immediately rather than
+        // holding it until `file` drops, since dropped-implicit-release
+        // would work too but this makes the "don't actually reserve it"
+        // intent explicit.
+        unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_UN) };
+        Ok(())
+    }
 }
 
 /// Result of a camera capture
@@ -122,6 +153,10 @@ pub struct CameraManager {
     /// tests each get their own lock file instead of racing on the shared
     /// `LINUX_HELLO_CAMERA_LOCK_PATH` process-global env var.
     lock_path: Option<std::path::PathBuf>,
+    /// Set by `request_stop_preview()`, observed by an in-flight
+    /// `start_capture_stream` call after each frame. See that method's doc
+    /// comment for why a GUI preview needs a real way to be cut short.
+    stop_preview: Arc<AtomicBool>,
 }
 
 impl CameraManager {
@@ -143,6 +178,7 @@ impl CameraManager {
             detector,
             extractor,
             lock_path: None,
+            stop_preview: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -166,6 +202,7 @@ impl CameraManager {
             detector: Arc::new(detector),
             extractor: Arc::new(extractor),
             lock_path: Some(lock_path),
+            stop_preview: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -188,6 +225,52 @@ impl CameraManager {
             .as_ref()
             .map(|p| std::path::Path::new(p).exists())
             .unwrap_or(false)
+    }
+
+    /// Requests that an in-flight `start_capture_stream` call end at its
+    /// next frame boundary, releasing the camera. Without this, the GUI's
+    /// live enrollment preview (up to 25s) had no way to be cut short: it
+    /// kept the RGB device open with no cross-process lock at all, so the
+    /// interactive authorization check `register_face` runs first (a real
+    /// face-verification capture of its own) and then `register_face`'s
+    /// own capture could — and in practice did — collide with it on the
+    /// same V4L2 node, silently degrading to blank stub frames and failing
+    /// enrollment with "No face detected". The GUI now calls this (via the
+    /// `StopCaptureStream` D-Bus method) before triggering registration.
+    pub fn request_stop_preview(&self) {
+        self.stop_preview.store(true, Ordering::Release);
+    }
+
+    /// `request_stop_preview()` plus confirmation: blocks until the camera
+    /// is actually free (whoever currently holds the cross-process lock —
+    /// the preview we just asked to stop, or anything else — has released
+    /// it) before returning. Setting the flag alone doesn't guarantee
+    /// that: the in-flight capture can take up to one frame's dequeue
+    /// timeout to notice it and exit. Used by the `StopCaptureStream`
+    /// D-Bus method so the GUI can be sure it's actually safe to trigger
+    /// `RegisterFace`'s own capture next, not just that it asked nicely.
+    pub async fn stop_preview_and_wait(&self) -> Result<(), CameraError> {
+        self.request_stop_preview();
+        let lock_path = self.resolved_lock_path();
+        tokio::task::spawn_blocking(move || CameraLock::wait_until_free(&lock_path))
+            .await
+            .map_err(|e| CameraError::CaptureError(e.to_string()))??;
+
+        // Our own cross-process lock being free doesn't mean the USB device
+        // itself has finished tearing down the just-stopped stream — seen in
+        // practice on a Logitech Brio: closing the RGB stream and reopening
+        // RGB+IR again right after intermittently made the IR channel fail
+        // with a raw EIO ("Input/output error"). A short settle delay here
+        // gives the driver/USB core room to finish releasing the isochronous
+        // endpoints first. (Debug-logged root-causing a related "No face
+        // detected" run found the real culprit for *that* symptom was UX,
+        // not hardware: the live preview goes silent/frozen the moment this
+        // is called, so a long gap here just gives the user more time to
+        // stop looking at the camera before register_face's own capture
+        // actually happens — see Enrollment.qml's previewAnalyzing copy.
+        // Kept short for that reason, not stretched further on IR's account.)
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        Ok(())
     }
 
     /// Capture N RGB frames (+ IR if available) and extract the embeddings
@@ -645,28 +728,42 @@ impl CameraManager {
         );
 
         let rgb_device = self.rgb_device.clone();
+        let lock_path = self.resolved_lock_path();
+        let stop_flag = Arc::clone(&self.stop_preview);
+        // Clear any stale request from a previous call before this one
+        // starts observing the flag — request_stop_preview() may have been
+        // called (and left `true`) after the last capture already ended.
+        stop_flag.store(false, Ordering::Release);
         let mut frame_num: u32 = 0;
 
-        let v4l2_result = tokio::task::block_in_place(|| {
-            hello_camera::capture_rgb_stream_v4l2(
-                &rgb_device,
-                num_frames,
-                timeout_ms,
-                |rgb_data, width, height| {
-                    let event = CaptureFrameEvent {
-                        frame_number: frame_num,
-                        total_frames: num_frames,
-                        frame_data: rgb_data,
-                        width,
-                        height,
-                        face_detected: false,
-                        quality_score: 0.85,
-                        timestamp_ms: 0,
-                    };
-                    on_frame(event);
-                    frame_num += 1;
-                },
-            )
+        let v4l2_result = tokio::task::block_in_place(|| -> Result<(), hello_camera::CameraError> {
+            // Held for the whole preview so a concurrent capture_frames/
+            // capture_until — including the one register_face's own
+            // interactive authorization step can trigger — can't silently
+            // collide with this stream on the same V4L2 device; see
+            // request_stop_preview's doc comment for the full story.
+            let _lock = CameraLock::try_acquire(&lock_path).map_err(|e| {
+                hello_camera::CameraError::OpenFailed(format!("camera lock: {}", e))
+            })?;
+            // capture_rgb_stream_until (not the fixed-count
+            // capture_rgb_stream_v4l2) so this loop can actually be cut
+            // short by request_stop_preview instead of running to
+            // num_frames/timeout_ms regardless.
+            hello_camera::capture_rgb_stream_until(&rgb_device, timeout_ms, |rgb_data, width, height| {
+                let event = CaptureFrameEvent {
+                    frame_number: frame_num,
+                    total_frames: num_frames,
+                    frame_data: rgb_data,
+                    width,
+                    height,
+                    face_detected: false,
+                    quality_score: 0.85,
+                    timestamp_ms: 0,
+                };
+                on_frame(event);
+                frame_num += 1;
+                frame_num >= num_frames || stop_flag.load(Ordering::Acquire)
+            })
         });
 
         match v4l2_result {
@@ -684,6 +781,9 @@ impl CameraManager {
         let timeout_dur = Duration::from_millis(timeout_ms);
 
         for frame_num_sim in 0..num_frames {
+            if stop_flag.load(Ordering::Acquire) {
+                break;
+            }
             if start_time.elapsed().unwrap_or_default() > timeout_dur {
                 return Err(CameraError::Timeout);
             }
@@ -1005,6 +1105,56 @@ mod tests {
             assert_eq!(event.frame_data.len(), 640 * 480 * 3);
             assert!(!event.face_detected);
         }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_start_capture_stream_stops_early_once_request_stop_preview_is_called() {
+        // Asks for far more frames (50) than it lets the capture actually
+        // produce: request_stop_preview() is called from inside the very
+        // first frame's callback, so the next loop iteration should observe
+        // it and break instead of running to num_frames.
+        let (_dir, camera) = for_test(
+            FakeDetector::never_detects(),
+            FakeExtractor::with_vector(vec![], 0.0),
+        );
+
+        let events = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let events_clone = events.clone();
+        let camera_ref = &camera;
+        let result = camera
+            .start_capture_stream(50, 5000, move |event| {
+                events_clone.lock().unwrap().push(event);
+                camera_ref.request_stop_preview();
+            })
+            .await;
+
+        assert!(result.is_ok());
+        assert_eq!(
+            events.lock().unwrap().len(),
+            1,
+            "expected request_stop_preview() to cut the capture short after the first frame"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_stop_preview_and_wait_returns_promptly_when_the_camera_is_free() {
+        let (_dir, camera) = for_test(
+            FakeDetector::never_detects(),
+            FakeExtractor::with_vector(vec![], 0.0),
+        );
+
+        // Nothing holds the lock here, so this must not hang — the timeout
+        // is a generous safety margin, not an expected duration.
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            camera.stop_preview_and_wait(),
+        )
+        .await;
+        assert!(
+            result.is_ok(),
+            "stop_preview_and_wait must not hang when nothing holds the camera lock"
+        );
+        assert!(result.unwrap().is_ok());
     }
 
     /// Manual, real-hardware check for the IR/RGB overlap in `capture_until`
