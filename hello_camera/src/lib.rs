@@ -179,6 +179,38 @@ fn classify_device(card_name: &str, formats: &[String]) -> DeviceKind {
     }
 }
 
+/// Opens a V4L2 device, retrying briefly if the open fails with
+/// `PermissionDenied`.
+///
+/// At session start, `systemd-logind`/`udev` grant the active seat user a
+/// per-device ACL (the `uaccess` tag) asynchronously; `scan_cameras` can run
+/// before that ACL lands on a given `/dev/videoN`, permanently missing a
+/// camera that's actually present (seen in practice: the IR node of a
+/// Logitech Brio failing this race while the RGB node of the same device
+/// happened to already be tagged). Retrying is scoped to exactly that
+/// error — a device that simply doesn't exist (`NotFound` and friends)
+/// still skips immediately, so machines without the device pay no delay.
+#[cfg(feature = "v4l2")]
+fn open_device_with_retry(path: &str) -> std::io::Result<v4l::Device> {
+    const MAX_ATTEMPTS: u32 = 5;
+    const RETRY_DELAY: std::time::Duration = std::time::Duration::from_millis(100);
+
+    let mut last_err = None;
+    for attempt in 0..MAX_ATTEMPTS {
+        match v4l::Device::with_path(path) {
+            Ok(dev) => return Ok(dev),
+            Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+                last_err = Some(e);
+                if attempt + 1 < MAX_ATTEMPTS {
+                    std::thread::sleep(RETRY_DELAY);
+                }
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    Err(last_err.expect("loop always sets last_err before exhausting MAX_ATTEMPTS"))
+}
+
 #[cfg(feature = "v4l2")]
 pub fn scan_cameras() -> CameraInventory {
     use v4l::video::Capture;
@@ -188,8 +220,18 @@ pub fn scan_cameras() -> CameraInventory {
 
     for idx in 0..10u8 {
         let path = format!("/dev/video{}", idx);
-        let Ok(dev) = v4l::Device::with_path(&path) else {
-            continue;
+        let dev = match open_device_with_retry(&path) {
+            Ok(dev) => dev,
+            Err(e) => {
+                if e.kind() == std::io::ErrorKind::PermissionDenied {
+                    tracing::warn!(
+                        "Permission denied opening {} after retries (uaccess ACL not applied in time?): {}",
+                        path,
+                        e
+                    );
+                }
+                continue;
+            }
         };
 
         let card_name = v4l::Device::query_caps(&dev)
