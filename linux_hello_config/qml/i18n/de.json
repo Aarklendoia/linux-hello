@@ -38,7 +38,7 @@
         "previewInactive": "Vorschau inaktiv",
         "previewCancelled": "Aufnahme abgebrochen",
         "previewStopped": "Aufnahme gestoppt",
-        "previewAnalyzing": "Gesicht wird analysiert…",
+        "previewAnalyzing": "Weiter in die Kamera schauen, wird abgeschlossen…",
         "previewValidating": "Wird überprüft…",
         "previewSuccess": "✓ Gesicht erfolgreich registriert!",
         "previewError": "✗ Fehler:",

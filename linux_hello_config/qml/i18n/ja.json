@@ -38,7 +38,7 @@
         "previewInactive": "プレビュー無効",
         "previewCancelled": "キャプチャがキャンセルされました",
         "previewStopped": "キャプチャを停止しました",
-        "previewAnalyzing": "顔を分析中…",
+        "previewAnalyzing": "そのままカメラを見続けてください、完了処理中…",
         "previewValidating": "検証中…",
         "previewSuccess": "✓ 顔の登録に成功しました！",
         "previewError": "✗ エラー:",

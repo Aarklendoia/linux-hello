@@ -39,7 +39,7 @@
         "previewInactive": "Preview inactive",
         "previewCancelled": "Capture cancelled",
         "previewStopped": "Capture stopped",
-        "previewAnalyzing": "Analyzing face…",
+        "previewAnalyzing": "Keep looking at the camera, finishing up…",
         "previewValidating": "Validating…",
         "previewSuccess": "✓ Face registered successfully!",
         "previewError": "✗ Error:",

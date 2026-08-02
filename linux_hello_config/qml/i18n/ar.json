@@ -38,7 +38,7 @@
         "previewInactive": "المعاينة غير نشطة",
         "previewCancelled": "تم إلغاء الالتقاط",
         "previewStopped": "تم إيقاف الالتقاط",
-        "previewAnalyzing": "جارٍ تحليل الوجه…",
+        "previewAnalyzing": "استمر بالنظر إلى الكاميرا، جارٍ الإنهاء…",
         "previewValidating": "جارٍ التحقق…",
         "previewSuccess": "✓ تم تسجيل الوجه بنجاح!",
         "previewError": "✗ خطأ:",

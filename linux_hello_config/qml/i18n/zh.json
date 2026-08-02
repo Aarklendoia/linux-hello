@@ -38,7 +38,7 @@
         "previewInactive": "预览未启用",
         "previewCancelled": "已取消采集",
         "previewStopped": "已停止采集",
-        "previewAnalyzing": "正在分析人脸…",
+        "previewAnalyzing": "请继续注视摄像头，即将完成…",
         "previewValidating": "正在验证…",
         "previewSuccess": "✓ 人脸注册成功！",
         "previewError": "✗ 错误：",
