@@ -26,6 +26,38 @@ Kirigami.Page {
         function onCapturingChanged() {
             if (!AppController.capturing) {
                 cameraPreview.source = "";
+            } else {
+                // Was previously left at "Aperçu inactif" (its initial
+                // value) for the entire live preview — nothing ever set it
+                // to anything else until progress reached 100%, so the
+                // pulsing "live" dot and an "inactive" label were shown
+                // side by side the whole time. captureStatusTimer below
+                // takes over updating this from here on, until progress
+                // hits 100%.
+                previewRect.previewStatus = I18n.tr("enrollment.previewSearching");
+            }
+        }
+    }
+
+    // Polls hello-daemon's live, per-frame face-detection status (see
+    // hello_daemon::dbus::get_capture_status) so the status chip reflects
+    // reality during the preview instead of staying silent until
+    // registration succeeds or fails at the very end. Much cheaper than
+    // snapshotTimer's 40ms image poll (in-memory read, no camera I/O), so a
+    // slower interval here is plenty.
+    Timer {
+        id: captureStatusTimer
+        interval: 400
+        repeat: true
+        running: AppController.capturing && AppController.progress < 100
+        onTriggered: AppController.pollCaptureStatus()
+    }
+
+    Connections {
+        target: AppController
+        function onLiveFaceDetectedChanged() {
+            if (AppController.capturing && AppController.progress < 100) {
+                previewRect.previewStatus = AppController.liveFaceDetected ? I18n.tr("enrollment.previewFaceDetected") : I18n.tr("enrollment.previewSearching");
             }
         }
     }

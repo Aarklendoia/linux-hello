@@ -36,6 +36,8 @@
         "stopBtn": "Остановить",
         "cancelBtn": "Отменить",
         "previewInactive": "Просмотр неактивен",
+        "previewSearching": "🔍 Поиск лица…",
+        "previewFaceDetected": "✓ Лицо обнаружено",
         "previewCancelled": "Съёмка отменена",
         "previewStopped": "Съёмка остановлена",
         "previewAnalyzing": "Продолжайте смотреть в камеру, завершение…",

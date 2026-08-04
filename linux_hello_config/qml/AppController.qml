@@ -7,6 +7,11 @@ QtObject {
     // Application state
     property bool capturing: false
     property int progress: 0
+    // Live face-detection feedback during the enrollment preview — polled
+    // via pollCaptureStatus() (see Enrollment.qml's captureStatusTimer).
+    // Reset to false whenever capturing stops so a stale "detected" state
+    // never lingers from a previous, unrelated attempt.
+    property bool liveFaceDetected: false
     property var facesList: []
     property bool daemonActive: false
     property bool sddmActive: false
@@ -249,6 +254,7 @@ QtObject {
     function startCapture() {
         capturing = true;
         progress = 0;
+        liveFaceDetected = false;
         var xhr = new XMLHttpRequest();
         openAuthedRequest(xhr, "/start-capture");
         xhr.onreadystatechange = function () {
@@ -257,6 +263,30 @@ QtObject {
         };
         xhr.send();
         animateProgress();
+    }
+
+    // Polled at a few Hz while capturing (see Enrollment.qml's
+    // captureStatusTimer) to reflect hello-daemon's live, per-frame face
+    // detection during the preview — cheap on the daemon side (in-memory
+    // read, no camera I/O), so this is a much lighter request than the
+    // 40ms image-snapshot poll running at the same time.
+    function pollCaptureStatus() {
+        var xhr = new XMLHttpRequest();
+        openAuthedRequest(xhr, "/capture-status");
+        xhr.onreadystatechange = function () {
+            if (xhr.readyState !== XMLHttpRequest.DONE)
+                return;
+            if (xhr.status === 200) {
+                try {
+                    controller.liveFaceDetected = !!JSON.parse(xhr.responseText).face_detected;
+                } catch (e) {
+                    // Leave liveFaceDetected as-is on a parse hiccup — one
+                    // missed poll at this cadence isn't worth flickering
+                    // the status text over.
+                }
+            }
+        };
+        xhr.send();
     }
 
     function registerFace() {
@@ -292,6 +322,7 @@ QtObject {
 
     function stopCapture() {
         capturing = false;
+        liveFaceDetected = false;
         var xhr = new XMLHttpRequest();
         openAuthedRequest(xhr, "/stop-capture");
         xhr.send();

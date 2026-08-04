@@ -36,6 +36,8 @@
         "stopBtn": "रोकें",
         "cancelBtn": "रद्द करें",
         "previewInactive": "पूर्वावलोकन निष्क्रिय",
+        "previewSearching": "🔍 चेहरा खोजा जा रहा है…",
+        "previewFaceDetected": "✓ चेहरा मिल गया",
         "previewCancelled": "कैप्चर रद्द किया गया",
         "previewStopped": "कैप्चर रोका गया",
         "previewAnalyzing": "कैमरे की ओर देखते रहें, पूर्ण किया जा रहा है…",

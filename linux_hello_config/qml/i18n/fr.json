@@ -37,6 +37,8 @@
         "stopBtn": "Arrêter",
         "cancelBtn": "Annuler",
         "previewInactive": "Aperçu inactif",
+        "previewSearching": "🔍 Recherche du visage…",
+        "previewFaceDetected": "✓ Visage détecté",
         "previewCancelled": "Capture annulée",
         "previewStopped": "Capture arrêtée",
         "previewAnalyzing": "Continuez à regarder la caméra, finalisation…",

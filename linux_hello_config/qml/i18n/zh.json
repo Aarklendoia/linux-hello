@@ -36,6 +36,8 @@
         "stopBtn": "停止",
         "cancelBtn": "取消",
         "previewInactive": "预览未启用",
+        "previewSearching": "🔍 正在寻找人脸…",
+        "previewFaceDetected": "✓ 已检测到人脸",
         "previewCancelled": "已取消采集",
         "previewStopped": "已停止采集",
         "previewAnalyzing": "请继续注视摄像头，即将完成…",

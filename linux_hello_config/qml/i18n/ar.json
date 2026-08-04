@@ -36,6 +36,8 @@
         "stopBtn": "إيقاف",
         "cancelBtn": "إلغاء",
         "previewInactive": "المعاينة غير نشطة",
+        "previewSearching": "🔍 البحث عن وجه…",
+        "previewFaceDetected": "✓ تم رصد الوجه",
         "previewCancelled": "تم إلغاء الالتقاط",
         "previewStopped": "تم إيقاف الالتقاط",
         "previewAnalyzing": "استمر بالنظر إلى الكاميرا، جارٍ الإنهاء…",

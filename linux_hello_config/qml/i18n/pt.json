@@ -36,6 +36,8 @@
         "stopBtn": "Parar",
         "cancelBtn": "Cancelar",
         "previewInactive": "Pré-visualização inativa",
+        "previewSearching": "🔍 A procurar um rosto…",
+        "previewFaceDetected": "✓ Rosto detetado",
         "previewCancelled": "Captura cancelada",
         "previewStopped": "Captura interrompida",
         "previewAnalyzing": "Continue a olhar para a câmara, a finalizar…",
