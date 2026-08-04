@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.2](https://github.com/Aarklendoia/linux-hello/compare/v1.6.1...v1.6.2) (2026-08-04)
+
+
+### Bug Fixes
+
+* **daemon:** refresh verify()'s IR liveness score periodically, not once ([05fca9e](https://github.com/Aarklendoia/linux-hello/commit/05fca9e5f8468dbdb04d8a8b7061b0ddbb950e29))
+
 ## [1.6.1](https://github.com/Aarklendoia/linux-hello/compare/v1.6.0...v1.6.1) (2026-08-04)
 
 
