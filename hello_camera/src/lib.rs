@@ -335,6 +335,9 @@ where
 
     let mut stream = v4l::io::mmap::Stream::with_buffers(&dev, Type::VideoCapture, 4)
         .map_err(|e| CameraError::CaptureFailed(format!("GREY stream error: {}", e)))?;
+    // Per-dequeue bound — see capture_rgb_stream_v4l2's comment on the same
+    // line for why this can't be left unset.
+    stream.set_timeout(std::time::Duration::from_millis(2000));
 
     let start = std::time::Instant::now();
     let timeout_dur = std::time::Duration::from_millis(timeout_ms);
@@ -343,10 +346,16 @@ where
         if start.elapsed() > timeout_dur {
             break;
         }
-        let (buf, _meta) = stream
-            .next()
-            .map_err(|e| CameraError::CaptureFailed(format!("GREY capture error: {}", e)))?;
-        on_frame(buf.to_vec(), width, height);
+        match stream.next() {
+            Ok((buf, _meta)) => on_frame(buf.to_vec(), width, height),
+            Err(e) if e.kind() == std::io::ErrorKind::TimedOut => continue,
+            Err(e) => {
+                return Err(CameraError::CaptureFailed(format!(
+                    "GREY capture error: {}",
+                    e
+                )))
+            }
+        }
     }
 
     Ok(())
@@ -378,6 +387,16 @@ where
     // A single persistent stream for all frames
     let mut stream = v4l::io::mmap::Stream::with_buffers(&dev, Type::VideoCapture, 4)
         .map_err(|e| CameraError::CaptureFailed(format!("Stream creation error: {}", e)))?;
+    // Per-dequeue bound: left unset, `stream.next()` blocks indefinitely on
+    // a stalled dequeue — seen in practice right after reopening the device
+    // shortly after a previous stream on it closed (e.g. the GUI's live
+    // preview stopping right before this runs). Without this, a single
+    // stuck frame ignores `timeout_ms` entirely: the deadline below is only
+    // checked *before* starting a new dequeue, never during one already in
+    // flight, so the call — and the camera, held open the whole time —
+    // could hang forever instead of degrading to "captured fewer frames
+    // than asked for" like a slow-but-working camera would.
+    stream.set_timeout(std::time::Duration::from_millis(2000));
 
     let start = std::time::Instant::now();
     let timeout_dur = std::time::Duration::from_millis(timeout_ms);
@@ -387,12 +406,14 @@ where
             break;
         }
 
-        let (buf, _meta) = stream
-            .next()
-            .map_err(|e| CameraError::CaptureFailed(format!("Capture error: {}", e)))?;
-
-        let rgb = yuyv_to_rgb_strided(buf, width, height, applied.stride);
-        on_frame(rgb, width, height);
+        match stream.next() {
+            Ok((buf, _meta)) => {
+                let rgb = yuyv_to_rgb_strided(buf, width, height, applied.stride);
+                on_frame(rgb, width, height);
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::TimedOut => continue,
+            Err(e) => return Err(CameraError::CaptureFailed(format!("Capture error: {}", e))),
+        }
     }
 
     Ok(())
