@@ -10,7 +10,7 @@ use std::collections::VecDeque;
 use std::os::unix::io::AsRawFd;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 use tracing::{debug, info, warn};
 
@@ -462,6 +462,20 @@ impl CameraManager {
             rgb_frames
         });
 
+        // Staggered behind rgb_task rather than spawned in parallel with
+        // it — see `capture_until`'s identical stagger for the confirmed
+        // reason: starting both video nodes' VIDIOC_STREAMON at the same
+        // instant is a genuine race on this hardware (reproduced live with
+        // raw v4l2-ctl), not random flakiness, and reliably avoided by a
+        // short head start for RGB. Skipped entirely when there's no IR
+        // device — nothing to stagger against, and plenty of setups
+        // (`hasIrCamera` is explicitly a supported, warned-about case in
+        // the GUI) would otherwise pay this delay on every single capture
+        // for no reason at all.
+        if ir_device.is_some() {
+            tokio::time::sleep(Duration::from_millis(300)).await;
+        }
+
         let ir_task = ir_device.map(|ir_path| {
             let ir_lock = Arc::clone(&camera_lock);
             tokio::task::spawn_blocking(move || -> Vec<Frame> {
@@ -623,26 +637,40 @@ impl CameraManager {
     /// Capture RGB frames continuously (device opened once, for the whole
     /// attempt) for up to `timeout_ms`, extracting an embedding from each
     /// frame with a detected face and handing it to `on_frame` together
-    /// with a once-per-session IR liveness score (sampled from several IR
-    /// frames over a 2s budget and kept as the max — periodic re-sampling
-    /// across the whole window would be a nice future improvement, not
-    /// required now) and a per-frame RGB-only liveness score (always
-    /// computed fresh — see `hello_face_core::liveness::rgb_liveness_score`
-    /// — since it's the fallback used when there's no IR camera to sample
-    /// from at all).
+    /// with a periodically-refreshed IR liveness score (a rolling max over
+    /// the last few IR frames from the most recent short burst — see the
+    /// IR task's own comments for why bursts, not one continuously open
+    /// stream: sustained concurrent RGB+IR streaming was tried first and
+    /// confirmed, both from live daemon logs and reproduced directly with
+    /// v4l2-ctl outside the daemon, to starve RGB's frame rate on this
+    /// hardware badly enough to eventually error it out. Bursts keep RGB
+    /// running alone, at full bandwidth, for most of the window, while
+    /// still refreshing the IR score every several seconds instead of
+    /// freezing it after only the first ~2s of a 30s attempt — the
+    /// original version of this bug) and a per-frame RGB-only liveness
+    /// score (always computed fresh — see
+    /// `hello_face_core::liveness::rgb_liveness_score` — since it's the
+    /// fallback used when there's no IR camera to sample from at all).
     ///
     /// IR sampling and RGB capture run concurrently on two independent V4L2
-    /// devices (see `capture_frames`'s equivalent overlap) instead of IR
-    /// running to completion before RGB even opens. RGB frames that arrive
-    /// before IR sampling resolves are buffered rather than judged with a
-    /// premature `ir_liveness = None` — that value means "no IR camera at
-    /// all" to `match_with_liveness`'s gate and would silently fall back to
-    /// the much weaker RGB-only threshold, exactly the anti-spoofing
-    /// weakening this must not introduce. Buffered frames are replayed
-    /// through `on_frame` as soon as the real IR result is known.
+    /// devices (see `capture_frames`'s equivalent overlap for the
+    /// fixed-count case), instead of IR running to completion before RGB
+    /// even opens. RGB frames that arrive before the first IR burst lands
+    /// are buffered rather than judged with a premature `ir_liveness =
+    /// None` — that value means "no IR camera at all" to
+    /// `match_with_liveness`'s gate and would silently fall back to the
+    /// much weaker RGB-only threshold, exactly the anti-spoofing weakening
+    /// this must not introduce. Buffered frames are replayed through
+    /// `on_frame` as soon as the first real IR sample is known; every RGB
+    /// frame after that reads whatever the IR task's latest rolling score
+    /// is at that moment, which may be from the current burst or (during a
+    /// gap between bursts) the previous one.
     ///
     /// Stops as soon as `on_frame` returns `true` ("I've decided, stop") or
-    /// the deadline elapses.
+    /// the deadline elapses. If an IR burst itself fails (e.g. a transient
+    /// EIO), that's logged rather than silently treated as "no IR camera"
+    /// — the loop just tries again after the usual gap, and the RGB-only
+    /// fallback covers this attempt if not even one burst ever succeeded.
     ///
     /// Used by `verify()`'s attempt loop so the camera stays visibly
     /// engaged for the whole window instead of a fixed quick burst —
@@ -685,10 +713,13 @@ impl CameraManager {
                 .map_err(|e| CameraError::CaptureError(e.to_string()))??,
         );
 
-        // `None` = IR sampling still in flight, `Some(iv)` = resolved (with
-        // or without an actual score). Resolved immediately when there's no
-        // IR device at all, so the no-IR path behaves exactly as before
-        // (immediate RGB-only fallback, no buffering).
+        // `None` = no IR sample has landed yet (still bootstrapping),
+        // `Some(iv)` = the latest known score (with or without an actual
+        // value). Resolved immediately when there's no IR device at all,
+        // so the no-IR path behaves exactly as before (immediate RGB-only
+        // fallback, no buffering). Once an IR device is present, this is
+        // updated repeatedly — once per IR frame, for the whole attempt —
+        // rather than sent once and left alone.
         let (ir_tx, mut ir_rx) =
             tokio::sync::watch::channel::<Option<Option<f32>>>(if ir_device.is_none() {
                 Some(None)
@@ -696,51 +727,20 @@ impl CameraManager {
                 None
             });
 
-        let ir_task = ir_device.map(|ir_path| {
-            let ir_lock = Arc::clone(&camera_lock);
-            tokio::task::spawn_blocking(move || {
-                let _lock = ir_lock;
-
-                // Sample IR liveness from several frames and keep the best
-                // score, rather than a single frame. A lone frame can read
-                // low from a transient IR glare/blur/illuminator flicker,
-                // which used to condemn the entire attempt: the RGB match
-                // would keep succeeding every frame while this one fixed
-                // liveness score kept rejecting it for the whole timeout
-                // window, burning CPU on face detection/embedding
-                // extraction with no chance of ever succeeding. Taking the
-                // max over a handful of frames means one bad IR sample no
-                // longer dooms the session.
-                const IR_LIVENESS_SAMPLES: u32 = 5;
-                let mut best: Option<f32> = None;
-                let _ = hello_camera::capture_gray_stream_v4l2(
-                    &ir_path,
-                    IR_LIVENESS_SAMPLES,
-                    2000,
-                    |data, w, h| {
-                        let dummy_face = hello_face_core::FaceRegion {
-                            bounding_box: (w / 4, h / 5, w / 2, h * 3 / 5),
-                            confidence: 1.0,
-                            landmarks: vec![],
-                        };
-                        let score =
-                            hello_face_core::liveness::ir_liveness_score(&data, w, h, &dummy_face);
-                        best = Some(best.map_or(score, |b: f32| b.max(score)));
-                    },
-                );
-                let _ = ir_tx.send(Some(best));
-            })
-        });
+        // Set once the consumer has decided to stop; checked by both
+        // capture loops after each frame so a decision made partway
+        // through can halt a capture that's already in flight. Declared
+        // before either task below so both can hold a clone of it —
+        // stopping RGB without also stopping IR (or vice versa) would
+        // needlessly keep one camera open after the attempt is already
+        // decided.
+        let stop_requested = Arc::new(AtomicBool::new(false));
 
         // Frames with a detected face flow from the blocking capture thread
         // to the async consumer below over this channel, so the "is IR
         // resolved yet?" decision (and any buffering it requires) can live
         // in one place instead of duplicated shared state.
         let (frame_tx, mut frame_rx) = tokio::sync::mpsc::channel::<(Embedding, f32)>(8);
-        // Set once the consumer has decided to stop; checked by the capture
-        // loop after each frame so a decision made once IR resolves can
-        // still halt an RGB capture that's already in flight.
-        let stop_requested = Arc::new(AtomicBool::new(false));
 
         let rgb_lock = Arc::clone(&camera_lock);
         let rgb_stop = Arc::clone(&stop_requested);
@@ -768,6 +768,116 @@ impl CameraManager {
                 // one exception that does propagate).
                 warn!("Continuous RGB capture ended: {}", e);
             }
+        });
+
+        // Deliberately staggered behind rgb_task, not spawned in parallel
+        // with it: starting both video nodes' VIDIOC_STREAMON at the same
+        // instant reliably raced on this hardware (a Logitech Brio) in
+        // manual v4l2-ctl testing. Skipped entirely when there's no IR
+        // device — see `capture_frames`'s identical guard.
+        const IR_STARTUP_STAGGER: Duration = Duration::from_millis(300);
+        if ir_device.is_some() {
+            tokio::time::sleep(IR_STARTUP_STAGGER).await;
+        }
+
+        let ir_task = ir_device.map(|ir_path| {
+            let ir_lock = Arc::clone(&camera_lock);
+            let ir_stop = Arc::clone(&stop_requested);
+            tokio::task::spawn_blocking(move || {
+                let _lock = ir_lock;
+
+                // Sampled in short, fully-closed bursts, not one
+                // continuously open stream for the whole attempt —
+                // sustained concurrent RGB+IR streaming was tried first
+                // and confirmed (live daemon logs, then reproduced
+                // directly with v4l2-ctl outside the daemon entirely) to
+                // starve RGB's frame rate on this hardware, eventually
+                // erroring it out (`VIDIOC_DQBUF` EINVAL) a few seconds in
+                // — a real, sustained USB-bandwidth limit, not a one-off
+                // startup race. A short burst leaves RGB running alone
+                // (full bandwidth, stable) for most of the window, at the
+                // cost of the IR score only refreshing periodically rather
+                // than on every single frame.
+                const IR_BURST_FRAMES: u32 = 5;
+                const IR_BURST_TIMEOUT_MS: u64 = 2000;
+                // Gap between bursts. Long enough that RGB gets the device
+                // to itself for the large majority of the attempt; short
+                // enough that a multi-second attempt still gets more than
+                // one refresh — e.g. ~4 bursts over a 30s screen-lock
+                // window.
+                const IR_BURST_GAP: Duration = Duration::from_secs(6);
+                // How often the gap wait re-checks ir_stop — bounds how
+                // long this task can outlive a decision already made by
+                // the consumer loop.
+                const IR_STOP_POLL_INTERVAL: Duration = Duration::from_millis(200);
+
+                const IR_ROLLING_WINDOW: usize = 5;
+                let mut recent: VecDeque<f32> = VecDeque::with_capacity(IR_ROLLING_WINDOW);
+                let mut got_any_sample = false;
+                let overall_deadline = Instant::now() + Duration::from_millis(timeout);
+
+                while Instant::now() < overall_deadline && !ir_stop.load(Ordering::Acquire) {
+                    let mut samples_this_burst: u32 = 0;
+                    let result = hello_camera::capture_gray_stream_v4l2(
+                        &ir_path,
+                        IR_BURST_FRAMES,
+                        IR_BURST_TIMEOUT_MS,
+                        |data, w, h| {
+                            let dummy_face = hello_face_core::FaceRegion {
+                                bounding_box: (w / 4, h / 5, w / 2, h * 3 / 5),
+                                confidence: 1.0,
+                                landmarks: vec![],
+                            };
+                            let score = hello_face_core::liveness::ir_liveness_score(
+                                &data,
+                                w,
+                                h,
+                                &dummy_face,
+                            );
+                            if recent.len() >= IR_ROLLING_WINDOW {
+                                recent.pop_front();
+                            }
+                            recent.push_back(score);
+                            samples_this_burst += 1;
+                        },
+                    );
+
+                    match result {
+                        Ok(()) if samples_this_burst > 0 => {
+                            got_any_sample = true;
+                            let rolling_max = recent.iter().cloned().fold(0.0f32, f32::max);
+                            let _ = ir_tx.send(Some(Some(rolling_max)));
+                        }
+                        // A burst that opened fine but got zero frames
+                        // (very short remaining budget) or a hard error —
+                        // either way, no new data this cycle. Logged so a
+                        // string of these over an attempt is diagnosable,
+                        // but not fatal to the rest of the loop: the next
+                        // burst gets its own fresh open/close pair, and a
+                        // transient failure recovering on the next one is
+                        // exactly the graceful-degradation behavior wanted
+                        // here.
+                        Ok(()) => {
+                            debug!("IR burst captured no frames (attempt nearly out of time)");
+                        }
+                        Err(e) => {
+                            warn!("IR burst capture failed ({}); retrying next cycle", e);
+                        }
+                    }
+
+                    let gap_end = Instant::now() + IR_BURST_GAP;
+                    while Instant::now() < gap_end && !ir_stop.load(Ordering::Acquire) {
+                        std::thread::sleep(IR_STOP_POLL_INTERVAL);
+                    }
+                }
+
+                if !got_any_sample {
+                    // Never got even one usable sample across the whole
+                    // attempt — fall back to RGB-only liveness for it,
+                    // same as the no-IR-camera-at-all path.
+                    let _ = ir_tx.send(Some(None));
+                }
+            })
         });
 
         // Frames whose face was detected before IR sampling resolved: held
@@ -811,7 +921,24 @@ impl CameraManager {
                                 None => pending.push((embedding, rgb_liveness)),
                             }
                         }
-                        None => break, // capture finished, sender dropped
+                        None => {
+                            // RGB capture is done — successfully exhausted
+                            // its own deadline, decided to stop, or ended
+                            // on an error (frame_tx is dropped in every
+                            // case). The IR task doesn't know that on its
+                            // own: it now runs for the same `timeout` as
+                            // RGB (see this method's doc comment), so
+                            // without this it would keep sampling — and
+                            // this function wouldn't return — for
+                            // whatever's left of that window even though
+                            // there are no more RGB frames left to pair it
+                            // with. A verify() attempt whose RGB side
+                            // failed 3s into a 30s window was observed
+                            // stalling for the remaining ~27s before this
+                            // was added.
+                            stop_requested.store(true, Ordering::Release);
+                            break;
+                        }
                     }
                 }
             }
