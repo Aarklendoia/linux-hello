@@ -104,7 +104,9 @@ fn own_process_start_time() -> Option<u64> {
 /// installed) denies the action rather than silently allowing it.
 async fn check_polkit_authorization(action: &str) -> bool {
     let Some(start_time) = own_process_start_time() else {
-        warn!("Could not read this process's own start time from /proc/self/stat, denying {action}");
+        warn!(
+            "Could not read this process's own start time from /proc/self/stat, denying {action}"
+        );
         return false;
     };
 
@@ -175,7 +177,8 @@ mod tests {
         // A realistic /proc/self/stat shape: pid, (comm), then 20 more
         // whitespace-separated fields (state..starttime) — starttime
         // (field 22) is the last one here, set to a recognizable value.
-        let stat = "12345 (hello-daemon) S 1 12345 12345 0 -1 4194560 0 0 0 0 0 0 0 0 0 0 0 0 3144151";
+        let stat =
+            "12345 (hello-daemon) S 1 12345 12345 0 -1 4194560 0 0 0 0 0 0 0 0 0 0 0 0 3144151";
         assert_eq!(parse_start_time_from_stat(stat), Some(3144151));
     }
 
@@ -184,7 +187,8 @@ mod tests {
         // proc(5): comm can itself contain spaces or parentheses — a naive
         // split on the first '(' / first ')' would misalign every field
         // after it. Same 20 trailing fields as above.
-        let stat = "12345 (my (weird) prog) S 1 12345 12345 0 -1 4194560 0 0 0 0 0 0 0 0 0 0 0 0 3144151";
+        let stat =
+            "12345 (my (weird) prog) S 1 12345 12345 0 -1 4194560 0 0 0 0 0 0 0 0 0 0 0 0 3144151";
         assert_eq!(parse_start_time_from_stat(stat), Some(3144151));
     }
 

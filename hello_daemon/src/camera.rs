@@ -736,35 +736,40 @@ impl CameraManager {
         stop_flag.store(false, Ordering::Release);
         let mut frame_num: u32 = 0;
 
-        let v4l2_result = tokio::task::block_in_place(|| -> Result<(), hello_camera::CameraError> {
-            // Held for the whole preview so a concurrent capture_frames/
-            // capture_until — including the one register_face's own
-            // interactive authorization step can trigger — can't silently
-            // collide with this stream on the same V4L2 device; see
-            // request_stop_preview's doc comment for the full story.
-            let _lock = CameraLock::try_acquire(&lock_path).map_err(|e| {
-                hello_camera::CameraError::OpenFailed(format!("camera lock: {}", e))
-            })?;
-            // capture_rgb_stream_until (not the fixed-count
-            // capture_rgb_stream_v4l2) so this loop can actually be cut
-            // short by request_stop_preview instead of running to
-            // num_frames/timeout_ms regardless.
-            hello_camera::capture_rgb_stream_until(&rgb_device, timeout_ms, |rgb_data, width, height| {
-                let event = CaptureFrameEvent {
-                    frame_number: frame_num,
-                    total_frames: num_frames,
-                    frame_data: rgb_data,
-                    width,
-                    height,
-                    face_detected: false,
-                    quality_score: 0.85,
-                    timestamp_ms: 0,
-                };
-                on_frame(event);
-                frame_num += 1;
-                frame_num >= num_frames || stop_flag.load(Ordering::Acquire)
-            })
-        });
+        let v4l2_result =
+            tokio::task::block_in_place(|| -> Result<(), hello_camera::CameraError> {
+                // Held for the whole preview so a concurrent capture_frames/
+                // capture_until — including the one register_face's own
+                // interactive authorization step can trigger — can't silently
+                // collide with this stream on the same V4L2 device; see
+                // request_stop_preview's doc comment for the full story.
+                let _lock = CameraLock::try_acquire(&lock_path).map_err(|e| {
+                    hello_camera::CameraError::OpenFailed(format!("camera lock: {}", e))
+                })?;
+                // capture_rgb_stream_until (not the fixed-count
+                // capture_rgb_stream_v4l2) so this loop can actually be cut
+                // short by request_stop_preview instead of running to
+                // num_frames/timeout_ms regardless.
+                hello_camera::capture_rgb_stream_until(
+                    &rgb_device,
+                    timeout_ms,
+                    |rgb_data, width, height| {
+                        let event = CaptureFrameEvent {
+                            frame_number: frame_num,
+                            total_frames: num_frames,
+                            frame_data: rgb_data,
+                            width,
+                            height,
+                            face_detected: false,
+                            quality_score: 0.85,
+                            timestamp_ms: 0,
+                        };
+                        on_frame(event);
+                        frame_num += 1;
+                        frame_num >= num_frames || stop_flag.load(Ordering::Acquire)
+                    },
+                )
+            });
 
         match v4l2_result {
             Ok(()) => {
