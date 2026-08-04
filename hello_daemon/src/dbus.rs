@@ -226,6 +226,25 @@ impl FaceAuthInterface {
         Ok(format!(r#"{{"has_ir":{}}}"#, has_ir))
     }
 
+    /// Best-effort, in-memory snapshot of the most recent preview frame's
+    /// face-detection outcome — cheap enough to poll frequently (no camera
+    /// I/O, just reading `CameraManager::live_status()`'s mutex). Only
+    /// meaningful while a `StartCaptureStream` call is in flight; the GUI
+    /// polls this during the enrollment preview to show real-time
+    /// "recherche du visage…" / "visage détecté" feedback instead of
+    /// nothing at all until registration succeeds or fails at the very end.
+    ///
+    /// # Returns
+    /// JSON `{"face_detected": bool, "quality_score": f32}`
+    pub async fn get_capture_status(&self) -> zbus::fdo::Result<String> {
+        let daemon = self.daemon.read().await;
+        let status = daemon.camera_manager().live_status();
+        Ok(format!(
+            r#"{{"face_detected":{},"quality_score":{}}}"#,
+            status.face_detected, status.quality_score
+        ))
+    }
+
     /// Start a streaming capture session with signal emission
     ///
     /// Emits `CaptureProgress` D-Bus signals for each captured frame.
@@ -466,6 +485,17 @@ mod tests {
         let json = iface.camera_info().await.unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert!(parsed.get("has_ir").is_some());
+    }
+
+    #[tokio::test]
+    async fn test_get_capture_status_returns_well_formed_json_with_no_capture_in_flight() {
+        let (_temp, iface) = test_interface();
+        let json = iface.get_capture_status().await.unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        // Nothing is streaming, so this must be the safe default rather
+        // than an error or stale data from an unrelated session.
+        assert_eq!(parsed["face_detected"], false);
+        assert_eq!(parsed["quality_score"], 0.0);
     }
 
     #[tokio::test]

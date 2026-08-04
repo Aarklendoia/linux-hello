@@ -542,14 +542,35 @@ fn handle_ctrl_connection(
             "s",
             &request_json,
         ])) {
-            Ok(stdout) => {
-                let face_id =
-                    extract_face_id_from_busctl(&stdout).unwrap_or_else(|| "unknown".to_string());
-                (
-                    "200 OK",
-                    format!(r#"{{"ok":true,"face_id":"{}"}}"#, json_escape(&face_id)),
-                )
-            }
+            Ok(stdout) => match extract_face_id_from_busctl(&stdout) {
+                Some(face_id) => {
+                    eprintln!("✓ RegisterFace succeeded: face_id={}", face_id);
+                    (
+                        "200 OK",
+                        format!(r#"{{"ok":true,"face_id":"{}"}}"#, json_escape(&face_id)),
+                    )
+                }
+                None => {
+                    // busctl itself exited 0 (RegisterFace didn't return an
+                    // error), but its reply didn't parse as expected — e.g.
+                    // an unforeseen dbus-interface response shape. Reporting
+                    // "ok":true with a fake "unknown" face_id here would tell
+                    // the GUI enrollment succeeded even though we can't
+                    // confirm a face_id was actually returned, so this must
+                    // not be treated as success.
+                    eprintln!(
+                        "✗ RegisterFace: busctl succeeded but no face_id found in its reply: {:?}",
+                        stdout
+                    );
+                    (
+                        "500 Internal Server Error",
+                        format!(
+                            r#"{{"ok":false,"error":"{}"}}"#,
+                            json_escape("RegisterFace reply did not contain a face_id")
+                        ),
+                    )
+                }
+            },
             Err(err) => {
                 eprintln!("✗ RegisterFace busctl error: {}", err);
                 (
@@ -674,6 +695,32 @@ fn handle_ctrl_connection(
                 // route only feeds an informational banner.
                 ("200 OK", r#"{"has_ir":true}"#.to_string())
             }
+        }
+    } else if req.contains("/capture-status") {
+        // Polled by the enrollment screen (~2x/s) while a capture stream is
+        // running, to show live "recherche du visage…"/"visage détecté"
+        // feedback — see hello_daemon::dbus::get_capture_status's doc
+        // comment. Cheap (in-memory read, no camera I/O), but still shells
+        // out to busctl per call like every other route here, so failures
+        // fail open to "no face" rather than erroring the whole poll loop.
+        match run_command(Command::new("busctl").args([
+            "--user",
+            "call",
+            "com.linuxhello.FaceAuth",
+            "/com/linuxhello/FaceAuth",
+            "com.linuxhello.FaceAuth",
+            "GetCaptureStatus",
+        ])) {
+            Ok(stdout) => {
+                let json = extract_busctl_json(&stdout).unwrap_or_else(|| {
+                    r#"{"face_detected":false,"quality_score":0.0}"#.to_string()
+                });
+                ("200 OK", json)
+            }
+            Err(_) => (
+                "200 OK",
+                r#"{"face_detected":false,"quality_score":0.0}"#.to_string(),
+            ),
         }
     } else if req.contains("/list-faces") {
         match run_command(Command::new("busctl").args([
