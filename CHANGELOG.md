@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.6.1](https://github.com/Aarklendoia/linux-hello/compare/v1.6.0...v1.6.1) (2026-08-04)
+
+
+### Bug Fixes
+
+* **daemon,gui:** GUI face enrollment silently failing to complete ([8360287](https://github.com/Aarklendoia/linux-hello/commit/8360287f7f0c5846676d184d8f4d78836f93fe74))
+* **daemon,gui:** stop the enrollment preview and register_face's own capture from racing the same camera ([ca39c43](https://github.com/Aarklendoia/linux-hello/commit/ca39c433e93ed6a606cb2d75eb0ff8a4e9869e12))
+* **daemon:** bound V4L2 frame-dequeue timeouts in enrollment capture ([776b390](https://github.com/Aarklendoia/linux-hello/commit/776b390c594ad41871978251956accd3840c6183))
+* **daemon:** reuse the enrollment preview's own stream for register_face ([2298732](https://github.com/Aarklendoia/linux-hello/commit/2298732543c5fc93566056cdd4dfa5febc9bf69d))
+* **daemon:** stop crashing polkitd's CheckAuthorization with a unix-session subject ([0d14099](https://github.com/Aarklendoia/linux-hello/commit/0d14099d0e2e5efb105e82683a1f3142a029600a))
+* **gui:** show live face-detection feedback during the enrollment preview ([2aa5801](https://github.com/Aarklendoia/linux-hello/commit/2aa5801395506a4fb6eb1215801b7edd7bd4cdf1))
+* **gui:** tell the user to keep looking at the camera during the final enrollment capture ([5142da0](https://github.com/Aarklendoia/linux-hello/commit/5142da027c313ef7f7f167d029f621012fa7b855))
+
 ## [1.6.0](https://github.com/Aarklendoia/linux-hello/compare/v1.5.3...v1.6.0) (2026-08-02)
 
 
