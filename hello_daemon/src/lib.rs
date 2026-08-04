@@ -9,7 +9,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 use thiserror::Error;
-use tracing::info;
+use tracing::{debug, info, warn};
 
 pub mod authz;
 pub mod camera;
@@ -157,7 +157,7 @@ impl FaceAuthDaemon {
             #[cfg(test)]
             enrollment_authorizer: EnrollmentAuthorizer::AllowAll,
             #[cfg(not(test))]
-            enrollment_authorizer: EnrollmentAuthorizer::from_env(),
+            enrollment_authorizer: EnrollmentAuthorizer::Polkit,
         })
     }
 
@@ -191,14 +191,27 @@ impl FaceAuthDaemon {
         self
     }
 
-    pub async fn register_face(&self, request: RegisterFaceRequest) -> Result<String, DaemonError> {
-        // Check permissions
-        self.check_user_permission(request.user_id)?;
-
-        // A successfully enrolled face unlocks sudo (via pam_linux_hello.so),
-        // so this can't be a same-UID-only decision like the check above —
-        // see the `authz` module docs for why this needs a fresh, interactive
-        // re-authentication instead.
+    /// Just the permission + interactive-authorization gate `register_face`
+    /// and `delete_face` both run before touching the camera or storage —
+    /// pulled out so the GUI can trigger it *before* starting the live
+    /// preview capture instead of only at the very end.
+    ///
+    /// Doing the interactive polkit prompt that early means the password/
+    /// confirmation dialog appears immediately on "Démarrer", with no
+    /// camera capture in flight yet at all — sidesteps the whole class of
+    /// bugs where a still-running preview capture and the interactive
+    /// re-auth's own camera use (`verify()`'s face check, if that's how
+    /// this session is configured) raced for the same V4L2 device. The
+    /// polkit action is `auth_self_keep` (see
+    /// `debian/polkit/com.linuxhello.manage-faces.policy`), so the
+    /// re-check `register_face`/`delete_face` still do internally (kept,
+    /// not removed — this call alone must never be trusted as a substitute
+    /// for the real gate right before the sensitive action, or a caller
+    /// could invoke this once and then call `RegisterFace` much later on a
+    /// stale grant) should reuse polkit's own short-lived cached grant
+    /// instead of prompting a second time.
+    pub async fn authorize_enrollment(&self, user_id: u32) -> Result<(), DaemonError> {
+        self.check_user_permission(user_id)?;
         if !self
             .enrollment_authorizer
             .authorize(authz::MANAGE_FACES_ACTION)
@@ -208,30 +221,105 @@ impl FaceAuthDaemon {
                 "Enrollment was not authorized".to_string(),
             ));
         }
+        Ok(())
+    }
+
+    pub async fn register_face(&self, request: RegisterFaceRequest) -> Result<String, DaemonError> {
+        // Check permissions
+        self.check_user_permission(request.user_id)?;
+
+        // A successfully enrolled face unlocks sudo (via pam_linux_hello.so),
+        // so this can't be a same-UID-only decision like the check above —
+        // see the `authz` module docs for why this needs a fresh, interactive
+        // re-authentication instead. Same gate as authorize_enrollment()
+        // above, called again here (not trusting a prior call to it) so
+        // RegisterFace is safe to invoke directly over D-Bus on its own.
+        if !self
+            .enrollment_authorizer
+            .authorize(authz::MANAGE_FACES_ACTION)
+            .await
+        {
+            warn!(
+                "Enrollment authorization denied for user_id={}, context={}",
+                request.user_id, request.context
+            );
+            return Err(DaemonError::AccessDenied(
+                "Enrollment was not authorized".to_string(),
+            ));
+        }
 
         info!(
-            "Registering face for user_id={}, context={}",
-            request.user_id, request.context
+            "Registering face for user_id={}, context={}, num_samples={}, timeout_ms={}",
+            request.user_id, request.context, request.num_samples, request.timeout_ms
         );
 
-        // Capture frames
-        let capture = self
-            .camera
-            .capture_frames(request.num_samples, request.timeout_ms)
-            .await
-            .map_err(|e| DaemonError::CameraError(e.to_string()))?;
+        // Prefer whatever `start_capture_stream` already scored live during
+        // the enrollment preview the user just watched — it's the same
+        // already-open, already auto-exposure-converged stream, so this
+        // avoids the accuracy hit of closing it and reopening a brand new
+        // one just for this capture (see
+        // `CameraManager::take_recent_valid_embeddings`'s doc comment). Only
+        // falls back to a fresh, blocking capture when nothing was
+        // buffered — the only path available when `RegisterFace` is called
+        // directly, with no preceding `StartCaptureStream`.
+        let buffered = self.camera.take_recent_valid_embeddings();
+        let valid: Vec<hello_face_core::Embedding> = if !buffered.is_empty() {
+            info!(
+                "Registering user_id={} from {} embedding(s) captured live during the enrollment preview (no extra camera open)",
+                request.user_id,
+                buffered.len()
+            );
+            buffered
+        } else {
+            debug!(
+                "No embeddings buffered from a live preview for user_id={}; falling back to a fresh capture",
+                request.user_id
+            );
+            let capture = self
+                .camera
+                .capture_frames(request.num_samples, request.timeout_ms)
+                .await
+                .map_err(|e| {
+                    warn!(
+                        "Enrollment capture failed for user_id={}: {}",
+                        request.user_id, e
+                    );
+                    DaemonError::CameraError(e.to_string())
+                })?;
 
-        // Average all valid embeddings, then normalize.
-        // An average embedding represents the "center" of the user's face
-        // and gives more stable similarity scores during authentication.
-        let valid: Vec<_> = capture
-            .embeddings
-            .iter()
-            .filter(|e| !e.vector.is_empty() && e.metadata.quality_score > 0.0)
-            .collect();
+            // Average all valid embeddings, then normalize.
+            // An average embedding represents the "center" of the user's
+            // face and gives more stable similarity scores during
+            // authentication.
+            let per_frame_quality: Vec<f32> = capture
+                .embeddings
+                .iter()
+                .map(|e| e.metadata.quality_score)
+                .collect();
+            let valid: Vec<hello_face_core::Embedding> = capture
+                .embeddings
+                .into_iter()
+                .filter(|e| !e.vector.is_empty() && e.metadata.quality_score > 0.0)
+                .collect();
+            debug!(
+                "Enrollment capture for user_id={}: {} frames captured, {} usable (per-frame quality={:?})",
+                request.user_id,
+                per_frame_quality.len(),
+                valid.len(),
+                per_frame_quality
+            );
+            valid
+        };
         if valid.is_empty() {
+            warn!(
+                "No usable face embedding for user_id={} (all captured frames had an empty \
+                 vector or quality_score <= 0.0) — nothing will be saved to disk",
+                request.user_id
+            );
             return Err(DaemonError::CameraError("No face detected".to_string()));
         }
+        let quality_score =
+            valid.iter().map(|e| e.metadata.quality_score).sum::<f32>() / valid.len() as f32;
         let dim = valid[0].vector.len();
         let mut avg = vec![0.0f32; dim];
         for e in &valid {
@@ -280,15 +368,26 @@ impl FaceAuthDaemon {
         let record = FaceRecord {
             face_id: face_id.clone(),
             user_id: request.user_id,
-            quality_score: capture.quality_score,
+            quality_score,
             registered_at: now,
             context: request.context.clone(),
         };
 
         // Save
-        self.storage
-            .save_face(&record, embedding)
-            .map_err(|e| DaemonError::StorageError(e.to_string()))?;
+        debug!(
+            "Saving face_id={} for user_id={} to storage (embedding dim={}, quality_score={:.3})",
+            face_id,
+            request.user_id,
+            embedding.vector.len(),
+            quality_score
+        );
+        self.storage.save_face(&record, embedding).map_err(|e| {
+            warn!(
+                "Failed to save face_id={} for user_id={} to disk: {}",
+                face_id, request.user_id, e
+            );
+            DaemonError::StorageError(e.to_string())
+        })?;
 
         info!("Face registered: face_id={}", face_id);
 
@@ -296,7 +395,7 @@ impl FaceAuthDaemon {
         let response = dbus_interface::RegisterFaceResponse {
             face_id,
             registered_at: now,
-            quality_score: capture.quality_score,
+            quality_score,
         };
 
         Ok(serde_json::to_string(&response)?)
@@ -770,6 +869,91 @@ mod tests {
             .await;
 
         let err = result.expect_err("no face should ever be detected");
+        assert!(err.to_string().contains("No face detected"));
+    }
+
+    #[tokio::test]
+    async fn test_register_face_prefers_embeddings_buffered_from_a_live_preview() {
+        let storage_dir = tempfile::TempDir::new().unwrap();
+        // never_detects() means a fresh capture_frames() call would find no
+        // face at all — success here can only come from the buffered
+        // embeddings injected below, proving register_face used those
+        // instead of reopening the camera itself.
+        let (_cam_dir, camera) = test_camera(
+            FakeDetector::never_detects(),
+            FakeExtractor::with_vector(vec![1.0, 0.0, 0.0], 0.9),
+        );
+        camera.inject_recent_valid_embeddings_for_test(vec![hello_face_core::Embedding {
+            vector: vec![3.0, 4.0, 0.0],
+            metadata: hello_face_core::EmbeddingMetadata {
+                model: "test".to_string(),
+                model_version: "0.1.0".to_string(),
+                extracted_at: 0,
+                quality_score: 0.8,
+            },
+        }]);
+        let daemon =
+            FaceAuthDaemon::new_for_test(test_config(storage_dir.path().to_path_buf()), camera)
+                .unwrap();
+
+        let uid = my_uid();
+        let response_json = daemon
+            .register_face(RegisterFaceRequest {
+                user_id: uid,
+                context: "test".to_string(),
+                timeout_ms: 1000,
+                num_samples: 5,
+            })
+            .await
+            .unwrap();
+        let response: dbus_interface::RegisterFaceResponse =
+            serde_json::from_str(&response_json).unwrap();
+        assert!((response.quality_score - 0.8).abs() < 1e-5);
+
+        // [3,4,0] normalized -> [0.6,0.8,0.0], same as the always-detects
+        // capture_frames path would produce for a single sample.
+        let storage = storage::FaceStorage::new(storage_dir.path()).unwrap();
+        let embedding = storage.load_face_embedding(uid, &response.face_id).unwrap();
+        assert!((embedding.vector[0] - 0.6).abs() < 1e-5);
+        assert!((embedding.vector[1] - 0.8).abs() < 1e-5);
+    }
+
+    #[tokio::test]
+    async fn test_register_face_falls_back_to_a_fresh_capture_once_the_buffer_is_drained() {
+        let storage_dir = tempfile::TempDir::new().unwrap();
+        let (_cam_dir, camera) = test_camera(
+            FakeDetector::never_detects(),
+            FakeExtractor::with_vector(vec![1.0, 0.0, 0.0], 0.9),
+        );
+        camera.inject_recent_valid_embeddings_for_test(vec![hello_face_core::Embedding {
+            vector: vec![3.0, 4.0, 0.0],
+            metadata: hello_face_core::EmbeddingMetadata {
+                model: "test".to_string(),
+                model_version: "0.1.0".to_string(),
+                extracted_at: 0,
+                quality_score: 0.8,
+            },
+        }]);
+        let daemon =
+            FaceAuthDaemon::new_for_test(test_config(storage_dir.path().to_path_buf()), camera)
+                .unwrap();
+        let uid = my_uid();
+        let request = || RegisterFaceRequest {
+            user_id: uid,
+            context: "test".to_string(),
+            timeout_ms: 1000,
+            num_samples: 5,
+        };
+
+        // First call drains the buffered embedding and succeeds.
+        daemon.register_face(request()).await.unwrap();
+
+        // Nothing was re-injected, and the detector never finds a face on
+        // its own — a second call must NOT silently replay the same
+        // already-used embedding; it must fall through to a fresh capture
+        // and fail exactly like test_register_face_fails_when_no_face_ever_detected.
+        let result = daemon.register_face(request()).await;
+        let err = result.expect_err("the buffer should have been drained by the first call");
         assert!(err.to_string().contains("No face detected"));
     }
 

@@ -6,9 +6,10 @@
 use crate::capture_stream::CaptureFrameEvent;
 use hello_camera::{Frame, FrameFormat};
 use hello_face_core::{Embedding, EmbeddingExtractor, FaceDetector};
+use std::collections::VecDeque;
 use std::os::unix::io::AsRawFd;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 use tracing::{debug, info, warn};
@@ -84,7 +85,57 @@ impl CameraLock {
         }
         Ok(Self { _file: file })
     }
+
+    /// Blocks until the lock can be acquired, then immediately releases it.
+    /// Doesn't keep the camera reserved for the caller — used purely to
+    /// confirm that whoever currently holds the lock (a preview we just
+    /// asked to stop, or anything else) has actually released it, before
+    /// telling a caller like the GUI it's safe to start its own capture.
+    fn wait_until_free(path: &std::path::Path) -> Result<(), CameraError> {
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(path)
+            .map_err(|e| CameraError::CaptureError(format!("Camera lock file: {}", e)))?;
+
+        // SAFETY: flock() on a valid, owned fd; no preconditions beyond that.
+        // Blocking (no LOCK_NB): that's the whole point here.
+        let ret = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) };
+        if ret != 0 {
+            return Err(CameraError::CaptureError(format!(
+                "Camera lock wait: {}",
+                std::io::Error::last_os_error()
+            )));
+        }
+        // SAFETY: same fd, still owned; releases immediately rather than
+        // holding it until `file` drops, since dropped-implicit-release
+        // would work too but this makes the "don't actually reserve it"
+        // intent explicit.
+        unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_UN) };
+        Ok(())
+    }
 }
+
+/// Best-effort snapshot of the most recently streamed preview frame's face
+/// detection outcome — read by `GetCaptureStatus` (see `dbus.rs`) so the GUI
+/// can show live "recherche du visage…" / "visage détecté" feedback while
+/// `start_capture_stream` is running, instead of nothing at all until the
+/// very end.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct LiveCaptureStatus {
+    pub face_detected: bool,
+    pub quality_score: f32,
+}
+
+/// How many of the most recent valid (non-empty, quality > 0) embeddings
+/// `start_capture_stream` keeps around for `register_face` to reuse — see
+/// `take_recent_valid_embeddings`'s doc comment for why this exists at all.
+/// Matches the GUI's own `num_samples` for enrollment (`main.rs`'s
+/// `/register-face` route), so reusing the live preview's tail end produces
+/// the same sample count a fresh `capture_frames` call would have.
+const LIVE_EMBEDDING_BUFFER_CAP: usize = 5;
 
 /// Result of a camera capture
 pub struct CaptureResult {
@@ -122,6 +173,17 @@ pub struct CameraManager {
     /// tests each get their own lock file instead of racing on the shared
     /// `LINUX_HELLO_CAMERA_LOCK_PATH` process-global env var.
     lock_path: Option<std::path::PathBuf>,
+    /// Set by `request_stop_preview()`, observed by an in-flight
+    /// `start_capture_stream` call after each frame. See that method's doc
+    /// comment for why a GUI preview needs a real way to be cut short.
+    stop_preview: Arc<AtomicBool>,
+    /// Written by `start_capture_stream` after scoring each preview frame,
+    /// read by `GetCaptureStatus` — see `LiveCaptureStatus`'s doc comment.
+    live_status: Arc<Mutex<LiveCaptureStatus>>,
+    /// Rolling tail of the most recent valid embeddings scored during an
+    /// in-flight/just-finished `start_capture_stream` — see
+    /// `take_recent_valid_embeddings`'s doc comment.
+    recent_embeddings: Arc<Mutex<VecDeque<Embedding>>>,
 }
 
 impl CameraManager {
@@ -143,6 +205,11 @@ impl CameraManager {
             detector,
             extractor,
             lock_path: None,
+            stop_preview: Arc::new(AtomicBool::new(false)),
+            live_status: Arc::new(Mutex::new(LiveCaptureStatus::default())),
+            recent_embeddings: Arc::new(Mutex::new(VecDeque::with_capacity(
+                LIVE_EMBEDDING_BUFFER_CAP,
+            ))),
         }
     }
 
@@ -166,6 +233,11 @@ impl CameraManager {
             detector: Arc::new(detector),
             extractor: Arc::new(extractor),
             lock_path: Some(lock_path),
+            stop_preview: Arc::new(AtomicBool::new(false)),
+            live_status: Arc::new(Mutex::new(LiveCaptureStatus::default())),
+            recent_embeddings: Arc::new(Mutex::new(VecDeque::with_capacity(
+                LIVE_EMBEDDING_BUFFER_CAP,
+            ))),
         }
     }
 
@@ -188,6 +260,106 @@ impl CameraManager {
             .as_ref()
             .map(|p| std::path::Path::new(p).exists())
             .unwrap_or(false)
+    }
+
+    /// Best-effort snapshot of the most recent preview frame's detection
+    /// outcome, for the GUI's live "recherche du visage…"/"visage détecté"
+    /// status text (`GetCaptureStatus`). Not meaningful outside an in-flight
+    /// `start_capture_stream` call — returns the all-`false`/`0.0` default
+    /// otherwise, since `start_capture_stream` resets it at the start of
+    /// every run.
+    pub fn live_status(&self) -> LiveCaptureStatus {
+        *self
+            .live_status
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// Drains and returns the rolling buffer of valid embeddings scored
+    /// during the most recent `start_capture_stream` run.
+    ///
+    /// `register_face` calls this first and only falls back to its own
+    /// fresh `capture_frames` open when it comes back empty: closing the
+    /// preview's stream and immediately reopening a brand new one for
+    /// `register_face`'s own capture (the previous behavior, always) resets
+    /// the sensor's auto-exposure/auto-focus convergence, since the preview
+    /// had already been running — and thus converged — for several seconds
+    /// beforehand. Reusing embeddings already scored live during that
+    /// stable preview avoids the reopen entirely, which is also what
+    /// sidesteps the EIO the IR channel intermittently threw right after a
+    /// close-then-reopen in the same spot.
+    ///
+    /// Draining (not cloning) means every call starts from an empty buffer —
+    /// a second call with no `start_capture_stream` in between (or one that
+    /// found nothing) correctly falls through to `capture_frames` rather
+    /// than replaying stale embeddings from an unrelated earlier session.
+    pub fn take_recent_valid_embeddings(&self) -> Vec<Embedding> {
+        let mut buf = self
+            .recent_embeddings
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        buf.drain(..).collect()
+    }
+
+    /// Test-only helper: seeds the "live preview" buffer directly, bypassing
+    /// `start_capture_stream`/real V4L2 entirely. Used to test
+    /// `register_face`'s preference for buffered embeddings over a fresh
+    /// capture without needing real camera hardware in this test binary —
+    /// `start_capture_stream` itself only ever populates this buffer from
+    /// inside its real-V4L2 branch, which `for_test`'s nonexistent device
+    /// path can never reach.
+    #[cfg(test)]
+    pub(crate) fn inject_recent_valid_embeddings_for_test(&self, embeddings: Vec<Embedding>) {
+        self.recent_embeddings
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .extend(embeddings);
+    }
+
+    /// Requests that an in-flight `start_capture_stream` call end at its
+    /// next frame boundary, releasing the camera. Without this, the GUI's
+    /// live enrollment preview (up to 25s) had no way to be cut short: it
+    /// kept the RGB device open with no cross-process lock at all, so the
+    /// interactive authorization check `register_face` runs first (a real
+    /// face-verification capture of its own) and then `register_face`'s
+    /// own capture could — and in practice did — collide with it on the
+    /// same V4L2 node, silently degrading to blank stub frames and failing
+    /// enrollment with "No face detected". The GUI now calls this (via the
+    /// `StopCaptureStream` D-Bus method) before triggering registration.
+    pub fn request_stop_preview(&self) {
+        self.stop_preview.store(true, Ordering::Release);
+    }
+
+    /// `request_stop_preview()` plus confirmation: blocks until the camera
+    /// is actually free (whoever currently holds the cross-process lock —
+    /// the preview we just asked to stop, or anything else — has released
+    /// it) before returning. Setting the flag alone doesn't guarantee
+    /// that: the in-flight capture can take up to one frame's dequeue
+    /// timeout to notice it and exit. Used by the `StopCaptureStream`
+    /// D-Bus method so the GUI can be sure it's actually safe to trigger
+    /// `RegisterFace`'s own capture next, not just that it asked nicely.
+    pub async fn stop_preview_and_wait(&self) -> Result<(), CameraError> {
+        self.request_stop_preview();
+        let lock_path = self.resolved_lock_path();
+        tokio::task::spawn_blocking(move || CameraLock::wait_until_free(&lock_path))
+            .await
+            .map_err(|e| CameraError::CaptureError(e.to_string()))??;
+
+        // Our own cross-process lock being free doesn't mean the USB device
+        // itself has finished tearing down the just-stopped stream — seen in
+        // practice on a Logitech Brio: closing the RGB stream and reopening
+        // RGB+IR again right after intermittently made the IR channel fail
+        // with a raw EIO ("Input/output error"). A short settle delay here
+        // gives the driver/USB core room to finish releasing the isochronous
+        // endpoints first. (Debug-logged root-causing a related "No face
+        // detected" run found the real culprit for *that* symptom was UX,
+        // not hardware: the live preview goes silent/frozen the moment this
+        // is called, so a long gap here just gives the user more time to
+        // stop looking at the camera before register_face's own capture
+        // actually happens — see Enrollment.qml's previewAnalyzing copy.
+        // Kept short for that reason, not stretched further on IR's account.)
+        tokio::time::sleep(Duration::from_millis(500)).await;
+        Ok(())
     }
 
     /// Capture N RGB frames (+ IR if available) and extract the embeddings
@@ -266,6 +438,17 @@ impl CameraManager {
 
             // Pad with stub frames if the capture didn't provide enough frames
             let existing = rgb_frames.len() as u32;
+            if existing < num_frames {
+                warn!(
+                    "RGB capture returned only {}/{} requested frames; padding {} stub frame(s) \
+                     (stub frames carry no face data and are filtered out before saving)",
+                    existing,
+                    num_frames,
+                    num_frames - existing
+                );
+            } else {
+                debug!("RGB capture returned all {} requested frames", existing);
+            }
             for i in existing..num_frames {
                 rgb_frames.push(Frame {
                     data: vec![0u8; 640 * 480 * 3],
@@ -305,6 +488,12 @@ impl CameraManager {
                 );
                 if let Err(e) = ir_result {
                     warn!("IR capture failed ({}), disabled for this session", e);
+                } else {
+                    debug!(
+                        "IR capture returned {}/{} frames",
+                        ir_frames.len(),
+                        num_frames
+                    );
                 }
 
                 ir_frames
@@ -359,19 +548,28 @@ impl CameraManager {
                     frame.width,
                     frame.height,
                 ) {
-                    Some((embedding, _rgb_liveness)) => embedding,
+                    Some((embedding, _rgb_liveness)) => {
+                        debug!(
+                            "Frame {}: face detected, quality_score={:.3}",
+                            i, embedding.metadata.quality_score
+                        );
+                        embedding
+                    }
                     // No face detected or extraction failed: empty marker
                     // (quality 0). Never use a fake embedding that would
                     // skew the comparison.
-                    None => Embedding {
-                        vector: vec![],
-                        metadata: hello_face_core::EmbeddingMetadata {
-                            model: "no-face".to_string(),
-                            model_version: "0.0.0".to_string(),
-                            extracted_at: now_secs + i as u64,
-                            quality_score: 0.0,
-                        },
-                    },
+                    None => {
+                        debug!("Frame {}: no face detected", i);
+                        Embedding {
+                            vector: vec![],
+                            metadata: hello_face_core::EmbeddingMetadata {
+                                model: "no-face".to_string(),
+                                model_version: "0.0.0".to_string(),
+                                extracted_at: now_secs + i as u64,
+                                quality_score: 0.0,
+                            },
+                        }
+                    }
                 }
             })
             .collect();
@@ -645,29 +843,108 @@ impl CameraManager {
         );
 
         let rgb_device = self.rgb_device.clone();
+        let lock_path = self.resolved_lock_path();
+        let stop_flag = Arc::clone(&self.stop_preview);
+        // Clear any stale request from a previous call before this one
+        // starts observing the flag — request_stop_preview() may have been
+        // called (and left `true`) after the last capture already ended.
+        stop_flag.store(false, Ordering::Release);
         let mut frame_num: u32 = 0;
 
-        let v4l2_result = tokio::task::block_in_place(|| {
-            hello_camera::capture_rgb_stream_v4l2(
-                &rgb_device,
-                num_frames,
-                timeout_ms,
-                |rgb_data, width, height| {
-                    let event = CaptureFrameEvent {
-                        frame_number: frame_num,
-                        total_frames: num_frames,
-                        frame_data: rgb_data,
-                        width,
-                        height,
-                        face_detected: false,
-                        quality_score: 0.85,
-                        timestamp_ms: 0,
-                    };
-                    on_frame(event);
-                    frame_num += 1;
-                },
-            )
-        });
+        let detector = Arc::clone(&self.detector);
+        let extractor = Arc::clone(&self.extractor);
+        let live_status = Arc::clone(&self.live_status);
+        let recent_embeddings = Arc::clone(&self.recent_embeddings);
+        // Reset both to a clean slate for this run — a previous run's
+        // leftovers (a stale "face detected" snapshot, or embeddings from an
+        // earlier, unrelated enrollment attempt) must never leak into this
+        // one. take_recent_valid_embeddings() also drains on every read, but
+        // that alone doesn't cover a run that's never had it called at all
+        // (e.g. an abandoned enrollment).
+        *live_status
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = LiveCaptureStatus::default();
+        recent_embeddings
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clear();
+
+        let v4l2_result =
+            tokio::task::block_in_place(|| -> Result<(), hello_camera::CameraError> {
+                // Held for the whole preview so a concurrent capture_frames/
+                // capture_until — including the one register_face's own
+                // interactive authorization step can trigger — can't silently
+                // collide with this stream on the same V4L2 device; see
+                // request_stop_preview's doc comment for the full story.
+                let _lock = CameraLock::try_acquire(&lock_path).map_err(|e| {
+                    hello_camera::CameraError::OpenFailed(format!("camera lock: {}", e))
+                })?;
+                // capture_rgb_stream_until (not the fixed-count
+                // capture_rgb_stream_v4l2) so this loop can actually be cut
+                // short by request_stop_preview instead of running to
+                // num_frames/timeout_ms regardless.
+                hello_camera::capture_rgb_stream_until(
+                    &rgb_device,
+                    timeout_ms,
+                    |rgb_data, width, height| {
+                        // Score the frame live, on the same already-open
+                        // (and by now auto-exposure-converged) stream the
+                        // user has been looking at for however long the
+                        // preview's been running — unlike register_face's
+                        // old fixed-count capture, which closed this stream
+                        // and reopened a brand new one, resetting that
+                        // convergence right when it mattered most. See
+                        // `take_recent_valid_embeddings`'s doc comment.
+                        let scored = score_frame(
+                            &**detector,
+                            &**extractor,
+                            frame_num,
+                            &rgb_data,
+                            width,
+                            height,
+                        );
+                        let (face_detected, quality_score) = match &scored {
+                            Some((embedding, _rgb_liveness)) => {
+                                (true, embedding.metadata.quality_score)
+                            }
+                            None => (false, 0.0),
+                        };
+                        *live_status
+                            .lock()
+                            .unwrap_or_else(|poisoned| poisoned.into_inner()) = LiveCaptureStatus {
+                            face_detected,
+                            quality_score,
+                        };
+                        if let Some((embedding, _rgb_liveness)) = scored {
+                            if !embedding.vector.is_empty()
+                                && embedding.metadata.quality_score > 0.0
+                            {
+                                let mut buf = recent_embeddings
+                                    .lock()
+                                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                                if buf.len() >= LIVE_EMBEDDING_BUFFER_CAP {
+                                    buf.pop_front();
+                                }
+                                buf.push_back(embedding);
+                            }
+                        }
+
+                        let event = CaptureFrameEvent {
+                            frame_number: frame_num,
+                            total_frames: num_frames,
+                            frame_data: rgb_data,
+                            width,
+                            height,
+                            face_detected,
+                            quality_score,
+                            timestamp_ms: 0,
+                        };
+                        on_frame(event);
+                        frame_num += 1;
+                        frame_num >= num_frames || stop_flag.load(Ordering::Acquire)
+                    },
+                )
+            });
 
         match v4l2_result {
             Ok(()) => {
@@ -684,6 +961,9 @@ impl CameraManager {
         let timeout_dur = Duration::from_millis(timeout_ms);
 
         for frame_num_sim in 0..num_frames {
+            if stop_flag.load(Ordering::Acquire) {
+                break;
+            }
             if start_time.elapsed().unwrap_or_default() > timeout_dur {
                 return Err(CameraError::Timeout);
             }
@@ -1005,6 +1285,95 @@ mod tests {
             assert_eq!(event.frame_data.len(), 640 * 480 * 3);
             assert!(!event.face_detected);
         }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_start_capture_stream_stops_early_once_request_stop_preview_is_called() {
+        // Asks for far more frames (50) than it lets the capture actually
+        // produce: request_stop_preview() is called from inside the very
+        // first frame's callback, so the next loop iteration should observe
+        // it and break instead of running to num_frames.
+        let (_dir, camera) = for_test(
+            FakeDetector::never_detects(),
+            FakeExtractor::with_vector(vec![], 0.0),
+        );
+
+        let events = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let events_clone = events.clone();
+        let camera_ref = &camera;
+        let result = camera
+            .start_capture_stream(50, 5000, move |event| {
+                events_clone.lock().unwrap().push(event);
+                camera_ref.request_stop_preview();
+            })
+            .await;
+
+        assert!(result.is_ok());
+        assert_eq!(
+            events.lock().unwrap().len(),
+            1,
+            "expected request_stop_preview() to cut the capture short after the first frame"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_stop_preview_and_wait_returns_promptly_when_the_camera_is_free() {
+        let (_dir, camera) = for_test(
+            FakeDetector::never_detects(),
+            FakeExtractor::with_vector(vec![], 0.0),
+        );
+
+        // Nothing holds the lock here, so this must not hang — the timeout
+        // is a generous safety margin, not an expected duration.
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            camera.stop_preview_and_wait(),
+        )
+        .await;
+        assert!(
+            result.is_ok(),
+            "stop_preview_and_wait must not hang when nothing holds the camera lock"
+        );
+        assert!(result.unwrap().is_ok());
+    }
+
+    #[test]
+    fn test_live_status_defaults_to_no_face_detected() {
+        let (_dir, camera) = for_test(
+            FakeDetector::never_detects(),
+            FakeExtractor::with_vector(vec![], 0.0),
+        );
+        let status = camera.live_status();
+        assert!(!status.face_detected);
+        assert_eq!(status.quality_score, 0.0);
+    }
+
+    #[test]
+    fn test_take_recent_valid_embeddings_drains_the_buffer() {
+        let (_dir, camera) = for_test(
+            FakeDetector::never_detects(),
+            FakeExtractor::with_vector(vec![], 0.0),
+        );
+        let embedding = |v: f32| Embedding {
+            vector: vec![v],
+            metadata: hello_face_core::EmbeddingMetadata {
+                model: "test".to_string(),
+                model_version: "0.1.0".to_string(),
+                extracted_at: 0,
+                quality_score: 0.9,
+            },
+        };
+        camera.inject_recent_valid_embeddings_for_test(vec![embedding(1.0), embedding(2.0)]);
+
+        let first = camera.take_recent_valid_embeddings();
+        assert_eq!(first.len(), 2);
+
+        // A second call with nothing new injected in between must come back
+        // empty — this is exactly what makes register_face fall through to
+        // a fresh capture instead of replaying stale embeddings from an
+        // earlier, unrelated attempt.
+        let second = camera.take_recent_valid_embeddings();
+        assert!(second.is_empty());
     }
 
     /// Manual, real-hardware check for the IR/RGB overlap in `capture_until`

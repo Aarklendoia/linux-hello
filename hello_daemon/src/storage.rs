@@ -8,7 +8,7 @@ use crate::{DaemonError, FaceRecord};
 use hello_face_core::Embedding;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 /// Restrict a directory to owner-only access (`0700`).
 ///
@@ -88,8 +88,16 @@ impl FaceStorage {
     pub fn save_face(&self, record: &FaceRecord, embedding: &Embedding) -> Result<(), DaemonError> {
         // Check permissions of the user directory
         let user_dir = self.user_dir(record.user_id)?;
-        std::fs::create_dir_all(&user_dir)
-            .map_err(|e| DaemonError::StorageError(format!("User dir creation: {}", e)))?;
+        debug!(
+            "save_face: user_id={}, face_id={}, target dir={}",
+            record.user_id,
+            record.face_id,
+            user_dir.display()
+        );
+        std::fs::create_dir_all(&user_dir).map_err(|e| {
+            warn!("save_face: failed to create {}: {}", user_dir.display(), e);
+            DaemonError::StorageError(format!("User dir creation: {}", e))
+        })?;
         harden_dir(&user_dir)?;
 
         // Save metadata to a JSON file
@@ -98,8 +106,14 @@ impl FaceStorage {
             serde_json::to_string_pretty(&record).map_err(DaemonError::JsonError)?;
 
         write_owner_only_file(&metadata_path, &metadata_json).map_err(|e| {
+            warn!(
+                "save_face: failed to write metadata to {}: {}",
+                metadata_path.display(),
+                e
+            );
             DaemonError::StorageError(format!("write {}: {}", metadata_path.display(), e))
         })?;
+        debug!("save_face: metadata written to {}", metadata_path.display());
 
         // Save the embedding
         let embedding_path = face_path(&user_dir, &record.face_id, ".embedding.json")?;
@@ -107,12 +121,24 @@ impl FaceStorage {
             serde_json::to_string_pretty(&embedding).map_err(DaemonError::JsonError)?;
 
         write_owner_only_file(&embedding_path, &embedding_json).map_err(|e| {
+            warn!(
+                "save_face: failed to write embedding to {}: {}",
+                embedding_path.display(),
+                e
+            );
             DaemonError::StorageError(format!("write {}: {}", embedding_path.display(), e))
         })?;
-
         debug!(
-            "Face saved: user_id={}, face_id={}",
-            record.user_id, record.face_id
+            "save_face: embedding written to {}",
+            embedding_path.display()
+        );
+
+        info!(
+            "Face saved: user_id={}, face_id={} ({} and {})",
+            record.user_id,
+            record.face_id,
+            metadata_path.display(),
+            embedding_path.display()
         );
 
         Ok(())

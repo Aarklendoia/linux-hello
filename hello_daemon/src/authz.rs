@@ -27,13 +27,24 @@ pub const MANAGE_FACES_ACTION: &str = "com.linuxhello.manage-faces";
 
 /// Whether an enrollment-changing call is currently authorized.
 pub enum EnrollmentAuthorizer {
-    /// Real gate: checks with polkit, scoped to this process's own login
-    /// session (`$XDG_SESSION_ID`, captured once at daemon startup).
-    /// `session_id: None` means the daemon isn't running inside a tracked
-    /// login session at all (e.g. started outside a normal desktop login) —
-    /// there is then no session to prompt, so this fails closed rather than
-    /// silently allowing the change.
-    Polkit { session_id: Option<String> },
+    /// Real gate: checks with polkit, using a `unix-process` subject built
+    /// from this daemon's own PID + start time.
+    ///
+    /// Not the more obvious `unix-session` subject (session-id string,
+    /// what this used to send): on at least one real, current-Ubuntu
+    /// polkitd (127-2ubuntu1), a `CheckAuthorization` call with a
+    /// `unix-session` subject reliably crashes the daemon with a glib
+    /// assertion failure — reproduced with a raw `busctl` call, no
+    /// linux-hello code involved — taking the in-flight request down with
+    /// it as an opaque "NoReply: Message recipient disconnected", which is
+    /// what actually broke every enrollment attempt (not just the
+    /// GUI/camera timing issues fixed alongside this). A `unix-process`
+    /// subject exercises a different, unaffected code path in polkitd and
+    /// resolves to the very same session (polkit looks up the session a
+    /// process belongs to), so the check keeps its original meaning — it
+    /// just names that session through a live process in it (this daemon
+    /// itself) instead of a session-id string.
+    Polkit,
     /// No gate at all. Only for tests that aren't exercising this check —
     /// matches this crate's existing pattern of swapping in fakes (see
     /// `CameraManager::for_test`) rather than hitting a real system service.
@@ -46,24 +57,9 @@ pub enum EnrollmentAuthorizer {
 }
 
 impl EnrollmentAuthorizer {
-    /// The real, production authorizer: reads `$XDG_SESSION_ID` once now
-    /// (systemd sets this for `--user` units started from a real login
-    /// session — see `hello-daemon.service`).
-    pub fn from_env() -> Self {
-        Self::Polkit {
-            session_id: std::env::var("XDG_SESSION_ID").ok(),
-        }
-    }
-
     pub async fn authorize(&self, action: &str) -> bool {
         match self {
-            Self::Polkit {
-                session_id: Some(id),
-            } => check_polkit_authorization(id, action).await,
-            Self::Polkit { session_id: None } => {
-                warn!("No XDG_SESSION_ID: cannot check polkit authorization, denying {action}");
-                false
-            }
+            Self::Polkit => check_polkit_authorization(action).await,
             #[cfg(test)]
             Self::AllowAll => true,
             #[cfg(test)]
@@ -72,15 +68,48 @@ impl EnrollmentAuthorizer {
     }
 }
 
+/// Parses the `starttime` field (22nd, in clock ticks since boot) out of a
+/// `/proc/<pid>/stat`-shaped string — split out from `own_process_start_time`
+/// so the tricky parsing can be tested directly, with no real `/proc` needed.
+///
+/// Can't just split the whole line on whitespace from the start: field 2
+/// (`comm`, the process name) is parenthesized specifically because it can
+/// itself contain spaces or parentheses (documented in proc(5)), which would
+/// misalign every fixed-position field after it. Finding the *last* `)`
+/// instead — proc(5)'s own recommended approach — sidesteps that: everything
+/// after it is fields 3 onward, unambiguously whitespace-separated.
+fn parse_start_time_from_stat(stat: &str) -> Option<u64> {
+    let after_comm = stat.rfind(')')?;
+    let fields: Vec<&str> = stat[after_comm + 1..].split_whitespace().collect();
+    // fields[0] is field 3 (state), so field 22 (starttime) is fields[22-3].
+    fields.get(22 - 3)?.parse().ok()
+}
+
+/// Reads this process's own start time from `/proc/self/stat` — the second
+/// piece (together with the PID) polkit needs to identify a `unix-process`
+/// subject without a PID-reuse ambiguity.
+fn own_process_start_time() -> Option<u64> {
+    let stat = std::fs::read_to_string("/proc/self/stat").ok()?;
+    parse_start_time_from_stat(&stat)
+}
+
 /// Calls `org.freedesktop.PolicyKit1.Authority.CheckAuthorization` with a
-/// `unix-session` subject, requesting interactive authentication
-/// (`AllowUserInteraction`, flag `1`) so polkit's agent can actually prompt
-/// for the password rather than failing immediately.
+/// `unix-process` subject identifying this daemon process, requesting
+/// interactive authentication (`AllowUserInteraction`, flag `1`) so
+/// polkit's agent can actually prompt for the password rather than
+/// failing immediately.
 ///
 /// Fails closed: any D-Bus error (system bus unreachable, polkit not
 /// running, action not registered — e.g. the package's `.policy` file isn't
 /// installed) denies the action rather than silently allowing it.
-async fn check_polkit_authorization(session_id: &str, action: &str) -> bool {
+async fn check_polkit_authorization(action: &str) -> bool {
+    let Some(start_time) = own_process_start_time() else {
+        warn!(
+            "Could not read this process's own start time from /proc/self/stat, denying {action}"
+        );
+        return false;
+    };
+
     let connection = match Connection::system().await {
         Ok(c) => c,
         Err(e) => {
@@ -90,8 +119,9 @@ async fn check_polkit_authorization(session_id: &str, action: &str) -> bool {
     };
 
     let mut subject_details = std::collections::HashMap::new();
-    subject_details.insert("session-id", Value::new(session_id));
-    let subject = ("unix-session", subject_details);
+    subject_details.insert("pid", Value::new(std::process::id()));
+    subject_details.insert("start-time", Value::new(start_time));
+    let subject = ("unix-process", subject_details);
     let details: std::collections::HashMap<&str, &str> = std::collections::HashMap::new();
     const ALLOW_USER_INTERACTION: u32 = 1;
 
@@ -142,29 +172,49 @@ mod tests {
         assert!(!EnrollmentAuthorizer::DenyAll.authorize("anything").await);
     }
 
-    #[tokio::test]
-    async fn polkit_with_no_session_id_fails_closed() {
-        let authorizer = EnrollmentAuthorizer::Polkit { session_id: None };
-        assert!(!authorizer.authorize(MANAGE_FACES_ACTION).await);
+    #[test]
+    fn parse_start_time_from_stat_finds_field_22_after_the_comm_field() {
+        // A realistic /proc/self/stat shape: pid, (comm), then 20 more
+        // whitespace-separated fields (state..starttime) — starttime
+        // (field 22) is the last one here, set to a recognizable value.
+        let stat =
+            "12345 (hello-daemon) S 1 12345 12345 0 -1 4194560 0 0 0 0 0 0 0 0 0 0 0 0 3144151";
+        assert_eq!(parse_start_time_from_stat(stat), Some(3144151));
+    }
+
+    #[test]
+    fn parse_start_time_from_stat_handles_a_comm_field_containing_parens_and_spaces() {
+        // proc(5): comm can itself contain spaces or parentheses — a naive
+        // split on the first '(' / first ')' would misalign every field
+        // after it. Same 20 trailing fields as above.
+        let stat =
+            "12345 (my (weird) prog) S 1 12345 12345 0 -1 4194560 0 0 0 0 0 0 0 0 0 0 0 0 3144151";
+        assert_eq!(parse_start_time_from_stat(stat), Some(3144151));
+    }
+
+    #[test]
+    fn parse_start_time_from_stat_none_when_too_short_or_malformed() {
+        assert_eq!(parse_start_time_from_stat("12345 (hello-daemon) S 1"), None);
+        assert_eq!(parse_start_time_from_stat("no parens here at all"), None);
+        assert_eq!(parse_start_time_from_stat(""), None);
     }
 
     /// Manual, opt-in smoke test against a REAL system polkitd (not run by
     /// `cargo test` normally — `cargo test -- --ignored`). Exercises the
-    /// actual D-Bus call this module makes in production, against the real
-    /// session this test runs in. Deliberately does NOT install
-    /// debian/polkit/com.linuxhello.manage-faces.policy first: polkit's
-    /// well-defined, constantly-exercised behavior for an unregistered
-    /// action_id is to answer with an error rather than crash — the same
-    /// thing every polkit client sees before its package's .policy file is
-    /// installed — so this checks the round trip (call succeeds, response
-    /// parses, unknown action is treated as "not authorized") without
-    /// needing root to install anything.
+    /// actual D-Bus call this module makes in production. Deliberately does
+    /// NOT install debian/polkit/com.linuxhello.manage-faces.policy first:
+    /// polkit's well-defined, constantly-exercised behavior for an
+    /// unregistered action_id is to answer with an error rather than crash
+    /// — the same thing every polkit client sees before its package's
+    /// .policy file is installed — so this checks the round trip (call
+    /// succeeds, response parses, unknown action is treated as "not
+    /// authorized") without needing root to install anything, and without
+    /// crashing the real polkitd it's running against (the whole reason
+    /// this module moved off `unix-session` subjects).
     #[tokio::test]
     #[ignore]
     async fn polkit_round_trip_against_the_real_system_bus() {
-        let session_id = std::env::var("XDG_SESSION_ID")
-            .expect("this manual test must run inside a real login session");
-        let authorized = check_polkit_authorization(&session_id, MANAGE_FACES_ACTION).await;
+        let authorized = check_polkit_authorization(MANAGE_FACES_ACTION).await;
         assert!(
             !authorized,
             "com.linuxhello.manage-faces isn't installed in this environment, so this must be false, not panic/crash"
