@@ -35,11 +35,13 @@ SessionManagementScreen {
     signal passwordResult(string password)
 
     // Linux Hello — any mouse movement means the user is back, mirroring
-    // the keypress handler in passwordBox.Keys.onPressed below. Without
-    // this, coming back and moving the mouse (rather than typing) after
-    // the original automatic attempt already timed out leaves the user
-    // stuck looking at a stale "failed" state until they notice and click
-    // Réessayer themselves. HoverHandler never grabs the pointer, so unlike
+    // the keypress handler in passwordBox.Keys.onPressed below. This is
+    // what arms facial recognition in the first place: hello-daemon's
+    // lock-transition watcher (screenlock.rs) deliberately does not start a
+    // capture on its own anymore, so a bare glance at a just-locked screen
+    // can't unlock it back up — only actual activity here does, whether
+    // that's the very first attempt or a retry after a failure. HoverHandler
+    // never grabs the pointer, so unlike
     // a MouseArea it can't intercept clicks meant for the password field or
     // buttons underneath it.
     //
@@ -148,8 +150,10 @@ SessionManagementScreen {
                 // paying attention (kscreenlocker_greet's QML tree stays
                 // resident across DPMS blank/unblank, so there's no separate
                 // "screen woke up" signal to hook — this is the reliable
-                // proxy). Harmless to call when a capture is already running
-                // or just finished: the control server no-ops on its own.
+                // proxy), and — like the HoverHandler above — is what arms
+                // facial recognition at all, including the first attempt.
+                // Harmless to call when a capture is already running or just
+                // finished: the control server no-ops on its own.
                 lhControl.notifyActivity();
             }
 
@@ -250,7 +254,7 @@ SessionManagementScreen {
                 case "success": return "✓ Visage reconnu"
                 case "failed": return "✗ Non reconnu — réessayez ou saisissez votre mot de passe"
                 case "offline": return "⚠ Service de reconnaissance injoignable — saisissez votre mot de passe"
-                default: return "(ou regardez vers la caméra pour déverrouiller)"
+                default: return "(bougez la souris ou appuyez sur une touche pour déverrouiller par reconnaissance faciale)"
                 }
             }
         }
@@ -366,10 +370,11 @@ SessionManagementScreen {
             onTriggered: lhControl.pollStatus()
         }
 
-        // Gives the very first automatic attempt (fired by hello-daemon's
-        // own lock-transition watcher) time to start before showing
-        // anything, so the label doesn't flash "idle" uselessly right at
-        // lock time.
+        // Delays showing the status block until the lock screen has settled,
+        // so the "bougez la souris…" hint doesn't flash on right as the
+        // screen locks — hello-daemon's own watcher doesn't start a capture
+        // on its own, so there's no automatic attempt to wait for here
+        // anymore, just this cosmetic settle time.
         Timer {
             id: faceAuthDelayTimer
             interval: 1100
