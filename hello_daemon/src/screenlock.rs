@@ -1,21 +1,24 @@
 //! Screen lock monitoring and automatic facial authentication
 //!
 //! Polls org.freedesktop.ScreenSaver.GetActive() every 500 ms to detect
-//! locking. When the screen locks, triggers facial auth without the user
-//! having to press Enter. If the face is recognized, unlocks via loginctl.
+//! locking. If the face is recognized, unlocks via loginctl.
 //!
 //! Polling is used instead of subscribing to the ActiveChanged signal —
 //! originally to avoid a futures-util version conflict pinned by sqlx; sqlx
 //! is no longer a dependency, so that constraint is gone, but switching to
 //! signal-based detection is a separate change, not done here.
 //!
-//! A face-recognition attempt only ever fired once, at the lock transition,
-//! with no way to retry if the user didn't come back within its timeout —
-//! making the feature useless the moment you walk away and return later.
-//! This module now also exposes a small local control server (`GET /status`,
-//! `POST /retry`) so `qml/lockscreen/MainBlock.qml` can show live status and
-//! let the user retry on demand (e.g. when they notice the screen and it's
-//! past the original attempt's window) or fall back to the password field.
+//! The lock transition itself no longer starts a capture. It used to fire
+//! one immediately, which meant simply glancing at the screen right after
+//! locking — e.g. while walking away — unlocked it straight back up; a lock
+//! is deliberate and shouldn't be undone by an incidental glance. Instead
+//! this module exposes a small local control server (`GET /status`,
+//! `POST /retry`) that `qml/lockscreen/MainBlock.qml` calls into on the
+//! first user activity it sees on the lock screen (mouse movement or a
+//! keypress, via its own `notifyActivity()`) — that's what arms the first
+//! attempt as well as any retry after a failure, so recognition only ever
+//! runs once the user has actually done something at the locked screen, not
+//! merely looked at it.
 
 use crate::dbus_interface::{VerifyRequest, VerifyResult};
 use crate::FaceAuthDaemon;
@@ -163,10 +166,12 @@ async fn screenlock_loop(
         };
 
         if is_active && !was_active {
-            // Transition → locked
-            info!("Screen lock detected → launching automatic facial auth");
+            // Transition → locked. Deliberately no automatic attempt here —
+            // see the module doc comment: it now waits for `retry_notify`,
+            // fired by the lock screen on the user's first activity.
+            info!("Screen lock detected — waiting for user activity before attempting facial auth");
             was_active = true;
-            maybe_spawn_attempt(&daemon, user_id, &session_id, &status);
+            *status.lock().unwrap() = ScreenlockStatus::default();
         } else if !is_active && was_active {
             // Transition → unlocked (via face or password)
             info!("Screen unlocked");
