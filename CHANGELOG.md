@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.6.3](https://github.com/Aarklendoia/linux-hello/compare/v1.6.2...v1.6.3) (2026-08-25)
+
+
+### Bug Fixes
+
+* **daemon,gui:** arm screenlock facial auth on user activity, not on lock ([8e644b5](https://github.com/Aarklendoia/linux-hello/commit/8e644b561bad190f46e7ceacdc100e2eee549208))
+* **hello_face_core:** use as_chunks instead of chunks_exact in rgb_to_gray ([28de580](https://github.com/Aarklendoia/linux-hello/commit/28de5808531b7d56bdeaaf90b0ab6ed855e07f2a))
+
 ## [1.6.2](https://github.com/Aarklendoia/linux-hello/compare/v1.6.1...v1.6.2) (2026-08-04)
 
 
