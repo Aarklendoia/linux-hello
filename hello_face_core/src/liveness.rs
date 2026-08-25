@@ -187,7 +187,7 @@ fn rgb_to_gray(rgb: &[u8], w: u32, h: u32) -> Option<Vec<u8>> {
         return None;
     }
     let mut gray = Vec::with_capacity((w * h) as usize);
-    for chunk in rgb[..expected as usize].chunks_exact(3) {
+    for chunk in rgb[..expected as usize].as_chunks::<3>().0 {
         let r = chunk[0] as u32;
         let g = chunk[1] as u32;
         let b = chunk[2] as u32;
