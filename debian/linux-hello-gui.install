@@ -6,6 +6,9 @@ target/release/linux_hello_config usr/bin
 # Desktop entry
 linux-hello.desktop usr/share/applications
 
+# AppStream metadata
+linux-hello.metainfo.xml usr/share/metainfo
+
 # GUI Documentation
 docs/I18N_IMPLEMENTATION.md usr/share/doc/linux-hello-gui
 # QML files (copie réalisée via override_dh_install dans debian/rules)

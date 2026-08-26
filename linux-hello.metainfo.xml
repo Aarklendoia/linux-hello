@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>linux-hello.desktop</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>Linux Hello</name>
+  <summary>Biometric authentication configuration</summary>
+  <description>
+    <p>
+      Graphical interface for managing Linux Hello facial authentication.
+      A Qt/Kirigami-based settings application for face registration and
+      management, authentication settings configuration, and system
+      integration with KDE Plasma and GNOME.
+    </p>
+    <p>
+      Requires a running linux-hello-daemon instance (installed
+      automatically via the package's dependencies).
+    </p>
+  </description>
+  <launchable type="desktop-id">linux-hello.desktop</launchable>
+  <categories>
+    <category>System</category>
+    <category>Settings</category>
+    <category>Security</category>
+  </categories>
+  <url type="homepage">https://github.com/Aarklendoia/linux-hello</url>
+  <url type="bugtracker">https://github.com/Aarklendoia/linux-hello/issues</url>
+  <developer id="com.aarklendoia">
+    <name>Aarklendoïa</name>
+  </developer>
+  <provides>
+    <binary>linux_hello_config</binary>
+  </provides>
+  <content_rating type="oars-1.1" />
+  <releases>
+    <release version="1.6.1" date="2026-08-26" />
+  </releases>
+</component>
