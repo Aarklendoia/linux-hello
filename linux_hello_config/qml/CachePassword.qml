@@ -85,13 +85,27 @@ Kirigami.ScrollablePage {
                 font.pixelSize: 12
             }
 
-            TextField {
-                id: passwordField
+            RowLayout {
                 Layout.fillWidth: true
-                echoMode: TextInput.Password
-                placeholderText: I18n.tr("cachePassword.passwordPlaceholder")
-                enabled: !AppController.passwordCacheBusy
-                onAccepted: confirmButton.clicked()
+                spacing: Kirigami.Units.smallSpacing
+
+                TextField {
+                    id: passwordField
+                    Layout.fillWidth: true
+                    echoMode: revealPasswordButton.checked ? TextInput.Normal : TextInput.Password
+                    placeholderText: I18n.tr("cachePassword.passwordPlaceholder")
+                    enabled: !AppController.passwordCacheBusy
+                    onAccepted: confirmButton.clicked()
+                }
+
+                ToolButton {
+                    id: revealPasswordButton
+                    checkable: true
+                    enabled: !AppController.passwordCacheBusy
+                    icon.name: checked ? "view-visible-off-symbolic" : "view-visible-symbolic"
+                    ToolTip.visible: hovered
+                    ToolTip.text: checked ? I18n.tr("cachePassword.hidePassword") : I18n.tr("cachePassword.showPassword")
+                }
             }
 
             RowLayout {

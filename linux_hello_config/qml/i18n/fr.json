@@ -81,6 +81,8 @@
         "warningBody": "Une future compromission de cette machine avec les droits root pourrait récupérer ce mot de passe EXACT — et si vous utilisez le même mot de passe ailleurs (email, banque, autres machines), cette compromission vous suit aussi là-bas, même une fois celle de cette machine corrigée.\n\nSi vous réutilisez ce mot de passe de connexion ailleurs, changez le mot de passe de ce compte pour un mot de passe utilisé uniquement pour vous connecter à cette machine avant de continuer, ou n'activez pas cette fonctionnalité.",
         "passwordLabel": "Mot de passe",
         "passwordPlaceholder": "Votre mot de passe de compte",
+        "showPassword": "Afficher le mot de passe",
+        "hidePassword": "Masquer le mot de passe",
         "confirmButton": "Mémoriser le mot de passe",
         "cancelButton": "Annuler",
         "busy": "En cours…",

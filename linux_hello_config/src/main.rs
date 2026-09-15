@@ -453,11 +453,17 @@ fn extract_face_id_from_busctl(output: &str) -> Option<String> {
     Some(rest[..end].to_string())
 }
 
-/// Whether a PAM service file already has the linux-hello auth line —
-/// the same substring check `install-pam.sh --status` and `lh_configure_service`
-/// (in pam-lib.sh) use to decide "already configured".
+/// Whether `/etc/pam.d/sddm` already has the linux-hello auth line — the
+/// same substring check `install-pam.sh --status` uses to decide "already
+/// configured". Checks for the `linux-hello-sddm-auth` substack reference
+/// (see `pam-lib.sh`'s `lh_sddm_write_substack`), not a literal
+/// `pam_linux_hello` string: SDDM's own auth line references that substack
+/// by name rather than naming `pam_linux_hello.so` directly, so that
+/// `pam_kwallet5`/`pam_gnome_keyring`'s own auth-phase hooks still run on a
+/// successful face match instead of being skipped by a bare `sufficient`
+/// line (see `docs/PAM_MODULE.md`'s "Password caching" section).
 fn sddm_pam_line_present(contents: &str) -> bool {
-    contents.contains("pam_linux_hello")
+    contents.contains("linux-hello-sddm-auth")
 }
 
 /// Starts a multi-threaded HTTP server on 127.0.0.1 (port allocated by the OS).
@@ -989,7 +995,7 @@ mod tests {
         let contents = "#%PAM-1.0\n\
             auth    requisite       pam_nologin.so\n\
             # >>> linux-hello-start\n\
-            auth       sufficient   pam_linux_hello.so context=sddm\n\
+            auth       [success=done default=ignore]   substack     linux-hello-sddm-auth\n\
             # <<< linux-hello-end\n\
             @include common-auth\n";
         assert!(sddm_pam_line_present(contents));

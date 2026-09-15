@@ -80,6 +80,8 @@
         "warningBody": "A future root-level compromise of this machine could recover this EXACT password — and if you use the same password anywhere else (email, banking, other machines), that compromise follows it there too, even after this machine's own compromise is fixed.\n\nIf you reuse this login password elsewhere, either change this account's password to one used only for logging into this machine before continuing, or don't enable this.",
         "passwordLabel": "Password",
         "passwordPlaceholder": "Your account password",
+        "showPassword": "Show password",
+        "hidePassword": "Hide password",
         "confirmButton": "Cache password",
         "cancelButton": "Cancel",
         "busy": "Working…",

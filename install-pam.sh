@@ -95,7 +95,10 @@ if [[ "${1:-}" == "--status" ]]; then
     for svc in sudo sudo-i su su-l sddm polkit-1; do
         f="$PAM_DIR/$svc"
         if [[ -f "$f" ]]; then
-            if grep -q "pam_linux_hello" "$f" 2>/dev/null; then
+            # sddm's own line references a substack (linux-hello-sddm-auth)
+            # rather than pam_linux_hello.so directly — see
+            # pam-lib.sh's lh_sddm_write_substack for why.
+            if grep -qE "pam_linux_hello|linux-hello-sddm-auth" "$f" 2>/dev/null; then
                 ok "$svc: linux-hello enabled"
             else
                 warn "$svc: linux-hello NOT configured"
@@ -288,9 +291,12 @@ echo "=== Configuration summary ==="
 for svc in sudo sudo-i su su-l sddm polkit-1; do
     f="$PAM_DIR/$svc"
     if [[ -f "$f" ]]; then
-        if grep -q "pam_linux_hello" "$f"; then
+        # sddm's own line references a substack (linux-hello-sddm-auth)
+        # rather than pam_linux_hello.so directly — see
+        # pam-lib.sh's lh_sddm_write_substack for why.
+        if grep -qE "pam_linux_hello|linux-hello-sddm-auth" "$f"; then
             ok "$svc: linux-hello active"
-            grep "pam_linux_hello" "$f" | sed 's/^/     /'
+            grep -E "pam_linux_hello|linux-hello-sddm-auth" "$f" | sed 's/^/     /'
         else
             warn "$svc: not configured"
         fi
