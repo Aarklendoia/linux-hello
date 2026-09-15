@@ -68,14 +68,13 @@ use tss_esapi::{
         session_handles::PolicySession,
     },
     structures::{
-        Digest, DigestValues, KeyedHashScheme, MaxBuffer, Private, Public, PublicBuilder,
-        PublicKeyedHashParameters, PcrSelectionList, PcrSelectionListBuilder, PcrSlot,
-        SensitiveData, SymmetricDefinition,
+        Digest, DigestValues, KeyedHashScheme, MaxBuffer, PcrSelectionList,
+        PcrSelectionListBuilder, PcrSlot, Private, Public, PublicBuilder,
+        PublicKeyedHashParameters, SensitiveData, SymmetricDefinition,
     },
     tcti_ldr::TctiNameConf,
     traits::{Marshall, UnMarshall},
-    utils,
-    Context,
+    utils, Context,
 };
 use zeroize::Zeroizing;
 
@@ -135,7 +134,8 @@ pub struct TpmCapability {
 /// by the owning user, since only `hello-daemon-system` (root) ever needs it.
 fn sealed_key_dir() -> PathBuf {
     PathBuf::from(
-        std::env::var("LINUX_HELLO_SECRETS_DIR").unwrap_or_else(|_| "/var/lib/linux-hello/secrets".to_string()),
+        std::env::var("LINUX_HELLO_SECRETS_DIR")
+            .unwrap_or_else(|_| "/var/lib/linux-hello/secrets".to_string()),
     )
 }
 
@@ -233,10 +233,13 @@ fn current_pcr_digest(
         .ok_or_else(|| SecretCacheError::Crypto("no SHA256 PCR bank returned".to_string()))?;
 
     let mut concatenated = Vec::new();
-    for slot in BOOT_PCR_SLOTS.iter().chain(std::iter::once(&LIVENESS_PCR_SLOT)) {
-        let digest = bank
-            .get_digest(*slot)
-            .ok_or_else(|| SecretCacheError::Crypto(format!("missing PCR digest for {:?}", slot)))?;
+    for slot in BOOT_PCR_SLOTS
+        .iter()
+        .chain(std::iter::once(&LIVENESS_PCR_SLOT))
+    {
+        let digest = bank.get_digest(*slot).ok_or_else(|| {
+            SecretCacheError::Crypto(format!("missing PCR digest for {:?}", slot))
+        })?;
         concatenated.extend_from_slice(digest.value());
     }
 
@@ -317,10 +320,21 @@ fn reset_liveness_pcr(ctx: &mut Context) -> Result<bool, SecretCacheError> {
 pub fn probe_tpm_capability() -> TpmCapability {
     let mut ctx = match open_context() {
         Ok(ctx) => ctx,
-        Err(_) => return TpmCapability { available: false, liveness_pcr_resettable: false },
+        Err(_) => {
+            return TpmCapability {
+                available: false,
+                liveness_pcr_resettable: false,
+            }
+        }
     };
-    if pcr_selection().and_then(|sel| current_pcr_digest(&mut ctx, &sel)).is_err() {
-        return TpmCapability { available: false, liveness_pcr_resettable: false };
+    if pcr_selection()
+        .and_then(|sel| current_pcr_digest(&mut ctx, &sel))
+        .is_err()
+    {
+        return TpmCapability {
+            available: false,
+            liveness_pcr_resettable: false,
+        };
     }
 
     // Extend-then-reset once, purely to observe whether the reset takes —
@@ -329,13 +343,20 @@ pub fn probe_tpm_capability() -> TpmCapability {
         .and_then(|_| reset_liveness_pcr(&mut ctx))
         .unwrap_or(false);
 
-    TpmCapability { available: true, liveness_pcr_resettable: resettable }
+    TpmCapability {
+        available: true,
+        liveness_pcr_resettable: resettable,
+    }
 }
 
 /// Sealed-object blob layout on disk: two length-prefixed sections
 /// (marshalled `Public`, then raw `Private` bytes) — simple enough not to
 /// need serde/base64 for what's fundamentally two opaque byte buffers.
-fn write_sealed_blob(path: &Path, public: &Public, private: &Private) -> Result<(), SecretCacheError> {
+fn write_sealed_blob(
+    path: &Path,
+    public: &Public,
+    private: &Private,
+) -> Result<(), SecretCacheError> {
     let pub_bytes = public.marshall()?;
     let priv_bytes = private.value();
     let mut out = Vec::with_capacity(8 + pub_bytes.len() + priv_bytes.len());
@@ -358,12 +379,16 @@ fn write_sealed_blob(path: &Path, public: &Public, private: &Private) -> Result<
 fn read_sealed_blob(path: &Path) -> Result<(Public, Private), SecretCacheError> {
     let data = std::fs::read(path)?;
     if data.len() < 8 {
-        return Err(SecretCacheError::Crypto("sealed blob truncated".to_string()));
+        return Err(SecretCacheError::Crypto(
+            "sealed blob truncated".to_string(),
+        ));
     }
     let pub_len = u32::from_be_bytes(data[0..4].try_into().unwrap()) as usize;
     let pub_end = 4 + pub_len;
     if data.len() < pub_end + 4 {
-        return Err(SecretCacheError::Crypto("sealed blob truncated".to_string()));
+        return Err(SecretCacheError::Crypto(
+            "sealed blob truncated".to_string(),
+        ));
     }
     let public = Public::unmarshall(&data[4..pub_end])?;
     let priv_len_start = pub_end;
@@ -371,7 +396,9 @@ fn read_sealed_blob(path: &Path) -> Result<(Public, Private), SecretCacheError> 
         u32::from_be_bytes(data[priv_len_start..priv_len_start + 4].try_into().unwrap()) as usize;
     let priv_start = priv_len_start + 4;
     if data.len() < priv_start + priv_len {
-        return Err(SecretCacheError::Crypto("sealed blob truncated".to_string()));
+        return Err(SecretCacheError::Crypto(
+            "sealed blob truncated".to_string(),
+        ));
     }
     let private = Private::try_from(data[priv_start..priv_start + priv_len].to_vec())?;
     Ok((public, private))
@@ -456,8 +483,8 @@ pub fn seal_and_store(uid: u32, password: &str) -> Result<(), SecretCacheError> 
     let mut ctx = open_context()?;
 
     let key_bytes = random_bytes::<32>()?;
-    let cipher =
-        Aes256Gcm::new_from_slice(&key_bytes).map_err(|e| SecretCacheError::Crypto(e.to_string()))?;
+    let cipher = Aes256Gcm::new_from_slice(&key_bytes)
+        .map_err(|e| SecretCacheError::Crypto(e.to_string()))?;
     let nonce_bytes = random_bytes::<12>()?;
     let nonce: Nonce<Aes256Gcm> = Array::try_from(nonce_bytes.as_slice())
         .map_err(|_| SecretCacheError::Crypto("bad nonce length".to_string()))?;
@@ -478,12 +505,26 @@ pub fn seal_and_store(uid: u32, password: &str) -> Result<(), SecretCacheError> 
     let parent = primary_key(&mut ctx)?;
     let sensitive_key = SensitiveData::try_from(key_bytes.to_vec())?;
     let created = ctx.execute_with_nullauth_session(|ctx| {
-        ctx.create(parent, public_template, None, Some(sensitive_key), None, None)
+        ctx.create(
+            parent,
+            public_template,
+            None,
+            Some(sensitive_key),
+            None,
+            None,
+        )
     })?;
     ctx.flush_context(parent.into())?;
 
-    write_sealed_blob(&sealed_key_path(uid), &created.out_public, &created.out_private)?;
-    info!("secret_cache: sealed a new session password cache for uid={}", uid);
+    write_sealed_blob(
+        &sealed_key_path(uid),
+        &created.out_public,
+        &created.out_private,
+    )?;
+    info!(
+        "secret_cache: sealed a new session password cache for uid={}",
+        uid
+    );
     Ok(())
 }
 
@@ -565,14 +606,18 @@ pub fn release_for_match(uid: u32) -> Result<Option<String>, SecretCacheError> {
         }
     };
     if aes_key_bytes.len() != 32 {
-        return Err(SecretCacheError::Crypto("unsealed key has the wrong length".to_string()));
+        return Err(SecretCacheError::Crypto(
+            "unsealed key has the wrong length".to_string(),
+        ));
     }
     let cipher = Aes256Gcm::new_from_slice(&aes_key_bytes)
         .map_err(|e| SecretCacheError::Crypto(e.to_string()))?;
 
     let on_disk = std::fs::read(&enc_path)?;
     if on_disk.len() < 12 {
-        return Err(SecretCacheError::Crypto("encrypted authtok truncated".to_string()));
+        return Err(SecretCacheError::Crypto(
+            "encrypted authtok truncated".to_string(),
+        ));
     }
     let (nonce_bytes, ciphertext) = on_disk.split_at(12);
     let nonce: Nonce<Aes256Gcm> = Array::try_from(nonce_bytes)
@@ -580,8 +625,8 @@ pub fn release_for_match(uid: u32) -> Result<Option<String>, SecretCacheError> {
     let password = cipher
         .decrypt(&nonce, ciphertext)
         .map_err(|e| SecretCacheError::Crypto(e.to_string()))?;
-    let password = String::from_utf8(password)
-        .map_err(|e| SecretCacheError::Crypto(e.to_string()))?;
+    let password =
+        String::from_utf8(password).map_err(|e| SecretCacheError::Crypto(e.to_string()))?;
 
     info!("secret_cache: released cached password for uid={}", uid);
     Ok(Some(password))
@@ -648,7 +693,10 @@ mod tests {
         // A second release within the same boot must also succeed — proves
         // the extend/unseal/reset cycle actually repeats, not one-shot.
         let released_again = release_for_match(uid).unwrap();
-        assert_eq!(released_again.as_deref(), Some("correct horse battery staple"));
+        assert_eq!(
+            released_again.as_deref(),
+            Some("correct horse battery staple")
+        );
 
         std::env::remove_var("LINUX_HELLO_SECRETS_DIR");
     }

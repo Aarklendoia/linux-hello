@@ -43,10 +43,11 @@ jobs:
             libpam0g-dev \
             libv4l-dev \
             libjpeg-dev \
+            libtss2-dev \
             libclang-dev \
             clang \
             pkg-config
-      
+
       - name: Run clippy
         run: cargo clippy --all --all-targets -- -D warnings
   
@@ -90,6 +91,7 @@ jobs:
             libpam0g-dev \
             libv4l-dev \
             libjpeg-dev \
+            libtss2-dev \
             libclang-dev \
             clang \
             pkg-config \

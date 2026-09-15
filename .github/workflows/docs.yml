@@ -21,7 +21,12 @@ jobs:
       
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
-      
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libtss2-dev
+
       - name: Build documentation
         run: |
           cargo doc --no-deps --all --release

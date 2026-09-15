@@ -695,7 +695,8 @@ pub unsafe extern "C" fn pam_sm_chauthtok(
 unsafe fn refresh_cached_authtok(pamh: *mut PamHandle) {
     let username = {
         let mut user_ptr: *const c_char = std::ptr::null();
-        if pam_get_user(pamh, &mut user_ptr, std::ptr::null()) != PAM_SUCCESS || user_ptr.is_null() {
+        if pam_get_user(pamh, &mut user_ptr, std::ptr::null()) != PAM_SUCCESS || user_ptr.is_null()
+        {
             log_pam("refresh_cached_authtok: could not retrieve PAM user");
             return;
         }
@@ -1038,7 +1039,10 @@ fn send_cache_authtok(user_id: u32, password: &str) {
             log_pam("send_cache_authtok: cache refreshed successfully");
         }
         Ok(CacheAuthtokResponse::Error { reason }) => {
-            log_pam(&format!("send_cache_authtok: daemon reported error: {}", reason));
+            log_pam(&format!(
+                "send_cache_authtok: daemon reported error: {}",
+                reason
+            ));
         }
         Err(e) => {
             log_pam(&format!("send_cache_authtok: deserialize failed: {}", e));

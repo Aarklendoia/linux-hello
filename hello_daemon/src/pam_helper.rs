@@ -425,10 +425,9 @@ async fn compute_verify_response(
                             {
                                 Ok(Ok(Some(password))) => *cached_authtok = Some(password),
                                 Ok(Ok(None)) => {}
-                                Ok(Err(e)) => warn!(
-                                    "secret_cache release failed for uid={}: {}",
-                                    uid, e
-                                ),
+                                Ok(Err(e)) => {
+                                    warn!("secret_cache release failed for uid={}: {}", uid, e)
+                                }
                                 Err(e) => warn!(
                                     "secret_cache release task panicked for uid={}: {}",
                                     uid, e
@@ -552,9 +551,13 @@ struct CacheAuthtokRequest {
 #[derive(Debug, Serialize, Deserialize)]
 enum CacheAuthtokResponse {
     Ok,
-    Error { reason: String },
+    Error {
+        reason: String,
+    },
     /// Answer to a status-only request (`password` omitted).
-    Status { active: bool },
+    Status {
+        active: bool,
+    },
 }
 
 /// Fixed socket path for the password-cache listener. Overridable via
@@ -669,15 +672,26 @@ async fn handle_cache_request(
 
             match seal_result {
                 Ok(Ok(())) => {
-                    info!("Password-cache helper: cached a new session password for uid={}", uid);
+                    info!(
+                        "Password-cache helper: cached a new session password for uid={}",
+                        uid
+                    );
                     CacheAuthtokResponse::Ok
                 }
                 Ok(Err(e)) => {
-                    error!("Password-cache helper: seal_and_store failed for uid={}: {}", uid, e);
-                    CacheAuthtokResponse::Error { reason: e.to_string() }
+                    error!(
+                        "Password-cache helper: seal_and_store failed for uid={}: {}",
+                        uid, e
+                    );
+                    CacheAuthtokResponse::Error {
+                        reason: e.to_string(),
+                    }
                 }
                 Err(e) => {
-                    error!("Password-cache helper: seal_and_store task panicked for uid={}: {}", uid, e);
+                    error!(
+                        "Password-cache helper: seal_and_store task panicked for uid={}: {}",
+                        uid, e
+                    );
                     CacheAuthtokResponse::Error {
                         reason: "internal error".to_string(),
                     }
@@ -997,7 +1011,8 @@ mod tests {
     /// nothing previously exercised them wired together the way
     /// `linux-hello cache-password` actually calls this socket.
     #[tokio::test]
-    async fn test_handle_cache_request_happy_path_seals_a_password_that_release_for_match_can_read_back() {
+    async fn test_handle_cache_request_happy_path_seals_a_password_that_release_for_match_can_read_back(
+    ) {
         if std::env::var("LINUX_HELLO_TPM_TCTI").is_err() {
             eprintln!("skipping: set LINUX_HELLO_TPM_TCTI to run against a real/simulated TPM");
             return;

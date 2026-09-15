@@ -381,7 +381,9 @@ fn send_password_to_cache_socket(uid: u32, password: &str) -> Result<(), String>
         uid,
         json_escape(password)
     );
-    stream.write_all(request.as_bytes()).map_err(|e| e.to_string())?;
+    stream
+        .write_all(request.as_bytes())
+        .map_err(|e| e.to_string())?;
     stream.shutdown(std::net::Shutdown::Write).ok();
 
     let mut response = String::new();
@@ -392,7 +394,8 @@ fn send_password_to_cache_socket(uid: u32, password: &str) -> Result<(), String>
     if response.trim() == "\"Ok\"" {
         return Ok(());
     }
-    Err(extract_json_string_field(&response, "reason").unwrap_or_else(|| "unknown error".to_string()))
+    Err(extract_json_string_field(&response, "reason")
+        .unwrap_or_else(|| "unknown error".to_string()))
 }
 
 /// Asks `hello-daemon-system` (over the same cache socket, `password`
