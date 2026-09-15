@@ -941,4 +941,74 @@ mod tests {
             PamHelperResponse::Success { .. } => panic!("expected Failure: nothing is enrolled"),
         }
     }
+
+    // ------------------------------------------------------------------
+    // Password-cache socket (`handle_cache_request`) — same
+    // `UnixStream::pair()` trick as the system socket's own tests above:
+    // both ends belong to this test process, so `peer_cred()` reports our
+    // real uid regardless of what `user_id` the JSON request claims.
+    // ------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_handle_cache_request_rejects_a_different_users_uid() {
+        if my_uid() == 0 {
+            return; // root can act on any UID; the check is a no-op then
+        }
+        let (a, mut b) = tokio::net::UnixStream::pair().unwrap();
+
+        let req = serde_json::json!({ "user_id": not_my_uid(), "password": "hunter2" });
+        b.write_all(req.to_string().as_bytes()).await.unwrap();
+        b.shutdown().await.unwrap();
+
+        handle_cache_request(a).await.unwrap();
+
+        let mut buf = Vec::new();
+        b.read_to_end(&mut buf).await.unwrap();
+        let response: CacheAuthtokResponse = serde_json::from_slice(&buf).unwrap();
+        match response {
+            CacheAuthtokResponse::Error { reason } => assert!(reason.contains("Unauthorized")),
+            CacheAuthtokResponse::Ok => panic!("expected Error: user_id didn't match the peer uid"),
+        }
+    }
+
+    /// End-to-end through the real socket handler and the real
+    /// `secret_cache` module (against `swtpm`/a real TPM) — the system and
+    /// unit tests above already cover the peer-uid check and
+    /// `secret_cache`'s own seal/release round trip in isolation, but
+    /// nothing previously exercised them wired together the way
+    /// `linux-hello cache-password` actually calls this socket.
+    #[tokio::test]
+    async fn test_handle_cache_request_happy_path_seals_a_password_that_release_for_match_can_read_back() {
+        if std::env::var("LINUX_HELLO_TPM_TCTI").is_err() {
+            eprintln!("skipping: set LINUX_HELLO_TPM_TCTI to run against a real/simulated TPM");
+            return;
+        }
+        let _guard = crate::secret_cache::ENV_VAR_GUARD.lock().await;
+        let home_dir = tempfile::tempdir().unwrap();
+        let secrets_dir = tempfile::tempdir().unwrap();
+        std::env::set_var("LINUX_HELLO_TEST_HOME_OVERRIDE", home_dir.path());
+        std::env::set_var("LINUX_HELLO_SECRETS_DIR", secrets_dir.path());
+
+        let uid = my_uid();
+        let (a, mut b) = tokio::net::UnixStream::pair().unwrap();
+        let req = serde_json::json!({ "user_id": uid, "password": "correct horse battery staple" });
+        b.write_all(req.to_string().as_bytes()).await.unwrap();
+        b.shutdown().await.unwrap();
+
+        handle_cache_request(a).await.unwrap();
+
+        let mut buf = Vec::new();
+        b.read_to_end(&mut buf).await.unwrap();
+        let response: CacheAuthtokResponse = serde_json::from_slice(&buf).unwrap();
+        assert!(
+            matches!(response, CacheAuthtokResponse::Ok),
+            "expected Ok, got {response:?}"
+        );
+
+        let released = crate::secret_cache::release_for_match(uid).unwrap();
+        assert_eq!(released.as_deref(), Some("correct horse battery staple"));
+
+        std::env::remove_var("LINUX_HELLO_TEST_HOME_OVERRIDE");
+        std::env::remove_var("LINUX_HELLO_SECRETS_DIR");
+    }
 }

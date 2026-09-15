@@ -579,22 +579,31 @@ pub fn release_for_match(uid: u32) -> Result<Option<String>, SecretCacheError> {
     Ok(Some(password))
 }
 
+// Any test anywhere in this crate that points `LINUX_HELLO_SECRETS_DIR`/
+// `LINUX_HELLO_TEST_HOME_OVERRIDE`/`LINUX_HELLO_TPM_TCTI` at its own tempdir
+// must hold this lock for the duration — these are process-wide env vars,
+// and `cargo test` runs tests from the same binary on parallel threads
+// sharing one process environment. Without synchronization, one test's
+// `remove_var` can fire while another is mid-`seal_and_store`, making
+// `sealed_key_dir()` fall back to the real (root-only)
+// `/var/lib/linux-hello/secrets` and fail with a confusing
+// `PermissionDenied` — reproduced directly by running affected tests
+// together without `--test-threads=1`. `pam_helper`'s cache-socket test
+// shares this same lock (`crate::secret_cache::ENV_VAR_GUARD`) since it
+// exercises `seal_and_store`/`release_for_match` indirectly.
+//
+// `tokio::sync::Mutex`, not `std::sync::Mutex`: `pam_helper`'s test is a
+// `#[tokio::test]` that holds this guard across several `.await` points
+// (socket read/write) — a `std` guard held there trips clippy's
+// `await_holding_lock` (and would be a real footgun if this crate's async
+// tests ever ran on a multi-threaded executor). Plain `#[test]`s here use
+// `blocking_lock()` instead of `.lock().await` since they aren't async.
+#[cfg(test)]
+pub(crate) static ENV_VAR_GUARD: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
-
-    // `seal_and_release_round_trip_against_a_real_or_simulated_tpm` and
-    // `release_for_match_returns_none_when_nothing_is_cached` both mutate the
-    // process-wide `LINUX_HELLO_SECRETS_DIR`/`LINUX_HELLO_TEST_HOME_OVERRIDE`
-    // env vars — `cargo test` runs tests from the same binary on parallel
-    // threads sharing one process environment, so without this lock one
-    // test's `remove_var` can fire while the other is mid-`seal_and_store`,
-    // making `sealed_key_dir()` fall back to the real (root-only)
-    // `/var/lib/linux-hello/secrets` and fail with a confusing
-    // `PermissionDenied` — reproduced directly by running both together
-    // without `--test-threads=1`.
-    static ENV_VAR_GUARD: Mutex<()> = Mutex::new(());
 
     fn tpm_available_for_tests() -> bool {
         std::env::var("LINUX_HELLO_TPM_TCTI").is_ok()
@@ -618,7 +627,7 @@ mod tests {
             eprintln!("skipping: set LINUX_HELLO_TPM_TCTI to run against a real/simulated TPM");
             return;
         }
-        let _guard = ENV_VAR_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = ENV_VAR_GUARD.blocking_lock();
         let home_dir = tempfile::tempdir().unwrap();
         let secrets_dir = tempfile::tempdir().unwrap();
         std::env::set_var("LINUX_HELLO_TEST_HOME_OVERRIDE", home_dir.path());
@@ -641,7 +650,7 @@ mod tests {
 
     #[test]
     fn release_for_match_returns_none_when_nothing_is_cached() {
-        let _guard = ENV_VAR_GUARD.lock().unwrap_or_else(|e| e.into_inner());
+        let _guard = ENV_VAR_GUARD.blocking_lock();
         let secrets_dir = tempfile::tempdir().unwrap();
         std::env::set_var("LINUX_HELLO_SECRETS_DIR", secrets_dir.path());
         let result = release_for_match(999_002).unwrap();
