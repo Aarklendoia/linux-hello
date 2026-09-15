@@ -984,9 +984,7 @@ mod tests {
             return;
         }
         let _guard = crate::secret_cache::ENV_VAR_GUARD.lock().await;
-        let home_dir = tempfile::tempdir().unwrap();
         let secrets_dir = tempfile::tempdir().unwrap();
-        std::env::set_var("LINUX_HELLO_TEST_HOME_OVERRIDE", home_dir.path());
         std::env::set_var("LINUX_HELLO_SECRETS_DIR", secrets_dir.path());
 
         let uid = my_uid();
@@ -1008,7 +1006,6 @@ mod tests {
         let released = crate::secret_cache::release_for_match(uid).unwrap();
         assert_eq!(released.as_deref(), Some("correct horse battery staple"));
 
-        std::env::remove_var("LINUX_HELLO_TEST_HOME_OVERRIDE");
         std::env::remove_var("LINUX_HELLO_SECRETS_DIR");
     }
 }

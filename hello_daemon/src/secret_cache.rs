@@ -143,25 +143,22 @@ fn sealed_key_path(uid: u32) -> PathBuf {
     sealed_key_dir().join(format!("{}.tpm-sealed", uid))
 }
 
-/// Encrypted password blob, placed under the user's own home directory tree
-/// (same layout convention as `hello_daemon::storage`'s per-user paths) but
-/// actually written and read only by `hello-daemon-system` running as root
-/// — this file ends up root-owned, mode 0600, not user-owned. That's
-/// intentional, not an oversight: only the root process ever needs to touch
-/// it (both `seal_and_store` and `release_for_match` run inside
-/// `hello-daemon-system`), so there's no reason for the owning user's own
-/// account to have direct read access to a file that's useless without the
-/// TPM-sealed key sitting in `/var/lib/linux-hello/secrets/` anyway.
-fn encrypted_authtok_path(uid: u32) -> Result<PathBuf, SecretCacheError> {
-    let home = match std::env::var("LINUX_HELLO_TEST_HOME_OVERRIDE") {
-        Ok(dir) => PathBuf::from(dir),
-        Err(_) => crate::pam_helper::resolve_home_dir(uid)
-            .ok_or_else(|| SecretCacheError::Io(std::io::Error::other("no home directory for uid")))?,
-    };
-    Ok(home
-        .join(".local/share/linux-hello/users")
-        .join(uid.to_string())
-        .join("session-authtok.enc"))
+/// Encrypted password blob, placed alongside the TPM-sealed key blob in the
+/// same root-owned `/var/lib/linux-hello/secrets/` directory — not under the
+/// user's own home directory tree, even though it's otherwise a per-user
+/// file in the same convention as `hello_daemon::storage`'s paths. Only the
+/// root `hello-daemon-system` process ever touches it (both `seal_and_store`
+/// and `release_for_match` run there), so there's no reason for the owning
+/// user's own account to have direct read access to a file that's useless
+/// without the sealed key next to it anyway — and critically,
+/// `hello-daemon-system.service` runs under `ProtectHome=read-only`
+/// (it only ever needs *read* access to home directories, to check for
+/// enrolled faces), so a home-directory path here would hit `EROFS` the
+/// first time this ran for real — caught exactly that way on a real
+/// packaged install, not in testing (tests use tmpfs-backed tempdirs with no
+/// sandboxing).
+fn encrypted_authtok_path(uid: u32) -> PathBuf {
+    sealed_key_dir().join(format!("{}.authtok.enc", uid))
 }
 
 fn tcti_conf() -> Result<TctiNameConf, SecretCacheError> {
@@ -470,7 +467,7 @@ pub fn seal_and_store(uid: u32, password: &str) -> Result<(), SecretCacheError> 
     let mut on_disk = Vec::with_capacity(nonce.len() + ciphertext.len());
     on_disk.extend_from_slice(&nonce);
     on_disk.extend_from_slice(&ciphertext);
-    let authtok_path = encrypted_authtok_path(uid)?;
+    let authtok_path = encrypted_authtok_path(uid);
     if let Some(parent) = authtok_path.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -501,7 +498,7 @@ pub fn release_for_match(uid: u32) -> Result<Option<String>, SecretCacheError> {
     if !sealed_path.exists() {
         return Ok(None);
     }
-    let enc_path = encrypted_authtok_path(uid)?;
+    let enc_path = encrypted_authtok_path(uid);
     if !enc_path.exists() {
         return Ok(None);
     }
@@ -580,8 +577,8 @@ pub fn release_for_match(uid: u32) -> Result<Option<String>, SecretCacheError> {
 }
 
 // Any test anywhere in this crate that points `LINUX_HELLO_SECRETS_DIR`/
-// `LINUX_HELLO_TEST_HOME_OVERRIDE`/`LINUX_HELLO_TPM_TCTI` at its own tempdir
-// must hold this lock for the duration — these are process-wide env vars,
+// `LINUX_HELLO_TPM_TCTI` at its own tempdir must hold this lock for the
+// duration — these are process-wide env vars,
 // and `cargo test` runs tests from the same binary on parallel threads
 // sharing one process environment. Without synchronization, one test's
 // `remove_var` can fire while another is mid-`seal_and_store`, making
@@ -628,9 +625,7 @@ mod tests {
             return;
         }
         let _guard = ENV_VAR_GUARD.blocking_lock();
-        let home_dir = tempfile::tempdir().unwrap();
         let secrets_dir = tempfile::tempdir().unwrap();
-        std::env::set_var("LINUX_HELLO_TEST_HOME_OVERRIDE", home_dir.path());
         std::env::set_var("LINUX_HELLO_SECRETS_DIR", secrets_dir.path());
 
         let uid = 999_001;
@@ -644,7 +639,6 @@ mod tests {
         let released_again = release_for_match(uid).unwrap();
         assert_eq!(released_again.as_deref(), Some("correct horse battery staple"));
 
-        std::env::remove_var("LINUX_HELLO_TEST_HOME_OVERRIDE");
         std::env::remove_var("LINUX_HELLO_SECRETS_DIR");
     }
 

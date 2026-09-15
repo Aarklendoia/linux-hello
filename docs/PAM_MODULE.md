@@ -248,8 +248,9 @@ The password is captured once, explicitly, via `linux-hello cache-password`
 face-only login, since there's no password to capture there. It's:
 
 - **Encrypted at rest** with AES-256-GCM
-  (`~/.local/share/linux-hello/users/<uid>/session-authtok.enc`, root-owned
-  since only `hello-daemon-system` ever touches it).
+  (`/var/lib/linux-hello/secrets/<uid>.authtok.enc`, root-owned mode 0600 —
+  deliberately *not* under the user's own home directory, since
+  `hello-daemon-system.service` runs with `ProtectHome=read-only`).
 - **Its key sealed inside the TPM** (`/var/lib/linux-hello/secrets/<uid>.tpm-sealed`),
   never exportable from the chip, gated by a compound `TPM2_PolicyPCR`
   policy:

@@ -79,7 +79,12 @@ override_dh_auto_install:
 	# and install-pam.sh/linux-hello-pam-autoconfigure just open the existing
 	# file, they don't create it themselves).
 	mkdir -p $(CURDIR)/debian/tmp/usr/lib/tmpfiles.d
-	printf 'd /run/hello-pam 1777 root root -\nf /run/lock/linux-hello-camera.lock 0666 root root -\nf /run/lock/linux-hello-pam.lock 0600 root root -\n' > $(CURDIR)/debian/tmp/usr/lib/tmpfiles.d/linux-hello.conf
+	# /var/lib/linux-hello/secrets: root-only (0700), holds the TPM-sealed
+	# key + encrypted password blob for hello_daemon::secret_cache's KWallet
+	# auto-unlock cache — must exist before hello-daemon-system.service
+	# starts, since its ReadWritePaths= only grants access to paths that
+	# already exist (see hello-daemon-system.service's own comment on this).
+	printf 'd /run/hello-pam 1777 root root -\nf /run/lock/linux-hello-camera.lock 0666 root root -\nf /run/lock/linux-hello-pam.lock 0600 root root -\nd /var/lib/linux-hello/secrets 0700 root root -\n' > $(CURDIR)/debian/tmp/usr/lib/tmpfiles.d/linux-hello.conf
 
 	# Install PAM auto-activation: system unit + timer + detection script + shared lib
 	mkdir -p $(CURDIR)/debian/tmp/usr/lib/systemd/system

@@ -23,7 +23,12 @@ RestartSec=2s
 ProtectSystem=strict
 ProtectHome=read-only
 NoNewPrivileges=true
-ReadWritePaths=/run/hello-pam /run/lock
+# /var/lib/linux-hello/secrets holds the TPM-sealed key and encrypted
+# password blob for the KWallet auto-unlock cache (hello_daemon::secret_cache)
+# — root-owned, created by tmpfiles.d (see debian/rules), deliberately kept
+# out of any user's home directory so ProtectHome=read-only above doesn't
+# need to be loosened for it.
+ReadWritePaths=/run/hello-pam /run/lock /var/lib/linux-hello/secrets
 
 TimeoutStartSec=15
 TimeoutStopSec=5
