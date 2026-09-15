@@ -24,7 +24,11 @@
         "registerBtnDesc": "Adicionar um novo perfil biométrico",
         "manageFacesBtnDesc": "%1 rostos registados",
         "fallbackNote": "Se o seu rosto não for reconhecido, a palavra-passe continua sempre disponível — o reconhecimento facial só acrescenta uma opção mais rápida, nunca bloqueia o acesso.",
-        "manageFacesBtnDescOne": "1 rosto registado"
+        "manageFacesBtnDescOne": "1 rosto registado",
+        "cachePasswordTitle": "Cache session password",
+        "cachePasswordActiveSub": "Cached — auto-unlocks KWallet",
+        "cachePasswordInactiveSub": "Not cached — tap to set up",
+        "cachePasswordUnavailableSub": "Unavailable — enable the login screen first"
     },
     "enrollment": {
         "title": "Registro de rosto",
@@ -69,5 +73,17 @@
         "builtWith": "Construído com Rust, Qt6 e KDE Kirigami",
         "licenseTitle": "Licença",
         "licenseLoading": "A carregar…"
+    },
+    "cachePassword": {
+        "title": "Cache session password",
+        "intro": "This stores an encrypted, TPM-sealed copy of your account password so KWallet/the keyring can unlock automatically after a face-only login at the SDDM login screen.",
+        "warningBody": "A future root-level compromise of this machine could recover this EXACT password — and if you use the same password anywhere else (email, banking, other machines), that compromise follows it there too, even after this machine's own compromise is fixed.\n\nIf you reuse this login password elsewhere, either change this account's password to one used only for logging into this machine before continuing, or don't enable this.",
+        "passwordLabel": "Password",
+        "passwordPlaceholder": "Your account password",
+        "confirmButton": "Cache password",
+        "cancelButton": "Cancel",
+        "busy": "Working…",
+        "successMessage": "Cached — KWallet should now auto-unlock after a face-only login.",
+        "unavailableNote": "Enable the login screen first (Home → Login screen), then come back here."
     }
 }

@@ -18,6 +18,14 @@ QtObject {
     property bool sddmAvailable: false
     property bool sddmBusy: false
     property string sddmError: ""
+    // Whether a session password is already cached, whether the feature is
+    // even usable right now (hello-daemon-system reachable — only true once
+    // SDDM face-login is enabled, since that's the only process with TPM
+    // access), and the last submit's outcome. See CachePassword.qml.
+    property bool passwordCacheActive: false
+    property bool passwordCacheAvailable: false
+    property bool passwordCacheBusy: false
+    property string passwordCacheError: ""
     property string ctrlPort: "0"
     property string ctrlToken: ""
     property string mjpegToken: ""
@@ -51,6 +59,7 @@ QtObject {
     signal navigateToManageFacesSignal
     signal navigateToAboutSignal
     signal navigateToLicenseSignal
+    signal navigateToCachePasswordSignal
 
     // Internal signal to restart the animation timer (which lives in main.qml)
     signal restartTimerNeeded
@@ -120,6 +129,7 @@ QtObject {
         controller.uidNameCache = cache;
         checkDaemonStatus();
         checkSddmStatus();
+        checkPasswordCacheStatus();
         loadFaces();
         loadCameraInfo();
         loadAppInfo();
@@ -136,6 +146,16 @@ QtObject {
     function openAuthedRequest(xhr, path, async) {
         xhr.open("GET", "http://127.0.0.1:" + ctrlPort + path, async !== false);
         xhr.setRequestHeader("X-Linux-Hello-Token", ctrlToken);
+    }
+
+    // Same as openAuthedRequest, but POST — needed for /cache-password,
+    // which carries the password in the request body rather than the URL
+    // (unlike every other route so far, all of which take no client input
+    // beyond a fixed path).
+    function openAuthedPostRequest(xhr, path) {
+        xhr.open("POST", "http://127.0.0.1:" + ctrlPort + path, true);
+        xhr.setRequestHeader("X-Linux-Hello-Token", ctrlToken);
+        xhr.setRequestHeader("Content-Type", "application/json");
     }
 
     // Cheap D-Bus liveness check (com.linuxhello.FaceAuth ownership) —
@@ -225,6 +245,67 @@ QtObject {
             controller.checkSddmStatus();
         };
         xhr.send();
+    }
+
+    // Password-cache status — reachability of hello-daemon-system's cache
+    // socket (`available`) and whether this uid already has one cached
+    // (`active`). No elevation needed: this is a plain stat()/connect()
+    // check on the backend, same cost class as checkSddmStatus().
+    function checkPasswordCacheStatus() {
+        if (ctrlPort === "0")
+            return;
+        var xhr = new XMLHttpRequest();
+        openAuthedRequest(xhr, "/cache-password-status");
+        xhr.onreadystatechange = function () {
+            if (xhr.readyState !== XMLHttpRequest.DONE)
+                return;
+            if (xhr.status === 200) {
+                try {
+                    var resp = JSON.parse(xhr.responseText);
+                    controller.passwordCacheAvailable = !!resp.available;
+                    controller.passwordCacheActive = !!resp.active;
+                } catch (e) {
+                    controller.passwordCacheAvailable = false;
+                    controller.passwordCacheActive = false;
+                }
+            } else {
+                controller.passwordCacheAvailable = false;
+                controller.passwordCacheActive = false;
+            }
+        };
+        xhr.send();
+    }
+
+    // Submits a freshly-typed password to be TPM-sealed. Unlike toggleSddm,
+    // this never goes through pkexec: hello-daemon-system is already root
+    // and always-on once SDDM face-login is enabled, so this is just a
+    // request to it over a peer-uid-verified socket — the backend route
+    // connects directly (see /cache-password in main.rs).
+    function submitCachePassword(password) {
+        if (ctrlPort === "0" || passwordCacheBusy)
+            return;
+        controller.passwordCacheBusy = true;
+        controller.passwordCacheError = "";
+        var xhr = new XMLHttpRequest();
+        openAuthedPostRequest(xhr, "/cache-password");
+        xhr.onreadystatechange = function () {
+            if (xhr.readyState !== XMLHttpRequest.DONE)
+                return;
+            controller.passwordCacheBusy = false;
+            if (xhr.status === 200) {
+                try {
+                    var resp = JSON.parse(xhr.responseText);
+                    if (!resp.ok)
+                        controller.passwordCacheError = resp.error || "unknown error";
+                } catch (e) {
+                    controller.passwordCacheError = "invalid response";
+                }
+            } else {
+                controller.passwordCacheError = "HTTP " + xhr.status;
+            }
+            controller.checkPasswordCacheStatus();
+        };
+        xhr.send(JSON.stringify({ password: password }));
     }
 
     // Asks for the interactive polkit authorization (session password/
@@ -466,6 +547,7 @@ QtObject {
     function navigateToHomeImpl() {
         checkDaemonStatus();
         checkSddmStatus();
+        checkPasswordCacheStatus();
         loadFaces();
         navigateToHomeSignal();
     }
@@ -477,6 +559,12 @@ QtObject {
     function navigateToManageFacesImpl() {
         loadFaces();
         navigateToManageFacesSignal();
+    }
+
+    function navigateToCachePasswordImpl() {
+        controller.passwordCacheError = "";
+        checkPasswordCacheStatus();
+        navigateToCachePasswordSignal();
     }
 
     function animateProgress() {

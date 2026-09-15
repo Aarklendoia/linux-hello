@@ -317,6 +317,84 @@ fn extract_busctl_json(output: &str) -> Option<String> {
     Some(content.replace("\\\"", "\"").replace("\\\\", "\\"))
 }
 
+/// Extracts the request body — everything after the blank line separating
+/// HTTP headers from the body. Needed only for `/cache-password`, the first
+/// route in this file to take actual client-supplied data via POST rather
+/// than a fixed path or query string (a password must never end up in a URL
+/// that could be logged/history'd, unlike every other route's inputs so
+/// far). The single fixed-size `stream.read` in `handle_ctrl_connection`
+/// already captures the whole small request in one shot for every other
+/// route; this relies on the same being true here.
+fn extract_body(req: &str) -> &str {
+    req.split_once("\r\n\r\n")
+        .map(|(_, body)| body)
+        .unwrap_or("")
+        .trim_end_matches('\0')
+}
+
+/// Extracts a JSON string field's value from a small hand-built request
+/// body — same minimal-parsing convention as `extract_busctl_json`/
+/// `extract_face_id_from_busctl` below, but escape-aware: unlike a face id,
+/// a password can itself contain a literal `"` or `\`, which a naive
+/// find-the-next-quote scan would truncate on.
+fn extract_json_string_field(body: &str, field: &str) -> Option<String> {
+    let key = format!("\"{}\":\"", field);
+    let start = body.find(&key)? + key.len();
+    let mut out = String::new();
+    let mut chars = body[start..].chars();
+    while let Some(c) = chars.next() {
+        match c {
+            '"' => return Some(out),
+            '\\' => match chars.next()? {
+                '"' => out.push('"'),
+                '\\' => out.push('\\'),
+                'n' => out.push('\n'),
+                'r' => out.push('\r'),
+                't' => out.push('\t'),
+                other => out.push(other),
+            },
+            c => out.push(c),
+        }
+    }
+    None // unterminated string — malformed body
+}
+
+/// Sends `password` to `hello-daemon-system`'s cache socket directly — no
+/// `pkexec` needed here, unlike `/sddm-enable`: sealing a password is a
+/// request to an already-root, always-on daemon over a peer-uid-verified
+/// socket (see `hello_daemon::pam_helper::start_cache_helper`), not a
+/// filesystem edit this process itself needs elevation to perform. Mirrors
+/// `linux_hello_cli::cache_password::send_to_cache_socket`.
+fn send_password_to_cache_socket(uid: u32, password: &str) -> Result<(), String> {
+    use std::io::{Read, Write};
+    use std::os::unix::net::UnixStream;
+
+    let mut stream = UnixStream::connect("/run/hello-pam/cache.socket").map_err(|e| {
+        format!(
+            "cache socket unreachable: {} (enable SDDM face-login first)",
+            e
+        )
+    })?;
+
+    let request = format!(
+        r#"{{"user_id":{},"password":"{}"}}"#,
+        uid,
+        json_escape(password)
+    );
+    stream.write_all(request.as_bytes()).map_err(|e| e.to_string())?;
+    stream.shutdown(std::net::Shutdown::Write).ok();
+
+    let mut response = String::new();
+    stream
+        .read_to_string(&mut response)
+        .map_err(|e| e.to_string())?;
+
+    if response.trim() == "\"Ok\"" {
+        return Ok(());
+    }
+    Err(extract_json_string_field(&response, "reason").unwrap_or_else(|| "unknown error".to_string()))
+}
+
 /// Extracts a parameter from the query string of the first HTTP line.
 /// E.g.: "GET /delete-face?id=abc123 HTTP/1.1" → Some("abc123")
 fn extract_query_param(req: &str, param: &str) -> Option<String> {
@@ -668,6 +746,55 @@ fn handle_ctrl_connection(
                     format!(r#"{{"ok":false,"error":"{}"}}"#, json_escape(&err)),
                 )
             }
+        }
+    } else if req.contains("/cache-password-status") {
+        // Checked before the bare "/cache-password" branch below since that
+        // string is a strict prefix of this route's path. No elevation
+        // needed for either half: `available` is a connect() probe against
+        // a socket only root can bind, and `active` is a stat()-only
+        // existence check — Unix permissions let any process determine a
+        // file exists via its parent directory's search bit without read
+        // access to the (root-owned, 0600) file's own content.
+        let available = std::path::Path::new("/run/hello-pam/cache.socket").exists();
+        let active = std::env::var("HOME")
+            .map(|home| {
+                std::path::Path::new(&home)
+                    .join(".local/share/linux-hello/users")
+                    .join(uid.to_string())
+                    .join("session-authtok.enc")
+                    .exists()
+            })
+            .unwrap_or(false);
+        (
+            "200 OK",
+            format!(r#"{{"available":{},"active":{}}}"#, available, active),
+        )
+    } else if req.contains("/cache-password") {
+        // Unlike /sddm-enable, no pkexec: sealing a password is a request
+        // to hello-daemon-system over a peer-uid-verified socket, not a
+        // filesystem edit this process needs elevation to perform — see
+        // send_password_to_cache_socket's own doc comment.
+        let body = extract_body(&req);
+        match extract_json_string_field(body, "password") {
+            Some(password) if !password.is_empty() => {
+                match send_password_to_cache_socket(uid, &password) {
+                    Ok(()) => ("200 OK", r#"{"ok":true}"#.to_string()),
+                    Err(err) => {
+                        eprintln!("✗ cache-password failed: {}", err);
+                        (
+                            "200 OK",
+                            format!(r#"{{"ok":false,"error":"{}"}}"#, json_escape(&err)),
+                        )
+                    }
+                }
+            }
+            _ => (
+                "200 OK",
+                format!(
+                    r#"{{"ok":false,"error":"{}"}}"#,
+                    json_escape("missing password")
+                ),
+            ),
         }
     } else if req.contains("/camera-info") {
         // Whether the active camera has an IR channel — see
@@ -1045,6 +1172,49 @@ mod tests {
     fn extract_busctl_json_none_for_unrecognized_output() {
         assert_eq!(extract_busctl_json("not the expected format"), None);
         assert_eq!(extract_busctl_json(""), None);
+    }
+
+    #[test]
+    fn extract_body_returns_everything_after_the_blank_line() {
+        let req = "POST /cache-password HTTP/1.1\r\nHost: x\r\n\r\n{\"password\":\"hunter2\"}";
+        assert_eq!(extract_body(req), r#"{"password":"hunter2"}"#);
+    }
+
+    #[test]
+    fn extract_body_empty_when_no_blank_line_present() {
+        assert_eq!(extract_body("GET / HTTP/1.1\r\n"), "");
+    }
+
+    #[test]
+    fn extract_json_string_field_finds_a_plain_value() {
+        assert_eq!(
+            extract_json_string_field(r#"{"password":"hunter2"}"#, "password"),
+            Some("hunter2".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_json_string_field_unescapes_quotes_and_backslashes() {
+        assert_eq!(
+            extract_json_string_field(r#"{"password":"a\"b\\c"}"#, "password"),
+            Some("a\"b\\c".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_json_string_field_none_when_field_absent() {
+        assert_eq!(
+            extract_json_string_field(r#"{"other":"x"}"#, "password"),
+            None
+        );
+    }
+
+    #[test]
+    fn extract_json_string_field_none_when_unterminated() {
+        assert_eq!(
+            extract_json_string_field(r#"{"password":"unterminated"#, "password"),
+            None
+        );
     }
 
     #[test]

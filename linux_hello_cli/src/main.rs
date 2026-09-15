@@ -6,6 +6,8 @@
 //! - linux-hello verify $UID : test a verification
 //! - linux-hello list $UID   : list enrolled faces
 
+mod cache_password;
+
 use clap::{Parser, Subcommand};
 use hello_daemon::dbus_interface::{
     DeleteFaceRequest, RegisterFaceRequest, RegisterFaceResponse, VerifyRequest, VerifyResult,
@@ -88,6 +90,12 @@ enum Commands {
         #[arg(short, long, default_value = "5")]
         duration: u64,
     },
+
+    /// Cache your login password (TPM-sealed) so KWallet/the keyring can
+    /// auto-unlock after a face-only login at the SDDM login screen.
+    /// Requires SDDM face-login to already be enabled
+    /// (sudo install-pam.sh --enable-sddm) and a TPM.
+    CachePassword,
 }
 
 #[tokio::main]
@@ -120,6 +128,7 @@ async fn main() -> anyhow::Result<()> {
         Commands::List { user_id } => command_list(user_id).await,
         Commands::Delete { user_id, face_id } => command_delete(user_id, face_id).await,
         Commands::Camera { duration } => command_camera(duration).await,
+        Commands::CachePassword => cache_password::run(),
     }
 }
 
@@ -438,6 +447,12 @@ mod tests {
 
         let cli = parse(&["list", "1000", "--verbose"]);
         assert!(cli.verbose);
+    }
+
+    #[test]
+    fn test_cache_password_parses_with_no_args() {
+        let cli = parse(&["cache-password"]);
+        assert!(matches!(cli.command, Commands::CachePassword));
     }
 
     #[test]

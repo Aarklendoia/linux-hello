@@ -24,7 +24,11 @@
         "registerBtnDesc": "Ajouter un nouveau profil biométrique",
         "manageFacesBtnDesc": "%1 profils enregistrés",
         "fallbackNote": "Si le visage n'est pas reconnu, le mot de passe reste toujours disponible — la reconnaissance faciale ne fait qu'ajouter une option, jamais un blocage.",
-        "manageFacesBtnDescOne": "1 profil enregistré"
+        "manageFacesBtnDescOne": "1 profil enregistré",
+        "cachePasswordTitle": "Mémoriser le mot de passe",
+        "cachePasswordActiveSub": "Mémorisé — déverrouille KWallet automatiquement",
+        "cachePasswordInactiveSub": "Non mémorisé — appuyez pour configurer",
+        "cachePasswordUnavailableSub": "Indisponible — activez d'abord l'écran de connexion"
     },
     "enrollment": {
         "title": "Enregistrement du visage",
@@ -70,5 +74,17 @@
         "builtWith": "Construit avec Rust, Qt6 et KDE Kirigami",
         "licenseTitle": "Licence",
         "licenseLoading": "Chargement…"
+    },
+    "cachePassword": {
+        "title": "Mémoriser le mot de passe de session",
+        "intro": "Ceci stocke une copie chiffrée et scellée dans le TPM de votre mot de passe de compte, pour que KWallet/le trousseau se déverrouille automatiquement après une connexion par visage seul à l'écran de connexion SDDM.",
+        "warningBody": "Une future compromission de cette machine avec les droits root pourrait récupérer ce mot de passe EXACT — et si vous utilisez le même mot de passe ailleurs (email, banque, autres machines), cette compromission vous suit aussi là-bas, même une fois celle de cette machine corrigée.\n\nSi vous réutilisez ce mot de passe de connexion ailleurs, changez le mot de passe de ce compte pour un mot de passe utilisé uniquement pour vous connecter à cette machine avant de continuer, ou n'activez pas cette fonctionnalité.",
+        "passwordLabel": "Mot de passe",
+        "passwordPlaceholder": "Votre mot de passe de compte",
+        "confirmButton": "Mémoriser le mot de passe",
+        "cancelButton": "Annuler",
+        "busy": "En cours…",
+        "successMessage": "Mémorisé — KWallet devrait maintenant se déverrouiller automatiquement après une connexion par visage seul.",
+        "unavailableNote": "Activez d'abord l'écran de connexion (Accueil → Écran de connexion), puis revenez ici."
     }
 }

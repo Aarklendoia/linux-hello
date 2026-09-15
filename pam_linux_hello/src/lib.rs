@@ -653,10 +653,18 @@ pub extern "C" fn pam_sm_close_session(
     PAM_SUCCESS
 }
 
-/// PAM function for password change (no action necessary)
+/// PAM function for password change — takes no part in the change decision
+/// itself (always `PAM_IGNORE`), but opportunistically refreshes the
+/// session-password cache (see `secret_cache`) so it doesn't go stale once a
+/// legitimate password change passes through this same PAM stack.
+///
+/// # Safety
+/// `pamh` must be a valid handle passed in by the PAM library for the
+/// duration of this call, same as every other `pam_sm_*` entry point in this
+/// module — hence `unsafe extern "C"`, matching `pam_sm_authenticate`.
 #[allow(non_snake_case)]
 #[no_mangle]
-pub extern "C" fn pam_sm_chauthtok(
+pub unsafe extern "C" fn pam_sm_chauthtok(
     pamh: *mut PamHandle,
     flags: c_int,
     _argc: c_int,
@@ -665,16 +673,9 @@ pub extern "C" fn pam_sm_chauthtok(
     log_pam("pam_sm_chauthtok");
 
     // Only the real update call carries a password that's actually about to
-    // take effect — see PAM_UPDATE_AUTHTOK's doc comment above. This module
-    // never itself decides whether a password change succeeds or fails
-    // (always PAM_IGNORE), it only opportunistically refreshes the
-    // password-cache (see `secret_cache`) when a legitimate change happens
-    // to pass through the same PAM stack it's installed in.
+    // take effect — see PAM_UPDATE_AUTHTOK's doc comment above.
     if flags & PAM_UPDATE_AUTHTOK != 0 {
-        // SAFETY: pamh is a valid handle passed in by the PAM library for
-        // the duration of this call, same as every other pam_sm_* entry
-        // point in this module.
-        unsafe { refresh_cached_authtok(pamh) };
+        refresh_cached_authtok(pamh);
     }
 
     PAM_IGNORE

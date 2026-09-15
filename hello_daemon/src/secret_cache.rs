@@ -582,6 +582,19 @@ pub fn release_for_match(uid: u32) -> Result<Option<String>, SecretCacheError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    // `seal_and_release_round_trip_against_a_real_or_simulated_tpm` and
+    // `release_for_match_returns_none_when_nothing_is_cached` both mutate the
+    // process-wide `LINUX_HELLO_SECRETS_DIR`/`LINUX_HELLO_TEST_HOME_OVERRIDE`
+    // env vars — `cargo test` runs tests from the same binary on parallel
+    // threads sharing one process environment, so without this lock one
+    // test's `remove_var` can fire while the other is mid-`seal_and_store`,
+    // making `sealed_key_dir()` fall back to the real (root-only)
+    // `/var/lib/linux-hello/secrets` and fail with a confusing
+    // `PermissionDenied` — reproduced directly by running both together
+    // without `--test-threads=1`.
+    static ENV_VAR_GUARD: Mutex<()> = Mutex::new(());
 
     fn tpm_available_for_tests() -> bool {
         std::env::var("LINUX_HELLO_TPM_TCTI").is_ok()
@@ -605,6 +618,7 @@ mod tests {
             eprintln!("skipping: set LINUX_HELLO_TPM_TCTI to run against a real/simulated TPM");
             return;
         }
+        let _guard = ENV_VAR_GUARD.lock().unwrap_or_else(|e| e.into_inner());
         let home_dir = tempfile::tempdir().unwrap();
         let secrets_dir = tempfile::tempdir().unwrap();
         std::env::set_var("LINUX_HELLO_TEST_HOME_OVERRIDE", home_dir.path());
@@ -627,6 +641,7 @@ mod tests {
 
     #[test]
     fn release_for_match_returns_none_when_nothing_is_cached() {
+        let _guard = ENV_VAR_GUARD.lock().unwrap_or_else(|e| e.into_inner());
         let secrets_dir = tempfile::tempdir().unwrap();
         std::env::set_var("LINUX_HELLO_SECRETS_DIR", secrets_dir.path());
         let result = release_for_match(999_002).unwrap();

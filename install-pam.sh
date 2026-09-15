@@ -105,6 +105,11 @@ if [[ "${1:-}" == "--status" ]]; then
         fi
     done
     echo "   screenlock: handled by hello-daemon's own watcher (loginctl unlock-session), not PAM"
+    if [[ -f "$PAM_DIR/linux-hello-cache-password" ]]; then
+        ok "linux-hello-cache-password: present (cache-password verification helper)"
+    else
+        warn "linux-hello-cache-password: missing ('linux-hello cache-password' won't be able to verify a typed password)"
+    fi
     sddm_theme="$(lh_sddm_theme_name)"
     if dpkg-divert --list "/usr/share/sddm/themes/$sddm_theme/Login.qml" 2>/dev/null | grep -q linux-hello; then
         ok "SDDM greeter status indicator: installed (theme: $sddm_theme)"
@@ -143,6 +148,10 @@ if [[ "${1:-}" == "--remove" ]]; then
     if grep -q "linux-hello" "$PAM_DIR/polkit-1" 2>/dev/null; then
         rm -f "$PAM_DIR/polkit-1"
         ok "Removed: polkit-1 (created by this script)"
+    fi
+    if [[ -f "$PAM_DIR/linux-hello-cache-password" ]]; then
+        rm -f "$PAM_DIR/linux-hello-cache-password"
+        ok "Removed: linux-hello-cache-password"
     fi
     lh_sddm_disable
     echo ""
@@ -242,6 +251,30 @@ else
     lh_configure_service "polkit-1" "polkit" "^auth"
 fi
 
+# ── 6. linux-hello-cache-password (verification helper, not a login path) ───
+# Used only by `linux-hello cache-password` (CLI and settings GUI) to verify
+# a typed password is genuinely this account's current one, via a real PAM
+# auth call — see linux_hello_cli/src/cache_password.rs. Not `@include`d by
+# anything else and never consulted during an actual login; safe to always
+# install alongside the base module (unlike SDDM, this adds no new
+# pre-authentication-reachable surface).
+CACHE_PW_FILE="$PAM_DIR/linux-hello-cache-password"
+if [[ ! -f "$CACHE_PW_FILE" ]]; then
+    cat > "$CACHE_PW_FILE" << 'EOF'
+#%PAM-1.0
+# Linux Hello - password verification helper for `linux-hello cache-password`
+# Not stacked into any login path. Lets the CLI/GUI confirm a typed password
+# is genuinely correct (via unix_chkpwd) before it gets TPM-sealed into the
+# session-password cache used to auto-unlock KWallet after a face-only SDDM
+# login — see docs/PAM_MODULE.md's "Password caching / KWallet auto-unlock".
+
+auth       required     pam_unix.so
+EOF
+    ok "Service linux-hello-cache-password: created"
+else
+    ok "Service linux-hello-cache-password: already present"
+fi
+
 # Screenlock unlocking doesn't use PAM: hello-daemon's own watcher polls
 # org.freedesktop.ScreenSaver and unlocks via `loginctl unlock-session` on a
 # face match (see hello_daemon/src/screenlock.rs) — nothing to configure here.
@@ -264,6 +297,9 @@ for svc in sudo sudo-i su su-l sddm polkit-1; do
     fi
 done
 echo "   screenlock: handled by hello-daemon's own watcher (loginctl unlock-session), not PAM"
+if [[ -f "$PAM_DIR/linux-hello-cache-password" ]]; then
+    ok "linux-hello-cache-password: active"
+fi
 
 echo ""
 echo "=== Quick test ==="
