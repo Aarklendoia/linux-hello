@@ -21,6 +21,7 @@ pub mod matcher;
 pub mod pam_helper;
 pub mod preview;
 pub mod screenlock;
+pub mod secret_cache;
 mod security_util;
 pub mod storage;
 #[cfg(test)]
@@ -629,6 +630,7 @@ pub async fn verify_with_storage(
         return Ok(VerifyResult::Success {
             face_id: success.face_id.clone().unwrap_or_default(),
             similarity_score: success.best_score,
+            used_ir_liveness: success.used_ir_liveness,
         });
     }
 
@@ -681,6 +683,7 @@ mod tests {
             threshold: 0.6,
             all_scores: std::collections::HashMap::new(),
             matched,
+            used_ir_liveness: false,
         }
     }
 

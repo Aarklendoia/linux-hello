@@ -2,14 +2,18 @@
 //!
 //! Started at boot as root, before any user logs in. Deliberately minimal:
 //! no D-Bus, no MJPEG preview server, no screenlock watcher, no
-//! `FaceAuthDaemon` — just the one Verify-only socket listener that
+//! `FaceAuthDaemon` — just two socket listeners: the Verify-only one
 //! `pam_linux_hello` connects to for `context=sddm` (see
-//! `hello_daemon::pam_helper::start_system_pam_helper`). Enrollment always
-//! happens through a user's own per-user `hello-daemon` session, never here.
+//! `hello_daemon::pam_helper::start_system_pam_helper`), and the
+//! password-cache one used by `linux-hello cache-password` (see
+//! `hello_daemon::pam_helper::start_cache_helper` and `secret_cache`'s
+//! module docs — sealing a session password needs TPM access, which only
+//! this root-owned process has). Enrollment always happens through a user's
+//! own per-user `hello-daemon` session, never here.
 
 use hello_daemon::camera::CameraManager;
 use hello_daemon::matcher::FaceMatcher;
-use hello_daemon::pam_helper::start_system_pam_helper;
+use hello_daemon::pam_helper::{start_cache_helper, start_system_pam_helper};
 use std::sync::Arc;
 use tracing::{error, info, warn};
 
@@ -42,6 +46,12 @@ async fn main() -> anyhow::Result<()> {
         return Err(anyhow::anyhow!(e.to_string()));
     }
     info!("✓ System PAM listener ready for context=sddm");
+
+    if let Err(e) = start_cache_helper().await {
+        error!("Failed to start the password-cache listener: {}", e);
+        return Err(anyhow::anyhow!(e.to_string()));
+    }
+    info!("✓ Password-cache listener ready");
 
     tokio::signal::ctrl_c().await?;
     info!("Stopping system listener");

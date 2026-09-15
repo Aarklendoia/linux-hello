@@ -46,6 +46,20 @@ const PAM_PROMPT_ECHO_ON: c_int = 1;
 // Item type to retrieve the conversation function
 const PAM_CONV_ITEM: c_int = 5;
 
+// Item type for the authentication token — populating this is what lets
+// pam_kwallet5/pam_gnome_keyring (stacked later in the same PAM transaction,
+// via @include common-auth's session phase) unlock automatically, exactly
+// as if the user had typed this password themselves. See
+// `pam_set_authtok`/the `cached_authtok` handling in `pam_sm_authenticate`.
+const PAM_AUTHTOK: c_int = 6;
+
+// PAM chauthtok flag: set on the second of the two calls PAM makes to a
+// `password`-stack module (the first, PAM_PRELIM_CHECK, is a dry run before
+// any module has actually changed anything — capturing then would risk
+// caching a password that never actually gets set, e.g. if a later
+// `required` module in the stack rejects it).
+const PAM_UPDATE_AUTHTOK: c_int = 0x2000;
+
 /// PAM message structure (see <security/pam_appl.h>)
 #[repr(C)]
 struct PamMessage {
@@ -79,6 +93,12 @@ extern "C" {
         pamh: *const PamHandle,
         item_type: c_int,
         item: *mut *const std::os::raw::c_void,
+    ) -> c_int;
+
+    fn pam_set_item(
+        pamh: *mut PamHandle,
+        item_type: c_int,
+        item: *const std::os::raw::c_void,
     ) -> c_int;
 }
 
@@ -392,6 +412,47 @@ fn pam_conv_prompt(pamh: *mut PamHandle, _flags: c_int, msg: &str) -> Option<Str
     }
 }
 
+/// Populates `PAM_AUTHTOK` with a password released by the PAM helper (see
+/// `hello_daemon::secret_cache`), so `pam_kwallet5`/`pam_gnome_keyring` —
+/// stacked later in the same transaction via `@include common-auth`'s
+/// session phase — unlock automatically, exactly as if the user had typed
+/// this password. Never logs the password itself, only success/failure.
+///
+/// Linux-PAM's `pam_set_item` copies the string internally (`strdup`), so
+/// nothing needs to survive past this call — both the caller's `String` and
+/// this function's own C-string copy are wrapped in `zeroize::Zeroizing` so
+/// the plaintext is wiped from this process's memory the moment it goes out
+/// of scope, rather than lingering until the allocator happens to reuse
+/// that memory.
+fn apply_cached_authtok(pamh: *mut PamHandle, username: &str, password: String) {
+    let password = zeroize::Zeroizing::new(password);
+    let cstr = match CString::new(password.as_bytes()) {
+        Ok(c) => c,
+        Err(_) => {
+            log_pam(&format!(
+                "apply_cached_authtok: cached password for {} contains an embedded NUL, cannot apply",
+                username
+            ));
+            return;
+        }
+    };
+    let cstr_bytes = zeroize::Zeroizing::new(cstr.into_bytes_with_nul());
+    let ptr = cstr_bytes.as_ptr() as *const std::os::raw::c_void;
+
+    let ret = unsafe { pam_set_item(pamh, PAM_AUTHTOK, ptr) };
+    if ret == PAM_SUCCESS {
+        log_pam(&format!(
+            "apply_cached_authtok: PAM_AUTHTOK set from cached password for {}",
+            username
+        ));
+    } else {
+        log_pam(&format!(
+            "apply_cached_authtok: pam_set_item failed for {} (ret={})",
+            username, ret
+        ));
+    }
+}
+
 /// Main PAM function: authentication
 ///
 /// # Arguments
@@ -487,6 +548,7 @@ pub unsafe extern "C" fn pam_sm_authenticate(
             PamHelperResponse::Success {
                 face_id,
                 similarity_score,
+                cached_authtok,
             } => {
                 log_pam(&format!(
                     "Authentication succeeded for {}: face_id={}, score={}",
@@ -497,7 +559,7 @@ pub unsafe extern "C" fn pam_sm_authenticate(
                     username, face_id, similarity_score
                 ));
 
-                if opts.confirm {
+                let retcode = if opts.confirm {
                     // Documented behavior (docs/DESIGN.md): "Confirm sudo?
                     // [y/N]" — only an explicit "y"/"Y" grants access, same
                     // as a standard confirmation prompt defaulting to No.
@@ -527,7 +589,19 @@ pub unsafe extern "C" fn pam_sm_authenticate(
                 } else {
                     pam_conv_send(pamh, flags, PAM_TEXT_INFO, pam_t("recognized"));
                     PAM_SUCCESS
+                };
+
+                // Only ever apply the cached password once we're actually
+                // about to grant access — a declined/unavailable
+                // confirmation must not leak it into PAM_AUTHTOK on a
+                // transaction that's about to fail anyway.
+                if retcode == PAM_SUCCESS {
+                    if let Some(password) = cached_authtok {
+                        apply_cached_authtok(pamh, &username, password);
+                    }
                 }
+
+                retcode
             }
             PamHelperResponse::Failure { reason } => {
                 log_pam(&format!(
@@ -583,13 +657,78 @@ pub extern "C" fn pam_sm_close_session(
 #[allow(non_snake_case)]
 #[no_mangle]
 pub extern "C" fn pam_sm_chauthtok(
-    _pamh: *mut PamHandle,
-    _flags: c_int,
+    pamh: *mut PamHandle,
+    flags: c_int,
     _argc: c_int,
     _argv: *const *const c_char,
 ) -> c_int {
     log_pam("pam_sm_chauthtok");
+
+    // Only the real update call carries a password that's actually about to
+    // take effect — see PAM_UPDATE_AUTHTOK's doc comment above. This module
+    // never itself decides whether a password change succeeds or fails
+    // (always PAM_IGNORE), it only opportunistically refreshes the
+    // password-cache (see `secret_cache`) when a legitimate change happens
+    // to pass through the same PAM stack it's installed in.
+    if flags & PAM_UPDATE_AUTHTOK != 0 {
+        // SAFETY: pamh is a valid handle passed in by the PAM library for
+        // the duration of this call, same as every other pam_sm_* entry
+        // point in this module.
+        unsafe { refresh_cached_authtok(pamh) };
+    }
+
     PAM_IGNORE
+}
+
+/// Reads the new password that a real `password`-stack module (typically
+/// `pam_unix.so`, stacked earlier via `@include common-password`) already
+/// set as `PAM_AUTHTOK` by the time this module's `pam_sm_chauthtok` runs,
+/// and forwards it to `hello-daemon-system`'s cache socket. Does nothing
+/// (silently) if the item is absent — e.g. this module stacked before
+/// `pam_unix.so` instead of after, or a caller that never actually reaches
+/// this point.
+///
+/// # Safety
+/// `pamh` must be a valid PAM handle for the duration of this call — same
+/// contract as the `pam_sm_*` entry point that calls this.
+unsafe fn refresh_cached_authtok(pamh: *mut PamHandle) {
+    let username = {
+        let mut user_ptr: *const c_char = std::ptr::null();
+        if pam_get_user(pamh, &mut user_ptr, std::ptr::null()) != PAM_SUCCESS || user_ptr.is_null() {
+            log_pam("refresh_cached_authtok: could not retrieve PAM user");
+            return;
+        }
+        match CStr::from_ptr(user_ptr).to_str() {
+            Ok(u) => u.to_string(),
+            Err(_) => {
+                log_pam("refresh_cached_authtok: PAM user is not valid UTF-8");
+                return;
+            }
+        }
+    };
+    let Some(user_id) = uid_from_name(&username) else {
+        log_pam(&format!(
+            "refresh_cached_authtok: failed to resolve UID for user: {}",
+            username
+        ));
+        return;
+    };
+
+    let mut item_ptr: *const std::os::raw::c_void = std::ptr::null();
+    if pam_get_item(pamh, PAM_AUTHTOK, &mut item_ptr) != PAM_SUCCESS || item_ptr.is_null() {
+        log_pam(&format!(
+            "refresh_cached_authtok: no PAM_AUTHTOK available for {} (module ordering, or nothing changed)",
+            username
+        ));
+        return;
+    }
+    let password = zeroize::Zeroizing::new(
+        CStr::from_ptr(item_ptr as *const c_char)
+            .to_string_lossy()
+            .into_owned(),
+    );
+
+    send_cache_authtok(user_id, &password);
 }
 
 /// PAM function for session management (no action necessary)
@@ -660,6 +799,12 @@ enum PamHelperResponse {
     Success {
         face_id: String,
         similarity_score: f32,
+        /// The user's real login password, released only for `context=sddm`
+        /// with a valid TPM-sealed cache and an IR-liveness match — see
+        /// `hello_daemon::secret_cache`'s module docs. `None` in every other
+        /// case; this module never itself decides whether to request it,
+        /// only whether to apply it via `pam_set_item` when present.
+        cached_authtok: Option<String>,
     },
     Failure {
         reason: String,
@@ -793,6 +938,111 @@ fn call_pam_helper_sync(req: &PamHelperRequest) -> Result<PamHelperResponse, Str
             String::from_utf8_lossy(&response)
         )
     })
+}
+
+/// Request to seal (or refresh) a user's cached session password — the
+/// wire-compatible client-side twin of
+/// `hello_daemon::pam_helper::CacheAuthtokRequest` (kept as a separate copy,
+/// same convention as `PamHelperRequest`/`PamHelperResponse` above: this
+/// crate can't depend on `hello_daemon`, see this crate's `Cargo.toml`).
+#[derive(Serialize)]
+struct CacheAuthtokRequest {
+    user_id: u32,
+    password: String,
+}
+
+#[derive(Deserialize)]
+enum CacheAuthtokResponse {
+    Ok,
+    Error { reason: String },
+}
+
+/// Sends a newly-changed password to `hello-daemon-system`'s password-cache
+/// socket, so the TPM-sealed cache used to auto-unlock KWallet after a
+/// face-only SDDM login (see `hello_daemon::secret_cache`) doesn't go stale
+/// the moment the user changes their real password through the normal
+/// `passwd`/PAM `chauthtok` flow. Called from `pam_sm_chauthtok`.
+///
+/// Fails silently (logs only) on any error — a cache refresh failing here
+/// must never block or fail the password change itself; the worst case is
+/// `pam_kwallet5` getting a stale `PAM_AUTHTOK` on a future face-only login
+/// and falling back to its own prompt, exactly like having no cache at all.
+fn send_cache_authtok(user_id: u32, password: &str) {
+    use std::io::{Read, Write};
+
+    let socket_path = "/run/hello-pam/cache.socket";
+    let mut stream = match UnixStream::connect(socket_path) {
+        Ok(s) => s,
+        Err(e) => {
+            log_pam(&format!(
+                "send_cache_authtok: cache socket unreachable (password caching likely not enabled): {}",
+                e
+            ));
+            return;
+        }
+    };
+
+    // Same socket-squatting concern as `call_pam_helper_sync`: only trust a
+    // peer that is actually root (`hello-daemon-system`), never write the
+    // new plaintext password to anything else.
+    match unix_socket_peer_uid(&stream) {
+        Ok(0) => {}
+        Ok(uid) => {
+            log_pam(&format!(
+                "send_cache_authtok: refusing untrusted socket peer at {} (uid={})",
+                socket_path, uid
+            ));
+            return;
+        }
+        Err(e) => {
+            log_pam(&format!(
+                "send_cache_authtok: could not verify socket peer credentials: {}",
+                e
+            ));
+            return;
+        }
+    }
+
+    stream
+        .set_write_timeout(Some(std::time::Duration::from_millis(5000)))
+        .ok();
+    stream
+        .set_read_timeout(Some(std::time::Duration::from_millis(15000)))
+        .ok();
+
+    let req = CacheAuthtokRequest {
+        user_id,
+        password: password.to_string(),
+    };
+    let request_json = match serde_json::to_string(&req) {
+        Ok(j) => j,
+        Err(e) => {
+            log_pam(&format!("send_cache_authtok: serialize failed: {}", e));
+            return;
+        }
+    };
+    if let Err(e) = stream.write_all(request_json.as_bytes()) {
+        log_pam(&format!("send_cache_authtok: write failed: {}", e));
+        return;
+    }
+    stream.shutdown(std::net::Shutdown::Write).ok();
+
+    let mut response = Vec::new();
+    if let Err(e) = stream.read_to_end(&mut response) {
+        log_pam(&format!("send_cache_authtok: read failed: {}", e));
+        return;
+    }
+    match serde_json::from_slice::<CacheAuthtokResponse>(&response) {
+        Ok(CacheAuthtokResponse::Ok) => {
+            log_pam("send_cache_authtok: cache refreshed successfully");
+        }
+        Ok(CacheAuthtokResponse::Error { reason }) => {
+            log_pam(&format!("send_cache_authtok: daemon reported error: {}", reason));
+        }
+        Err(e) => {
+            log_pam(&format!("send_cache_authtok: deserialize failed: {}", e));
+        }
+    }
 }
 
 /// Logs via syslog (LOG_AUTHPRIV), not a raw file write. Two problems with

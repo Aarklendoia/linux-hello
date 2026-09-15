@@ -39,7 +39,10 @@ pub(crate) fn constant_time_eq(a: &str, b: &str) -> bool {
 /// `create_new` (`O_CREAT|O_EXCL`) so the mode is applied atomically at
 /// creation, rather than via a separate `set_permissions` call that would
 /// leave a moment where the file exists with default/umask permissions.
-pub(crate) fn write_owner_only_file(path: impl AsRef<Path>, contents: &str) -> std::io::Result<()> {
+pub(crate) fn write_owner_only_file(
+    path: impl AsRef<Path>,
+    contents: impl AsRef<[u8]>,
+) -> std::io::Result<()> {
     use std::io::Write;
     use std::os::unix::fs::OpenOptionsExt;
     let path = path.as_ref();
@@ -49,7 +52,7 @@ pub(crate) fn write_owner_only_file(path: impl AsRef<Path>, contents: &str) -> s
         .create_new(true)
         .mode(0o600)
         .open(path)?;
-    f.write_all(contents.as_bytes())
+    f.write_all(contents.as_ref())
 }
 
 #[cfg(test)]

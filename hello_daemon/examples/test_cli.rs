@@ -123,6 +123,7 @@ async fn main() -> anyhow::Result<()> {
                         hello_daemon::dbus_interface::VerifyResult::Success {
                             face_id,
                             similarity_score,
+                            ..
                         } => {
                             println!("  Face ID: {}", face_id);
                             println!("  Score: {:.4}", similarity_score);

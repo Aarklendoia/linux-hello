@@ -32,6 +32,12 @@ parking_lot.workspace = true
 # Image processing for preview frames
 image.workspace = true
 
+# TPM-sealed session-password cache (see src/secret_cache.rs)
+tss-esapi = "7.7.0"
+aes-gcm = { version = "0.11.1", features = ["aes", "alloc"] }
+zeroize = "1.9.0"
+sha2.workspace = true
+
 [dev-dependencies]
 tempfile.workspace = true
 

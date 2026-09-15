@@ -33,6 +33,17 @@ pub enum PamHelperResponse {
     Success {
         face_id: String,
         similarity_score: f32,
+
+        /// The user's real login password, released only for `context=sddm`
+        /// when a valid TPM-sealed cache exists for this uid *and* this
+        /// match used IR liveness (never the weaker RGB fallback) — see
+        /// `secret_cache::release_for_match`. `pam_linux_hello` feeds this
+        /// into `pam_set_item(PAM_AUTHTOK, ...)` so `pam_kwallet5` can
+        /// auto-unlock exactly as if the user had typed their password.
+        /// `None` for every other context, and for sddm whenever no cache
+        /// exists or the release conditions aren't met — callers must treat
+        /// that identically to "nothing to release", not an error.
+        cached_authtok: Option<String>,
     },
     Failure {
         reason: String,
@@ -142,9 +153,11 @@ fn verify_outcome_to_response(
         Ok(Ok(VerifyResult::Success {
             face_id,
             similarity_score,
+            ..
         })) => PamHelperResponse::Success {
             face_id,
             similarity_score,
+            cached_authtok: None,
         },
         Ok(Ok(_)) => PamHelperResponse::Failure {
             reason: "Face not recognized".to_string(),
@@ -262,7 +275,7 @@ pub fn system_socket_path() -> String {
 /// `linux-hello-pam-autoconfigure` for user enumeration. No `getent`/NSS, so
 /// systemd-homed-only accounts (not real `/etc/passwd` lines) won't resolve;
 /// a documented limitation, not a bug.
-fn resolve_home_dir(uid: u32) -> Option<std::path::PathBuf> {
+pub(crate) fn resolve_home_dir(uid: u32) -> Option<std::path::PathBuf> {
     let content = std::fs::read_to_string("/etc/passwd").ok()?;
     for line in content.lines() {
         let mut fields = line.split(':');
@@ -384,7 +397,46 @@ async fn compute_verify_response(
                     )
                     .await;
 
-                    verify_outcome_to_response(result)
+                    // Only ever attempt to release a cached session password for
+                    // the SDDM login-screen context (the only context that runs
+                    // before pam_unix's own auth stack would otherwise populate
+                    // PAM_AUTHTOK — see docs/PAM_MODULE.md's password-cache
+                    // section) and only when this exact match used the
+                    // well-validated IR liveness path: a spoofed match now has a
+                    // materially bigger prize behind it (the user's real login
+                    // password, not just a session), so the weaker RGB-only
+                    // liveness fallback must never trigger release.
+                    let used_ir_liveness = matches!(
+                        &result,
+                        Ok(Ok(VerifyResult::Success {
+                            used_ir_liveness: true,
+                            ..
+                        }))
+                    );
+
+                    let mut response = verify_outcome_to_response(result);
+                    if let PamHelperResponse::Success { cached_authtok, .. } = &mut response {
+                        if req.context == "sddm" && used_ir_liveness {
+                            let uid = req.user_id;
+                            match tokio::task::spawn_blocking(move || {
+                                crate::secret_cache::release_for_match(uid)
+                            })
+                            .await
+                            {
+                                Ok(Ok(Some(password))) => *cached_authtok = Some(password),
+                                Ok(Ok(None)) => {}
+                                Ok(Err(e)) => warn!(
+                                    "secret_cache release failed for uid={}: {}",
+                                    uid, e
+                                ),
+                                Err(e) => warn!(
+                                    "secret_cache release task panicked for uid={}: {}",
+                                    uid, e
+                                ),
+                            }
+                        }
+                    }
+                    response
                 }
                 Err(e) => PamHelperResponse::Failure {
                     reason: e.to_string(),
@@ -466,6 +518,158 @@ async fn handle_system_pam_request(
     stream.write_all(response_json.as_bytes()).await?;
     stream.shutdown().await?;
 
+    Ok(())
+}
+
+// ============================================================================
+// Password-cache socket (TPM-sealed session-password cache)
+// ============================================================================
+//
+// A second, separate listener served by `hello-daemon-system` (root, the
+// only process with TPM access — see `secret_cache`'s module docs), used
+// exclusively by `linux-hello cache-password` (CLI and settings GUI) to
+// store a user's session password. Unlike the verify-only system socket
+// above, this one is reachable by any local user (mode 0666), same as the
+// per-user PAM helper socket — security relies on the peer-uid check inside
+// `handle_cache_request`, which only ever lets a user cache *their own*
+// password, never anyone else's (not even root can plant one on someone
+// else's behalf — root can already reset a password, but must not be able
+// to silently substitute a different cached secret for another user's
+// session).
+
+/// Request to seal (or refresh) a user's session password — see the module
+/// header above and `secret_cache`'s own docs for the full design.
+#[derive(Debug, Serialize, Deserialize)]
+struct CacheAuthtokRequest {
+    user_id: u32,
+    password: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+enum CacheAuthtokResponse {
+    Ok,
+    Error { reason: String },
+}
+
+/// Fixed socket path for the password-cache listener. Overridable via
+/// `LINUX_HELLO_CACHE_SOCKET_PATH` for testing, same convention as
+/// [`system_socket_path`].
+pub fn cache_socket_path() -> String {
+    std::env::var("LINUX_HELLO_CACHE_SOCKET_PATH")
+        .unwrap_or_else(|_| "/run/hello-pam/cache.socket".to_string())
+}
+
+/// Starts the password-cache socket listener. Only ever called from
+/// `hello-daemon-system`'s `main()` — sealing requires TPM access, which
+/// only that root-owned process has.
+pub async fn start_cache_helper() -> Result<(), Box<dyn std::error::Error>> {
+    let socket_path = cache_socket_path();
+    let _ = fs::remove_file(&socket_path);
+
+    let listener = UnixListener::bind(&socket_path)?;
+    info!("Password-cache helper listening on {}", socket_path);
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&socket_path, fs::Permissions::from_mode(0o666))?;
+    }
+
+    tokio::spawn(async move {
+        loop {
+            match listener.accept().await {
+                Ok((stream, _)) => {
+                    tokio::spawn(async move {
+                        if let Err(e) = handle_cache_request(stream).await {
+                            error!("Password-cache helper error: {}", e);
+                        }
+                    });
+                }
+                Err(e) => {
+                    error!("Password-cache helper accept error: {}", e);
+                    break;
+                }
+            }
+        }
+    });
+
+    Ok(())
+}
+
+async fn handle_cache_request(
+    mut stream: tokio::net::UnixStream,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    #[cfg(unix)]
+    let peer_uid: Option<u32> = stream.peer_cred().ok().map(|c| c.uid());
+    #[cfg(not(unix))]
+    let peer_uid: Option<u32> = None;
+
+    // Bounded read: a long password should still fit comfortably (8KiB),
+    // but an unbounded read would let a stalled/malicious peer tie up a
+    // connection indefinitely — same defense-in-depth posture as the system
+    // socket's own bound.
+    const MAX_REQUEST_BYTES: usize = 8192;
+    let mut buf = Vec::new();
+    let mut chunk = [0u8; 512];
+    loop {
+        let n = stream.read(&mut chunk).await?;
+        if n == 0 || buf.len() > MAX_REQUEST_BYTES {
+            break;
+        }
+        buf.extend_from_slice(&chunk[..n]);
+    }
+    if buf.is_empty() || buf.len() > MAX_REQUEST_BYTES {
+        return Ok(());
+    }
+
+    let req: CacheAuthtokRequest = serde_json::from_slice(&buf)?;
+
+    if peer_uid != Some(req.user_id) {
+        error!(
+            "Password-cache helper: connection refused — peer uid={:?} requested to cache a password for user_id={}",
+            peer_uid, req.user_id
+        );
+        let resp = CacheAuthtokResponse::Error {
+            reason: "Unauthorized: you may only cache your own password".to_string(),
+        };
+        stream
+            .write_all(serde_json::to_string(&resp)?.as_bytes())
+            .await?;
+        stream.shutdown().await?;
+        return Ok(());
+    }
+
+    let uid = req.user_id;
+    // zeroize's Drop wipes this the moment it goes out of scope, including
+    // on every early-return path above/below (the request buffer itself
+    // isn't wrapped since serde_json::from_slice already copied the
+    // password out of it into `req.password`, which this replaces).
+    let password = zeroize::Zeroizing::new(req.password);
+    let password_for_task = password.to_string();
+    let seal_result =
+        tokio::task::spawn_blocking(move || crate::secret_cache::seal_and_store(uid, &password_for_task))
+            .await;
+
+    let response = match seal_result {
+        Ok(Ok(())) => {
+            info!("Password-cache helper: cached a new session password for uid={}", uid);
+            CacheAuthtokResponse::Ok
+        }
+        Ok(Err(e)) => {
+            error!("Password-cache helper: seal_and_store failed for uid={}: {}", uid, e);
+            CacheAuthtokResponse::Error { reason: e.to_string() }
+        }
+        Err(e) => {
+            error!("Password-cache helper: seal_and_store task panicked for uid={}: {}", uid, e);
+            CacheAuthtokResponse::Error {
+                reason: "internal error".to_string(),
+            }
+        }
+    };
+    stream
+        .write_all(serde_json::to_string(&response)?.as_bytes())
+        .await?;
+    stream.shutdown().await?;
     Ok(())
 }
 
@@ -562,6 +766,7 @@ mod tests {
             PamHelperResponse::Success {
                 face_id: "face_1".to_string(),
                 similarity_score: 0.9,
+                cached_authtok: None,
             },
         )
         .await;
