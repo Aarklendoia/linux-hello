@@ -228,18 +228,21 @@ Kirigami.ScrollablePage {
                 onClicked: AppController.toggleSddm()
             }
 
-            // SDDM toggle error — no toast/notification system in this app
-            // yet, so a plain inline line is the simplest honest feedback
-            // for a failed/cancelled pkexec attempt. Right under the SDDM
-            // card itself (not after every card) so it reads as feedback on
-            // that specific action, not a general footnote.
-            Label {
-                visible: AppController.sddmError !== ""
-                text: sddmErrorText(AppController.sddmError)
-                font.pixelSize: 10
-                color: Kirigami.Theme.negativeTextColor
-                wrapMode: Text.WordWrap
-                Layout.fillWidth: true
+            // SDDM toggle feedback — a passive (auto-dismissing) notification
+            // rather than a permanent inline line, using Kirigami's own
+            // toast mechanism (no custom component needed). Cancelling
+            // pkexec's own prompt is treated as a silent no-op by
+            // toggleSddm() itself (see AppController.qml) — indistinguishable
+            // from a genuine auth failure at the process-exit-code level, but
+            // by far the more common reason this fires, so it's not worth
+            // alarming the user over. This notification only ever fires for
+            // an actual failure (script error, unreachable helper, etc.).
+            Connections {
+                target: AppController
+                function onSddmErrorChanged() {
+                    if (AppController.sddmError !== "")
+                        applicationWindow().showPassiveNotification(sddmErrorText(AppController.sddmError));
+                }
             }
 
             // SDDM only starts checking once a login attempt is actually

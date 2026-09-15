@@ -395,6 +395,26 @@ fn send_password_to_cache_socket(uid: u32, password: &str) -> Result<(), String>
     Err(extract_json_string_field(&response, "reason").unwrap_or_else(|| "unknown error".to_string()))
 }
 
+/// Asks `hello-daemon-system` (over the same cache socket, `password`
+/// omitted) whether `uid` already has a session password cached — see
+/// `send_password_to_cache_socket`'s doc comment for why this goes through
+/// the daemon rather than a direct file check. `None` on any I/O/protocol
+/// failure; callers treat that the same as "not cached" rather than
+/// surfacing a status-check failure as a user-visible error.
+fn query_cache_status(uid: u32) -> Option<bool> {
+    use std::io::{Read, Write};
+    use std::os::unix::net::UnixStream;
+
+    let mut stream = UnixStream::connect("/run/hello-pam/cache.socket").ok()?;
+    let request = format!(r#"{{"user_id":{}}}"#, uid);
+    stream.write_all(request.as_bytes()).ok()?;
+    stream.shutdown(std::net::Shutdown::Write).ok();
+
+    let mut response = String::new();
+    stream.read_to_string(&mut response).ok()?;
+    Some(response.contains("\"active\":true"))
+}
+
 /// Extracts a parameter from the query string of the first HTTP line.
 /// E.g.: "GET /delete-face?id=abc123 HTTP/1.1" → Some("abc123")
 fn extract_query_param(req: &str, param: &str) -> Option<String> {
@@ -741,9 +761,23 @@ fn handle_ctrl_connection(
             Ok(_) => ("200 OK", r#"{"ok":true}"#.to_string()),
             Err(err) => {
                 eprintln!("✗ {} failed: {}", flag, err);
+                // pkexec prints this exact "Not authorized" message both
+                // when the user dismisses its own auth dialog and when
+                // authentication genuinely fails — it gives no way to tell
+                // those apart from the exit status or stderr text alone.
+                // Collapsing both to one stable code lets the GUI treat this
+                // (usually deliberate) outcome quietly instead of alarming
+                // the user with polkit's own dramatic wording ("this
+                // incident has been reported to the appropriate
+                // authorities").
+                let error_code = if err.contains("Not authorized") {
+                    "sddm-error:cancelled".to_string()
+                } else {
+                    json_escape(&err)
+                };
                 (
                     "200 OK",
-                    format!(r#"{{"ok":false,"error":"{}"}}"#, json_escape(&err)),
+                    format!(r#"{{"ok":false,"error":"{}"}}"#, error_code),
                 )
             }
         }
@@ -751,20 +785,18 @@ fn handle_ctrl_connection(
         // Checked before the bare "/cache-password" branch below since that
         // string is a strict prefix of this route's path. No elevation
         // needed for either half: `available` is a connect() probe against
-        // a socket only root can bind, and `active` is a stat()-only
-        // existence check — Unix permissions let any process determine a
-        // file exists via its parent directory's search bit without read
-        // access to the (root-owned, 0600) file's own content.
+        // a socket only root can bind. `active` used to be a direct
+        // stat() of the encrypted blob under the user's own home
+        // directory — that broke once the blob moved into the root-only
+        // (0700) /var/lib/linux-hello/secrets/ alongside the TPM-sealed
+        // key (see hello_daemon::secret_cache's module docs): this
+        // unprivileged process can no longer even traverse into that
+        // directory to see the file, so it always read back as "not
+        // cached" regardless of the real state. Query hello-daemon-system
+        // over the same cache socket instead — it's the only process that
+        // can actually see in there.
         let available = std::path::Path::new("/run/hello-pam/cache.socket").exists();
-        let active = std::env::var("HOME")
-            .map(|home| {
-                std::path::Path::new(&home)
-                    .join(".local/share/linux-hello/users")
-                    .join(uid.to_string())
-                    .join("session-authtok.enc")
-                    .exists()
-            })
-            .unwrap_or(false);
+        let active = available && query_cache_status(uid).unwrap_or(false);
         (
             "200 OK",
             format!(r#"{{"available":{},"active":{}}}"#, available, active),

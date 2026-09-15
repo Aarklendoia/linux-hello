@@ -537,18 +537,24 @@ async fn handle_system_pam_request(
 // to silently substitute a different cached secret for another user's
 // session).
 
-/// Request to seal (or refresh) a user's session password — see the module
-/// header above and `secret_cache`'s own docs for the full design.
+/// Request to seal (or refresh) a user's session password, or — when
+/// `password` is omitted — just query whether one is already cached. The
+/// same peer-uid check applies either way: a user can seal or check only
+/// their own cache. Both `linux-hello cache-password` (CLI) and the
+/// settings GUI's own status check speak this one request shape.
 #[derive(Debug, Serialize, Deserialize)]
 struct CacheAuthtokRequest {
     user_id: u32,
-    password: String,
+    #[serde(default)]
+    password: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 enum CacheAuthtokResponse {
     Ok,
     Error { reason: String },
+    /// Answer to a status-only request (`password` omitted).
+    Status { active: bool },
 }
 
 /// Fixed socket path for the password-cache listener. Overridable via
@@ -640,29 +646,42 @@ async fn handle_cache_request(
     }
 
     let uid = req.user_id;
-    // zeroize's Drop wipes this the moment it goes out of scope, including
-    // on every early-return path above/below (the request buffer itself
-    // isn't wrapped since serde_json::from_slice already copied the
-    // password out of it into `req.password`, which this replaces).
-    let password = zeroize::Zeroizing::new(req.password);
-    let password_for_task = password.to_string();
-    let seal_result =
-        tokio::task::spawn_blocking(move || crate::secret_cache::seal_and_store(uid, &password_for_task))
+    let response = match req.password {
+        None => {
+            let active =
+                tokio::task::spawn_blocking(move || crate::secret_cache::has_cached_password(uid))
+                    .await
+                    .unwrap_or(false);
+            CacheAuthtokResponse::Status { active }
+        }
+        Some(password) => {
+            // zeroize's Drop wipes this the moment it goes out of scope,
+            // including on every early-return path above/below (the request
+            // buffer itself isn't wrapped since serde_json::from_slice
+            // already copied the password out of it into `req.password`,
+            // which this replaces).
+            let password = zeroize::Zeroizing::new(password);
+            let password_for_task = password.to_string();
+            let seal_result = tokio::task::spawn_blocking(move || {
+                crate::secret_cache::seal_and_store(uid, &password_for_task)
+            })
             .await;
 
-    let response = match seal_result {
-        Ok(Ok(())) => {
-            info!("Password-cache helper: cached a new session password for uid={}", uid);
-            CacheAuthtokResponse::Ok
-        }
-        Ok(Err(e)) => {
-            error!("Password-cache helper: seal_and_store failed for uid={}: {}", uid, e);
-            CacheAuthtokResponse::Error { reason: e.to_string() }
-        }
-        Err(e) => {
-            error!("Password-cache helper: seal_and_store task panicked for uid={}: {}", uid, e);
-            CacheAuthtokResponse::Error {
-                reason: "internal error".to_string(),
+            match seal_result {
+                Ok(Ok(())) => {
+                    info!("Password-cache helper: cached a new session password for uid={}", uid);
+                    CacheAuthtokResponse::Ok
+                }
+                Ok(Err(e)) => {
+                    error!("Password-cache helper: seal_and_store failed for uid={}: {}", uid, e);
+                    CacheAuthtokResponse::Error { reason: e.to_string() }
+                }
+                Err(e) => {
+                    error!("Password-cache helper: seal_and_store task panicked for uid={}: {}", uid, e);
+                    CacheAuthtokResponse::Error {
+                        reason: "internal error".to_string(),
+                    }
+                }
             }
         }
     };
@@ -967,7 +986,7 @@ mod tests {
         let response: CacheAuthtokResponse = serde_json::from_slice(&buf).unwrap();
         match response {
             CacheAuthtokResponse::Error { reason } => assert!(reason.contains("Unauthorized")),
-            CacheAuthtokResponse::Ok => panic!("expected Error: user_id didn't match the peer uid"),
+            other => panic!("expected Error: user_id didn't match the peer uid, got {other:?}"),
         }
     }
 
@@ -988,6 +1007,25 @@ mod tests {
         std::env::set_var("LINUX_HELLO_SECRETS_DIR", secrets_dir.path());
 
         let uid = my_uid();
+
+        // Status query before anything is cached: this is the exact path
+        // linux_hello_config's /cache-password-status route depends on to
+        // report the "Cache session password" card's active/inactive state
+        // — regressed once by a stale direct file check against a path this
+        // socket no longer uses (see secret_cache's module docs).
+        let (a, mut b) = tokio::net::UnixStream::pair().unwrap();
+        let req = serde_json::json!({ "user_id": uid });
+        b.write_all(req.to_string().as_bytes()).await.unwrap();
+        b.shutdown().await.unwrap();
+        handle_cache_request(a).await.unwrap();
+        let mut buf = Vec::new();
+        b.read_to_end(&mut buf).await.unwrap();
+        let response: CacheAuthtokResponse = serde_json::from_slice(&buf).unwrap();
+        assert!(
+            matches!(response, CacheAuthtokResponse::Status { active: false }),
+            "expected Status{{active: false}} before sealing, got {response:?}"
+        );
+
         let (a, mut b) = tokio::net::UnixStream::pair().unwrap();
         let req = serde_json::json!({ "user_id": uid, "password": "correct horse battery staple" });
         b.write_all(req.to_string().as_bytes()).await.unwrap();
@@ -1001,6 +1039,20 @@ mod tests {
         assert!(
             matches!(response, CacheAuthtokResponse::Ok),
             "expected Ok, got {response:?}"
+        );
+
+        // Status query again, now that a password is cached.
+        let (a, mut b) = tokio::net::UnixStream::pair().unwrap();
+        let req = serde_json::json!({ "user_id": uid });
+        b.write_all(req.to_string().as_bytes()).await.unwrap();
+        b.shutdown().await.unwrap();
+        handle_cache_request(a).await.unwrap();
+        let mut buf = Vec::new();
+        b.read_to_end(&mut buf).await.unwrap();
+        let response: CacheAuthtokResponse = serde_json::from_slice(&buf).unwrap();
+        assert!(
+            matches!(response, CacheAuthtokResponse::Status { active: true }),
+            "expected Status{{active: true}} after sealing, got {response:?}"
         );
 
         let released = crate::secret_cache::release_for_match(uid).unwrap();

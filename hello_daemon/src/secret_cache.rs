@@ -487,6 +487,17 @@ pub fn seal_and_store(uid: u32, password: &str) -> Result<(), SecretCacheError> 
     Ok(())
 }
 
+/// Whether `uid` already has a cached session password — a cheap existence
+/// check (two `stat()`s, no TPM I/O), for reporting status to the CLI/GUI.
+/// Deliberately not a plain `Path::exists()` call from those unprivileged
+/// processes themselves: `/var/lib/linux-hello/secrets/` is root-only
+/// (0700), so only `hello-daemon-system` can actually see into it — this is
+/// exposed through the cache socket's status query instead (see
+/// `pam_helper::handle_cache_request`).
+pub fn has_cached_password(uid: u32) -> bool {
+    sealed_key_path(uid).exists() && encrypted_authtok_path(uid).exists()
+}
+
 /// Attempts to release the cached password for `uid`, assuming a face match
 /// for that uid *just* succeeded. Returns `Ok(None)` — never an error — for
 /// "no cache exists", so callers treat that identically to nothing-to-do.

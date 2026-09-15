@@ -234,8 +234,21 @@ QtObject {
                     // I18n.tr() at display time (this singleton doesn't
                     // import Linux.Hello itself, to avoid a self-referential
                     // module import).
-                    if (!resp.ok)
-                        controller.sddmError = resp.error || "sddm-error:unknown";
+                    if (!resp.ok) {
+                        // "sddm-error:cancelled": the backend's own signature
+                        // match for pkexec's "Not authorized" output, which
+                        // it prints identically whether the user dismissed
+                        // the prompt or genuinely failed to authenticate —
+                        // there's no way to tell those apart from here. Since
+                        // dismissing it deliberately is by far the more
+                        // common case, this is treated as a silent no-op
+                        // (checkSddmStatus() below still restores the
+                        // correct toggle state either way) rather than
+                        // surfacing a notification for what's usually just
+                        // "changed my mind".
+                        if (resp.error !== "sddm-error:cancelled")
+                            controller.sddmError = resp.error || "sddm-error:unknown";
+                    }
                 } catch (e) {
                     controller.sddmError = "sddm-error:invalid-response";
                 }
