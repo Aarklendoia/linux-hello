@@ -99,6 +99,31 @@ There is also no click-automation tool (`xdotool` etc.) installed. Ask the user 
 themselves and describe/screenshot what they see, rather than attempting to drive or capture the
 GUI directly.
 
+## Local package testing gotcha: PackageKit silently reverts to the PPA build
+
+This project publishes to a real Launchpad PPA (see the Launchpad-related memory entries), which
+is configured as an apt source on the dev machine. A locally built `.deb` for testing (via
+`dpkg-buildpackage`) inherits `debian/changelog`'s version — typically far *lower* than whatever
+is already published on the PPA (e.g. local `1.0.6-1` vs. published `1.6.3~ppa1~resolute1`).
+`dpkg -i`/`apt install --reinstall` will still install it, but to apt/PackageKit it now looks like
+an *out-of-date* package — the next background update check (KDE Discover/PackageKit's
+`packagekit role='update-packages'` job, which runs periodically and unattended) will silently
+reinstall the PPA version right over it, with no prompt and no obviously-related log message
+(`grep linux-hello /var/log/apt/history.log` is what actually surfaces it). This burned real
+debugging time in this session: a fix looked "un-applied" on reboot when it had actually been
+silently reverted minutes after installing it.
+
+Mitigation while iterating on local builds:
+
+```fish
+sudo apt-mark hold linux-hello linux-hello-daemon linux-hello-gui linux-hello-models linux-hello-tools libpam-linux-hello
+```
+
+Run this **after** installing the local build, not before — `apt install --reinstall` (and plain
+`apt install`) on a package clears its hold as a side effect, so holding first and reinstalling
+second silently undoes the hold. Un-hold the same list once done testing so the PPA build (and
+real users) aren't affected: `sudo apt-mark unhold ...`.
+
 ## i18n
 
 `linux_hello_config/qml/i18n/*.json`, one file per one of 10 supported languages
