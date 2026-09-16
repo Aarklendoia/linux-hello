@@ -49,7 +49,8 @@
         "previewValidating": "Validating…",
         "previewSuccess": "✓ Face registered successfully!",
         "previewError": "✗ Error:",
-        "noIrWarning": "This camera has no infrared sensor: anti-spoofing liveness checks fall back to a weaker, RGB-only heuristic, so security is more vulnerable to a photo/video spoof than with infrared."
+        "noIrWarning": "This camera has no infrared sensor: anti-spoofing liveness checks fall back to a weaker, RGB-only heuristic, so security is more vulnerable to a photo/video spoof than with infrared.",
+        "noTpmWarning": "This machine has no usable TPM, or the TPM access broker (tpm2-abrmd) isn't installed: your enrolled face data is stored in plaintext instead of TPM-sealed. Consider enabling your TPM in the BIOS/UEFI, or installing tpm2-abrmd, for better protection against offline disk theft."
     },
     "manageFaces": {
         "title": "Manage Faces",

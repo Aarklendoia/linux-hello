@@ -48,7 +48,8 @@
         "previewValidating": "検証中…",
         "previewSuccess": "✓ 顔の登録に成功しました！",
         "previewError": "✗ エラー:",
-        "noIrWarning": "このカメラには赤外線センサーがありません。なりすまし防止のライブネスチェックは、代わりに精度の低いRGBのみのヒューリスティックにフォールバックするため、赤外線がある場合に比べて写真や動画によるなりすましに対して脆弱です。"
+        "noIrWarning": "このカメラには赤外線センサーがありません。なりすまし防止のライブネスチェックは、代わりに精度の低いRGBのみのヒューリスティックにフォールバックするため、赤外線がある場合に比べて写真や動画によるなりすましに対して脆弱です。",
+        "noTpmWarning": "This machine has no usable TPM, or the TPM access broker (tpm2-abrmd) isn't installed: your enrolled face data is stored in plaintext instead of TPM-sealed. Consider enabling your TPM in the BIOS/UEFI, or installing tpm2-abrmd, for better protection against offline disk theft."
     },
     "manageFaces": {
         "title": "顔を管理",

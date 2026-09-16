@@ -226,6 +226,29 @@ impl FaceAuthInterface {
         Ok(format!(r#"{{"has_ir":{}}}"#, has_ir))
     }
 
+    /// Whether face embeddings are currently being encrypted at rest — a TPM
+    /// (and, for this non-root daemon, a reachable `tpm2-abrmd`) must be
+    /// available (see `embedding_cipher`'s module docs and
+    /// https://github.com/Aarklendoia/linux-hello/issues/152). Same
+    /// "disclose a hardware/environment limitation where the user makes the
+    /// relevant choice" convention as `camera_info`'s IR warning — the GUI
+    /// uses this to warn on the enrollment screen when it's `false`.
+    ///
+    /// Real TPM I/O (`spawn_blocking`, no daemon lock held for it — this
+    /// doesn't depend on any daemon state).
+    ///
+    /// # Returns
+    /// JSON `{"encrypted": bool}`
+    pub async fn embedding_encryption_info(&self) -> zbus::fdo::Result<String> {
+        debug!("D-Bus call: embedding_encryption_info");
+        let is_root = unsafe { libc::getuid() } == 0;
+        let encrypted =
+            tokio::task::spawn_blocking(move || crate::embedding_cipher::probe(is_root))
+                .await
+                .unwrap_or(false);
+        Ok(format!(r#"{{"encrypted":{}}}"#, encrypted))
+    }
+
     /// Best-effort, in-memory snapshot of the most recent preview frame's
     /// face-detection outcome — cheap enough to poll frequently (no camera
     /// I/O, just reading `CameraManager::live_status()`'s mutex). Only
@@ -485,6 +508,17 @@ mod tests {
         let json = iface.camera_info().await.unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert!(parsed.get("has_ir").is_some());
+    }
+
+    #[tokio::test]
+    async fn test_embedding_encryption_info_returns_well_formed_json() {
+        // No TPM in the test sandbox — this just checks the JSON shape
+        // (probe()'s own encrypt-or-fall-back-to-plaintext behavior is
+        // covered directly in embedding_cipher's and storage's tests).
+        let (_temp, iface) = test_interface();
+        let json = iface.embedding_encryption_info().await.unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert!(parsed.get("encrypted").is_some());
     }
 
     #[tokio::test]

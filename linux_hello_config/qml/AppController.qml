@@ -38,6 +38,15 @@ QtObject {
     // /camera-info's own fail-open comment in main.rs).
     property bool hasIrCamera: true
 
+    // Whether face embeddings are currently being encrypted at rest (a TPM,
+    // and for this non-root daemon a reachable tpm2-abrmd, must be
+    // available) — drives Enrollment.qml's own warning banner when they
+    // aren't. Defaults permissive for the same reason hasIrCamera does: no
+    // false warning before this loads, or if the daemon is briefly
+    // unreachable (see /embedding-encryption-info's own fail-open comment
+    // in main.rs).
+    property bool embeddingsEncrypted: true
+
     // About screen — populated from Cargo.toml via the control server's
     // /app-info route (see main.rs's APP_VERSION/APP_LICENSE/APP_AUTHORS),
     // never hand-typed here. licenseText is loaded lazily (only once the
@@ -132,6 +141,7 @@ QtObject {
         checkPasswordCacheStatus();
         loadFaces();
         loadCameraInfo();
+        loadEmbeddingEncryptionInfo();
         loadAppInfo();
     }
 
@@ -496,6 +506,30 @@ QtObject {
                     controller.hasIrCamera = resp.has_ir !== false;
                 } catch (e) {
                     console.log("✗ Error parsing camera info:", e);
+                }
+            }
+        };
+        xhr.send();
+    }
+
+    // Whether face embeddings are currently encrypted at rest — drives
+    // Enrollment.qml's own warning banner. Same fail-open reasoning as the
+    // route itself: an unreachable daemon here shouldn't flash a false
+    // warning.
+    function loadEmbeddingEncryptionInfo() {
+        if (ctrlPort === "0")
+            return;
+        var xhr = new XMLHttpRequest();
+        openAuthedRequest(xhr, "/embedding-encryption-info");
+        xhr.onreadystatechange = function () {
+            if (xhr.readyState !== XMLHttpRequest.DONE)
+                return;
+            if (xhr.status === 200) {
+                try {
+                    var resp = JSON.parse(xhr.responseText);
+                    controller.embeddingsEncrypted = resp.encrypted !== false;
+                } catch (e) {
+                    console.log("✗ Error parsing embedding encryption info:", e);
                 }
             }
         };

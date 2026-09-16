@@ -48,7 +48,8 @@
         "previewValidating": "Validando…",
         "previewSuccess": "✓ ¡Rostro registrado correctamente!",
         "previewError": "✗ Error:",
-        "noIrWarning": "Esta cámara no tiene sensor infrarrojo: la verificación anti-suplantación recurre a una heurística más débil basada solo en RGB, por lo que la seguridad es más vulnerable a la suplantación por foto o vídeo que con infrarrojos."
+        "noIrWarning": "Esta cámara no tiene sensor infrarrojo: la verificación anti-suplantación recurre a una heurística más débil basada solo en RGB, por lo que la seguridad es más vulnerable a la suplantación por foto o vídeo que con infrarrojos.",
+        "noTpmWarning": "This machine has no usable TPM, or the TPM access broker (tpm2-abrmd) isn't installed: your enrolled face data is stored in plaintext instead of TPM-sealed. Consider enabling your TPM in the BIOS/UEFI, or installing tpm2-abrmd, for better protection against offline disk theft."
     },
     "manageFaces": {
         "title": "Gestionar rostros",

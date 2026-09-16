@@ -48,7 +48,8 @@
         "previewValidating": "सत्यापन हो रहा है…",
         "previewSuccess": "✓ चेहरा सफलतापूर्वक पंजीकृत हुआ!",
         "previewError": "✗ त्रुटि:",
-        "noIrWarning": "इस कैमरे में इन्फ्रारेड सेंसर नहीं है: एंटी-स्पूफिंग लाइवनेस जांच इसके बजाय एक कमजोर, केवल RGB-आधारित तरीके पर निर्भर करती है, जिससे सुरक्षा इन्फ्रारेड की तुलना में फोटो/वीडियो स्पूफिंग के प्रति अधिक संवेदनशील हो जाती है।"
+        "noIrWarning": "इस कैमरे में इन्फ्रारेड सेंसर नहीं है: एंटी-स्पूफिंग लाइवनेस जांच इसके बजाय एक कमजोर, केवल RGB-आधारित तरीके पर निर्भर करती है, जिससे सुरक्षा इन्फ्रारेड की तुलना में फोटो/वीडियो स्पूफिंग के प्रति अधिक संवेदनशील हो जाती है।",
+        "noTpmWarning": "This machine has no usable TPM, or the TPM access broker (tpm2-abrmd) isn't installed: your enrolled face data is stored in plaintext instead of TPM-sealed. Consider enabling your TPM in the BIOS/UEFI, or installing tpm2-abrmd, for better protection against offline disk theft."
     },
     "manageFaces": {
         "title": "चेहरों को प्रबंधित करें",

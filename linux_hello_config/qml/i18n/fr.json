@@ -49,7 +49,8 @@
         "previewValidating": "Validation en cours…",
         "previewSuccess": "✓ Visage enregistré avec succès !",
         "previewError": "✗ Erreur :",
-        "noIrWarning": "Cette caméra n'a pas de capteur infrarouge : la vérification anti-usurpation repose à la place sur une heuristique plus faible basée uniquement sur l'image RGB, ce qui la rend plus vulnérable à une usurpation par photo ou vidéo qu'avec un capteur infrarouge."
+        "noIrWarning": "Cette caméra n'a pas de capteur infrarouge : la vérification anti-usurpation repose à la place sur une heuristique plus faible basée uniquement sur l'image RGB, ce qui la rend plus vulnérable à une usurpation par photo ou vidéo qu'avec un capteur infrarouge.",
+        "noTpmWarning": "Cette machine n'a pas de TPM utilisable, ou le service d'accès au TPM (tpm2-abrmd) n'est pas installé : vos visages enregistrés sont stockés en clair plutôt que scellés par le TPM. Envisagez d'activer le TPM dans le BIOS/UEFI, ou d'installer tpm2-abrmd, pour une meilleure protection contre le vol de disque hors ligne."
     },
     "manageFaces": {
         "title": "Gérer les visages",
