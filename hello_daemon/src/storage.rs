@@ -2,9 +2,22 @@
 //!
 //! - SQLite for metadata (user_id, face_id, quality_score, registered_at)
 //! - JSON files for embeddings (for flexibility)
+//!
+//! # Embedding encryption at rest (#152)
+//!
+//! Embedding *vectors* (never the `.meta.json` bookkeeping — see
+//! `FaceRecord`'s own doc comment) are encrypted with a TPM-sealed key when
+//! one is available, falling back to today's plaintext `.embedding.json`
+//! when it isn't — enrollment must never fail because of this. See
+//! [`crate::embedding_cipher`]'s module doc for the full design: two
+//! independent copies (this module's own `.embedding.enc`, and a
+//! completely separate one root's `hello-daemon-system` seals for itself
+//! under [`root_embeddings_dir`], relayed here via
+//! [`push_root_embedding`]/[`delete_root_embedding`] — never read back from
+//! this process).
 
 use crate::security_util::write_owner_only_file;
-use crate::{DaemonError, FaceRecord};
+use crate::{embedding_cipher, DaemonError, FaceRecord};
 use hello_face_core::Embedding;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -22,6 +35,26 @@ fn harden_dir(path: &Path) -> Result<(), DaemonError> {
         .map_err(|e| DaemonError::StorageError(format!("chmod 700 on {}: {}", path.display(), e)))
 }
 
+/// Which independently-sealed copy of embedding data a [`FaceStorage`]
+/// instance reads/writes — see the module doc for why there are two. Never
+/// exposed outside this module: callers just get a `FaceStorage` from the
+/// right constructor and use it identically either way.
+enum EmbeddingSource {
+    /// The normal case: a per-user `hello-daemon`'s own storage tree
+    /// (`base_path/users/<uid>/<face_id>.embedding.{enc,json}`), or a plain
+    /// `open_read_only` for testing/tooling. Encrypted with a key this same
+    /// process seals for itself (root, if this process happens to run as
+    /// uid 0, e.g. a literal root account's own `hello-daemon`; a
+    /// `tpm2-abrmd`-brokered one otherwise).
+    OwnPrincipal,
+    /// Root's `hello-daemon-system`, verifying a `context=sddm` match for
+    /// `uid`. Never reads embeddings from the target user's home directory
+    /// at all — only from root's own independently-sealed copy under
+    /// [`root_embeddings_dir`], pushed there ahead of time by that user's
+    /// own `hello-daemon` (see `pam_helper`'s embedding-relay socket).
+    RootRelayStore { uid: u32 },
+}
+
 /// Face storage manager
 pub struct FaceStorage {
     /// Root storage directory
@@ -30,6 +63,8 @@ pub struct FaceStorage {
     /// Path to the SQLite DB
     #[allow(dead_code)]
     db_path: PathBuf,
+
+    embedding_source: EmbeddingSource,
 }
 
 impl FaceStorage {
@@ -44,7 +79,11 @@ impl FaceStorage {
 
         let db_path = base_path.join("faces.db");
 
-        let storage = Self { base_path, db_path };
+        let storage = Self {
+            base_path,
+            db_path,
+            embedding_source: EmbeddingSource::OwnPrincipal,
+        };
 
         // Initialize the DB if it doesn't exist
         storage.init_db()?;
@@ -56,17 +95,47 @@ impl FaceStorage {
     ///
     /// Returns `Ok(None)` if `base_path` doesn't exist yet (e.g. the user has
     /// never enrolled). Unlike `new()`, this never calls `create_dir_all` —
-    /// used by the SDDM system listener, which reads an arbitrary,
-    /// not-yet-authenticated user's home directory and must never create
-    /// directories there as a side effect of a failed or in-progress login
-    /// attempt.
+    /// used by tooling/tests that only need to read an existing tree.
     pub fn open_read_only(base_path: impl AsRef<Path>) -> Result<Option<Self>, DaemonError> {
         let base_path = base_path.as_ref().to_path_buf();
         if !base_path.is_dir() {
             return Ok(None);
         }
         let db_path = base_path.join("faces.db");
-        Ok(Some(Self { base_path, db_path }))
+        Ok(Some(Self {
+            base_path,
+            db_path,
+            embedding_source: EmbeddingSource::OwnPrincipal,
+        }))
+    }
+
+    /// Opens `target_home_base` (an arbitrary, not-yet-authenticated user's
+    /// home directory) for `context=sddm` verification from root's
+    /// `hello-daemon-system` — the one caller allowed to read someone else's
+    /// storage tree. Returns `Ok(None)`, creating nothing, if it doesn't
+    /// exist yet, same contract as [`open_read_only`](Self::open_read_only).
+    ///
+    /// Unlike every other constructor, embeddings are **never** read from
+    /// `target_home_base` itself here — only `.meta.json` bookkeeping is.
+    /// The actual embedding vectors come from root's own independently-
+    /// sealed copy (see [`EmbeddingSource::RootRelayStore`]), so a
+    /// not-yet-synced face is simply absent from what `load_face_embeddings`
+    /// returns, degrading to "no match" rather than reading (or failing to
+    /// read) anything under the target user's home.
+    pub fn open_read_only_for_system_verify(
+        target_home_base: impl AsRef<Path>,
+        uid: u32,
+    ) -> Result<Option<Self>, DaemonError> {
+        let base_path = target_home_base.as_ref().to_path_buf();
+        if !base_path.is_dir() {
+            return Ok(None);
+        }
+        let db_path = base_path.join("faces.db");
+        Ok(Some(Self {
+            base_path,
+            db_path,
+            embedding_source: EmbeddingSource::RootRelayStore { uid },
+        }))
     }
 
     /// Initialize the SQLite structure
@@ -115,11 +184,77 @@ impl FaceStorage {
         })?;
         debug!("save_face: metadata written to {}", metadata_path.display());
 
-        // Save the embedding
-        let embedding_path = face_path(&user_dir, &record.face_id, ".embedding.json")?;
-        let embedding_json =
-            serde_json::to_string_pretty(&embedding).map_err(DaemonError::JsonError)?;
+        // Save the embedding — encrypted under this tree's own TPM-sealed
+        // key when one is available, plaintext (as before) otherwise.
+        // Enrollment must never fail because of this: any failure getting
+        // or using a key just falls back to plaintext rather than
+        // propagating an error.
+        let is_root = unsafe { libc::getuid() } == 0;
+        let key_result = match self.own_embedding_key_path() {
+            Ok(path) => embedding_cipher::load_or_create_key(&path, is_root)
+                .map_err(|e| DaemonError::StorageError(e.to_string())),
+            Err(e) => Err(e),
+        };
+        match key_result {
+            Ok(key) => match embedding_cipher::encrypt_embedding(
+                &key,
+                embedding,
+                record.user_id,
+                &record.face_id,
+            ) {
+                Ok(ciphertext) => {
+                    let enc_path = face_path(&user_dir, &record.face_id, ".embedding.enc")?;
+                    write_owner_only_file(&enc_path, &ciphertext).map_err(|e| {
+                        warn!(
+                            "save_face: failed to write encrypted embedding to {}: {}",
+                            enc_path.display(),
+                            e
+                        );
+                        DaemonError::StorageError(format!("write {}: {}", enc_path.display(), e))
+                    })?;
+                    debug!(
+                        "save_face: encrypted embedding written to {}",
+                        enc_path.display()
+                    );
+                }
+                Err(e) => {
+                    warn!(
+                        "save_face: embedding encryption failed ({}), falling back to plaintext",
+                        e
+                    );
+                    self.write_plaintext_embedding(&user_dir, record, embedding)?;
+                }
+            },
+            Err(e) => {
+                debug!(
+                    "save_face: no TPM/key available ({}), storing embedding in plaintext",
+                    e
+                );
+                self.write_plaintext_embedding(&user_dir, record, embedding)?;
+            }
+        }
 
+        info!(
+            "Face saved: user_id={}, face_id={} ({})",
+            record.user_id,
+            record.face_id,
+            metadata_path.display(),
+        );
+
+        Ok(())
+    }
+
+    /// Plaintext embedding write — the pre-#152 behavior, kept as the
+    /// fallback when no TPM-sealed key is available.
+    fn write_plaintext_embedding(
+        &self,
+        user_dir: &Path,
+        record: &FaceRecord,
+        embedding: &Embedding,
+    ) -> Result<(), DaemonError> {
+        let embedding_path = face_path(user_dir, &record.face_id, ".embedding.json")?;
+        let embedding_json =
+            serde_json::to_string_pretty(embedding).map_err(DaemonError::JsonError)?;
         write_owner_only_file(&embedding_path, &embedding_json).map_err(|e| {
             warn!(
                 "save_face: failed to write embedding to {}: {}",
@@ -132,16 +267,19 @@ impl FaceStorage {
             "save_face: embedding written to {}",
             embedding_path.display()
         );
-
-        info!(
-            "Face saved: user_id={}, face_id={} ({} and {})",
-            record.user_id,
-            record.face_id,
-            metadata_path.display(),
-            embedding_path.display()
-        );
-
         Ok(())
+    }
+
+    /// Path to this tree's own TPM-sealed embedding-encryption key —
+    /// `base_path/secrets/embedding-key.tpm-sealed`. Ensures (and hardens)
+    /// the containing directory exists; the key file itself may not exist
+    /// yet (created lazily by `embedding_cipher::load_or_create_key`).
+    fn own_embedding_key_path(&self) -> Result<PathBuf, DaemonError> {
+        let dir = self.base_path.join("secrets");
+        std::fs::create_dir_all(&dir)
+            .map_err(|e| DaemonError::StorageError(format!("secrets dir creation: {}", e)))?;
+        harden_dir(&dir)?;
+        Ok(dir.join("embedding-key.tpm-sealed"))
     }
 
     /// Load an embedding by face_id
@@ -151,41 +289,157 @@ impl FaceStorage {
         face_id: &str,
     ) -> Result<Embedding, DaemonError> {
         let user_dir = self.user_dir(user_id)?;
-        Self::load_face_embedding_from_dir(&user_dir, face_id)
+        self.load_face_embedding_from_dir(&user_dir, user_id, face_id, None)
     }
 
     /// Load several embeddings for the same user in one call — resolves
-    /// (and `canonicalize`s) `user_dir` once up front instead of once per
-    /// `face_id`, unlike calling `load_face_embedding` in a loop. Used by
-    /// `verify_with_storage`, which otherwise re-resolved the identical
-    /// directory once per registered face on every single verify() attempt.
+    /// (and `canonicalize`s) `user_dir`, and unseals the decryption key,
+    /// once up front instead of once per `face_id`, unlike calling
+    /// `load_face_embedding` in a loop (a real TPM round trip is not cheap).
+    /// Used by `verify_with_storage`.
+    ///
+    /// Skips (with a `warn!`) any face that can't be read or decrypted
+    /// instead of failing the whole batch — a `RootRelayStore` face root
+    /// hasn't received a synced copy of yet, or an `OwnPrincipal` face whose
+    /// key currently can't be unsealed (e.g. `tpm2-abrmd` briefly down),
+    /// just ends up absent from the result. `verify_with_storage`'s
+    /// existing "no faces to compare against" path already degrades that to
+    /// a plain non-match, so this never turns a partial availability
+    /// problem into a hard failure of the whole verify attempt.
     pub fn load_face_embeddings(
         &self,
         user_id: u32,
         face_ids: impl IntoIterator<Item = impl AsRef<str>>,
     ) -> Result<std::collections::HashMap<String, Embedding>, DaemonError> {
         let user_dir = self.user_dir(user_id)?;
-        face_ids
-            .into_iter()
-            .map(|face_id| {
-                let face_id = face_id.as_ref();
-                let embedding = Self::load_face_embedding_from_dir(&user_dir, face_id)?;
-                Ok((face_id.to_string(), embedding))
-            })
-            .collect()
+        let is_root = unsafe { libc::getuid() } == 0;
+        let cached_key: Option<[u8; 32]> = match &self.embedding_source {
+            EmbeddingSource::OwnPrincipal => self
+                .own_embedding_key_path()
+                .ok()
+                .and_then(|path| embedding_cipher::load_key(&path, is_root).ok()),
+            EmbeddingSource::RootRelayStore { uid } => {
+                embedding_cipher::load_key(&root_embedding_key_path(*uid), true).ok()
+            }
+        };
+
+        let mut out = std::collections::HashMap::new();
+        for face_id in face_ids {
+            let face_id = face_id.as_ref();
+            match self.load_face_embedding_from_dir(
+                &user_dir,
+                user_id,
+                face_id,
+                cached_key.as_ref(),
+            ) {
+                Ok(embedding) => {
+                    out.insert(face_id.to_string(), embedding);
+                }
+                Err(e) => warn!(
+                    "load_face_embeddings: skipping user_id={} face_id={}: {}",
+                    user_id, face_id, e
+                ),
+            }
+        }
+        Ok(out)
     }
 
     fn load_face_embedding_from_dir(
+        &self,
         user_dir: &Path,
+        user_id: u32,
         face_id: &str,
+        cached_key: Option<&[u8; 32]>,
     ) -> Result<Embedding, DaemonError> {
-        let embedding_path = face_path(user_dir, face_id, ".embedding.json")?;
+        match &self.embedding_source {
+            EmbeddingSource::RootRelayStore { uid } => {
+                let uid = *uid;
+                let key = match cached_key {
+                    Some(k) => *k,
+                    None => embedding_cipher::load_key(&root_embedding_key_path(uid), true)
+                        .map_err(|e| {
+                            DaemonError::StorageError(format!("root embedding key: {}", e))
+                        })?,
+                };
+                let path = face_path(&root_embeddings_dir(uid), face_id, ".embedding.enc")?;
+                let ciphertext = std::fs::read(&path).map_err(|e| {
+                    DaemonError::StorageError(format!("root embedding read: {}", e))
+                })?;
+                embedding_cipher::decrypt_embedding(&key, &ciphertext, uid, face_id).map_err(|e| {
+                    DaemonError::StorageError(format!("root embedding decrypt: {}", e))
+                })
+            }
+            EmbeddingSource::OwnPrincipal => {
+                self.load_own_embedding_from_dir(user_dir, user_id, face_id, cached_key)
+            }
+        }
+    }
 
-        let content = std::fs::read_to_string(&embedding_path)
+    /// `OwnPrincipal` read path: prefers `<face_id>.embedding.enc`, falling
+    /// back to the legacy plaintext `<face_id>.embedding.json` and
+    /// opportunistically migrating it in place — best-effort, never fails
+    /// this read even if migration itself fails (e.g. no TPM/key currently
+    /// available; the next read tries again).
+    fn load_own_embedding_from_dir(
+        &self,
+        user_dir: &Path,
+        user_id: u32,
+        face_id: &str,
+        cached_key: Option<&[u8; 32]>,
+    ) -> Result<Embedding, DaemonError> {
+        let enc_path = face_path(user_dir, face_id, ".embedding.enc")?;
+        let legacy_path = face_path(user_dir, face_id, ".embedding.json")?;
+        let is_root = unsafe { libc::getuid() } == 0;
+
+        if enc_path.exists() {
+            let ciphertext = std::fs::read(&enc_path)
+                .map_err(|e| DaemonError::StorageError(format!("Embedding read: {}", e)))?;
+            let key = match cached_key {
+                Some(k) => *k,
+                None => {
+                    let key_path = self.own_embedding_key_path()?;
+                    embedding_cipher::load_key(&key_path, is_root).map_err(|e| {
+                        DaemonError::StorageError(format!("embedding key unavailable: {}", e))
+                    })?
+                }
+            };
+            let embedding =
+                embedding_cipher::decrypt_embedding(&key, &ciphertext, user_id, face_id)
+                    .map_err(|e| DaemonError::StorageError(format!("embedding decrypt: {}", e)))?;
+            // Self-heal: an interrupted earlier migration can leave both an
+            // .enc and a stale .json for the same face — .enc always wins
+            // on read, so an orphaned plaintext copy is just dead weight,
+            // removed opportunistically once we know it's safe to.
+            if legacy_path.exists() {
+                let _ = std::fs::remove_file(&legacy_path);
+            }
+            return Ok(embedding);
+        }
+
+        let content = std::fs::read_to_string(&legacy_path)
             .map_err(|e| DaemonError::StorageError(format!("Embedding read: {}", e)))?;
-
-        let embedding: hello_face_core::Embedding =
+        let embedding: Embedding =
             serde_json::from_str(&content).map_err(DaemonError::JsonError)?;
+
+        // Lazy migration to encrypted storage — best-effort, never fails
+        // this read.
+        if let Ok(key_path) = self.own_embedding_key_path() {
+            if let Ok(key) = embedding_cipher::load_or_create_key(&key_path, is_root) {
+                if let Err(e) = migrate_plaintext_embedding(
+                    &enc_path,
+                    &legacy_path,
+                    &key,
+                    user_id,
+                    face_id,
+                    &embedding,
+                ) {
+                    warn!(
+                        "embedding migration failed for user_id={} face_id={}: {}",
+                        user_id, face_id, e
+                    );
+                }
+            }
+        }
 
         Ok(embedding)
     }
@@ -239,6 +493,7 @@ impl FaceStorage {
 
         let meta_path = face_path(&user_dir, face_id, ".meta.json")?;
         let emb_path = face_path(&user_dir, face_id, ".embedding.json")?;
+        let enc_path = face_path(&user_dir, face_id, ".embedding.enc")?;
 
         if meta_path.exists() {
             std::fs::remove_file(&meta_path)
@@ -248,6 +503,12 @@ impl FaceStorage {
         if emb_path.exists() {
             std::fs::remove_file(&emb_path)
                 .map_err(|e| DaemonError::StorageError(format!("Embedding deletion: {}", e)))?;
+        }
+
+        if enc_path.exists() {
+            std::fs::remove_file(&enc_path).map_err(|e| {
+                DaemonError::StorageError(format!("Encrypted embedding deletion: {}", e))
+            })?;
         }
 
         debug!("Face deleted: user_id={}, face_id={}", user_id, face_id);
@@ -308,7 +569,12 @@ impl FaceStorage {
 /// are always `face_<uid>_<timestamp>` (see `register_face`), so this is
 /// deliberately narrow — alphanumeric, `_`, and `-` only, non-empty — rather
 /// than trying to blocklist `/`/`..`/etc, which is easy to get wrong.
-fn is_safe_face_id(face_id: &str) -> bool {
+///
+/// `pub(crate)`: also used by `pam_helper`'s embedding-relay handler to
+/// validate a `face_id` that crossed a socket before it's ever joined onto
+/// root's own relay-store path, even though the peer-uid check already
+/// authenticates the *sender*.
+pub(crate) fn is_safe_face_id(face_id: &str) -> bool {
     !face_id.is_empty()
         && face_id
             .chars()
@@ -332,6 +598,106 @@ fn face_path(user_dir: &Path, face_id: &str, suffix: &str) -> Result<PathBuf, Da
         )));
     }
     Ok(user_dir.join(format!("{}{}", face_id, suffix)))
+}
+
+/// Root-owned directory holding one embedding-key/embeddings tree per uid —
+/// same `LINUX_HELLO_SECRETS_DIR` env convention as `secret_cache`'s own
+/// `sealed_key_dir`, default `/var/lib/linux-hello/secrets`. Never readable
+/// by the owning user, since only `hello-daemon-system` ever reads it.
+fn root_secrets_dir() -> PathBuf {
+    PathBuf::from(
+        std::env::var("LINUX_HELLO_SECRETS_DIR")
+            .unwrap_or_else(|_| "/var/lib/linux-hello/secrets".to_string()),
+    )
+}
+
+fn root_embeddings_dir(uid: u32) -> PathBuf {
+    root_secrets_dir().join("embeddings").join(uid.to_string())
+}
+
+fn root_embedding_key_path(uid: u32) -> PathBuf {
+    root_embeddings_dir(uid).join("key.tpm-sealed")
+}
+
+/// Pushes (upserts) root's own independently-sealed copy of one embedding —
+/// called only from `pam_helper`'s embedding-relay socket handler, on
+/// behalf of that uid's own `hello-daemon` (peer-uid-verified there).
+/// Idempotent: always re-encrypts under root's current key, so the caller
+/// never needs to check whether a copy already exists first.
+pub fn push_root_embedding(record: &FaceRecord, embedding: &Embedding) -> Result<(), DaemonError> {
+    let uid = record.user_id;
+    let dir = root_embeddings_dir(uid);
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| DaemonError::StorageError(format!("root embeddings dir creation: {}", e)))?;
+    harden_dir(&dir)?;
+
+    let key = embedding_cipher::load_or_create_key(&root_embedding_key_path(uid), true)
+        .map_err(|e| DaemonError::StorageError(format!("root embedding key: {}", e)))?;
+    let ciphertext = embedding_cipher::encrypt_embedding(&key, embedding, uid, &record.face_id)
+        .map_err(|e| DaemonError::StorageError(format!("root embedding encrypt: {}", e)))?;
+    let path = face_path(&dir, &record.face_id, ".embedding.enc")?;
+    write_owner_only_file(&path, &ciphertext)
+        .map_err(|e| DaemonError::StorageError(format!("write {}: {}", path.display(), e)))?;
+    debug!(
+        "push_root_embedding: stored root copy for uid={} face_id={}",
+        uid, record.face_id
+    );
+    Ok(())
+}
+
+/// Deletes one face (`Some(face_id)`) or every face (`None`) from root's own
+/// relay store for `uid` — called only from the embedding-relay handler.
+/// A no-op, not an error, if there was nothing to delete (root never synced
+/// this face/uid in the first place, e.g. it was enrolled and deleted again
+/// before any sync happened).
+pub fn delete_root_embedding(uid: u32, face_id: Option<&str>) -> Result<(), DaemonError> {
+    match face_id {
+        Some(face_id) => {
+            let path = face_path(&root_embeddings_dir(uid), face_id, ".embedding.enc")?;
+            if path.exists() {
+                std::fs::remove_file(&path).map_err(|e| {
+                    DaemonError::StorageError(format!("root embedding deletion: {}", e))
+                })?;
+            }
+        }
+        None => {
+            let dir = root_embeddings_dir(uid);
+            if dir.exists() {
+                std::fs::remove_dir_all(&dir).map_err(|e| {
+                    DaemonError::StorageError(format!("root embeddings dir deletion: {}", e))
+                })?;
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Crash-safe plaintext→encrypted rewrite for one embedding file: encrypt to
+/// a temp file, atomically rename it over the final `.enc` path, only then
+/// remove the legacy plaintext — a crash between the rename and the
+/// unlink leaves a harmless orphaned `.json` file that the next read's
+/// self-heal step (see `load_own_embedding_from_dir`) cleans up, never a
+/// partially-written or lost embedding.
+fn migrate_plaintext_embedding(
+    enc_path: &Path,
+    legacy_path: &Path,
+    key: &[u8; 32],
+    user_id: u32,
+    face_id: &str,
+    embedding: &Embedding,
+) -> Result<(), DaemonError> {
+    let ciphertext = embedding_cipher::encrypt_embedding(key, embedding, user_id, face_id)
+        .map_err(|e| DaemonError::StorageError(format!("embedding encrypt: {}", e)))?;
+    let tmp_path = enc_path.with_extension("enc.tmp");
+    write_owner_only_file(&tmp_path, &ciphertext)
+        .map_err(|e| DaemonError::StorageError(format!("write {}: {}", tmp_path.display(), e)))?;
+    std::fs::rename(&tmp_path, enc_path).map_err(|e| {
+        DaemonError::StorageError(format!("rename to {}: {}", enc_path.display(), e))
+    })?;
+    std::fs::remove_file(legacy_path).map_err(|e| {
+        DaemonError::StorageError(format!("remove {}: {}", legacy_path.display(), e))
+    })?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -609,10 +975,192 @@ mod tests {
             0o600,
             "metadata file"
         );
-        assert_eq!(
-            mode(&user_dir.join("face_1000_1735036800.embedding.json")),
-            0o600,
-            "embedding file"
+        // Whichever form the embedding was written in (plaintext, if no TPM
+        // is available in this test environment, or encrypted otherwise —
+        // see save_face_encrypts_the_embedding_when_a_tpm_is_available for
+        // that path specifically) must still be 0600.
+        let embedding_file = [".embedding.json", ".embedding.enc"]
+            .into_iter()
+            .map(|suffix| user_dir.join(format!("face_1000_1735036800{}", suffix)))
+            .find(|p| p.exists())
+            .expect("save_face must have written an embedding file in one form or the other");
+        assert_eq!(mode(&embedding_file), 0o600, "embedding file");
+    }
+
+    fn tpm_available_for_tests() -> bool {
+        std::env::var("LINUX_HELLO_TPM_TCTI").is_ok()
+    }
+
+    fn sample_record(face_id: &str, user_id: u32) -> FaceRecord {
+        FaceRecord {
+            face_id: face_id.to_string(),
+            user_id,
+            quality_score: 0.95,
+            registered_at: 0,
+            context: "test".to_string(),
+        }
+    }
+
+    fn sample_embedding_vec(v: Vec<f32>) -> Embedding {
+        Embedding {
+            vector: v,
+            metadata: hello_face_core::EmbeddingMetadata {
+                model: "test".to_string(),
+                model_version: "0.1.0".to_string(),
+                extracted_at: 0,
+                quality_score: 0.95,
+            },
+        }
+    }
+
+    #[test]
+    fn save_face_encrypts_the_embedding_when_a_tpm_is_available() {
+        if !tpm_available_for_tests() {
+            eprintln!("skipping: set LINUX_HELLO_TPM_TCTI to run against a real/simulated TPM");
+            return;
+        }
+        let _guard = crate::secret_cache::ENV_VAR_GUARD.blocking_lock();
+        let temp = TempDir::new().unwrap();
+        let storage = FaceStorage::new(temp.path()).unwrap();
+        let record = sample_record("face_1000_1", 1000);
+        let embedding = sample_embedding_vec(vec![0.1, 0.2, 0.3]);
+
+        storage.save_face(&record, &embedding).unwrap();
+
+        let user_dir = temp.path().join("users/1000");
+        assert!(
+            user_dir.join("face_1000_1.embedding.enc").exists(),
+            "expected an encrypted embedding file"
         );
+        assert!(
+            !user_dir.join("face_1000_1.embedding.json").exists(),
+            "must not also leave a plaintext copy"
+        );
+
+        let loaded = storage.load_face_embedding(1000, "face_1000_1").unwrap();
+        assert_eq!(loaded.vector, embedding.vector);
+    }
+
+    #[test]
+    fn legacy_plaintext_embedding_is_migrated_to_encrypted_on_read() {
+        if !tpm_available_for_tests() {
+            eprintln!("skipping: set LINUX_HELLO_TPM_TCTI to run against a real/simulated TPM");
+            return;
+        }
+        let _guard = crate::secret_cache::ENV_VAR_GUARD.blocking_lock();
+        let temp = TempDir::new().unwrap();
+        let storage = FaceStorage::new(temp.path()).unwrap();
+        let record = sample_record("face_1000_2", 1000);
+        let embedding = sample_embedding_vec(vec![0.4, 0.5, 0.6]);
+
+        // Write metadata + a *plaintext* embedding directly, bypassing
+        // save_face — simulating a face enrolled before this feature
+        // existed.
+        let user_dir = temp.path().join("users/1000");
+        std::fs::create_dir_all(&user_dir).unwrap();
+        std::fs::write(
+            user_dir.join("face_1000_2.meta.json"),
+            serde_json::to_string(&record).unwrap(),
+        )
+        .unwrap();
+        std::fs::write(
+            user_dir.join("face_1000_2.embedding.json"),
+            serde_json::to_string(&embedding).unwrap(),
+        )
+        .unwrap();
+
+        let loaded = storage.load_face_embedding(1000, "face_1000_2").unwrap();
+        assert_eq!(loaded.vector, embedding.vector);
+
+        assert!(
+            user_dir.join("face_1000_2.embedding.enc").exists(),
+            "read should have migrated the embedding to encrypted storage"
+        );
+        assert!(
+            !user_dir.join("face_1000_2.embedding.json").exists(),
+            "the legacy plaintext copy should be gone after a successful migration"
+        );
+
+        // A second read must transparently use the now-encrypted copy.
+        let loaded_again = storage.load_face_embedding(1000, "face_1000_2").unwrap();
+        assert_eq!(loaded_again.vector, embedding.vector);
+    }
+
+    #[test]
+    fn push_and_delete_root_embedding_round_trip() {
+        if !tpm_available_for_tests() {
+            eprintln!("skipping: set LINUX_HELLO_TPM_TCTI to run against a real/simulated TPM");
+            return;
+        }
+        let _guard = crate::secret_cache::ENV_VAR_GUARD.blocking_lock();
+        let secrets_dir = TempDir::new().unwrap();
+        std::env::set_var("LINUX_HELLO_SECRETS_DIR", secrets_dir.path());
+
+        let record = sample_record("face_2000_1", 2000);
+        let embedding = sample_embedding_vec(vec![0.7, 0.8, 0.9]);
+        push_root_embedding(&record, &embedding).unwrap();
+
+        // A RootRelayStore-mode FaceStorage never reads embeddings from the
+        // "target home" it's opened against — an empty scratch dir with
+        // just the metadata file is enough to prove that.
+        let home = TempDir::new().unwrap();
+        let user_dir = home.path().join("users/2000");
+        std::fs::create_dir_all(&user_dir).unwrap();
+        std::fs::write(
+            user_dir.join("face_2000_1.meta.json"),
+            serde_json::to_string(&record).unwrap(),
+        )
+        .unwrap();
+
+        let storage = FaceStorage::open_read_only_for_system_verify(home.path(), 2000)
+            .unwrap()
+            .expect("home dir exists");
+        let loaded = storage.load_face_embeddings(2000, ["face_2000_1"]).unwrap();
+        assert_eq!(
+            loaded.get("face_2000_1").map(|e| &e.vector),
+            Some(&embedding.vector)
+        );
+
+        delete_root_embedding(2000, Some("face_2000_1")).unwrap();
+        let loaded_after_delete = storage.load_face_embeddings(2000, ["face_2000_1"]).unwrap();
+        assert!(
+            loaded_after_delete.is_empty(),
+            "deleted root copy must no longer be returned"
+        );
+
+        std::env::remove_var("LINUX_HELLO_SECRETS_DIR");
+    }
+
+    #[test]
+    fn root_relay_store_skips_a_face_with_no_synced_root_copy() {
+        if !tpm_available_for_tests() {
+            eprintln!("skipping: set LINUX_HELLO_TPM_TCTI to run against a real/simulated TPM");
+            return;
+        }
+        let _guard = crate::secret_cache::ENV_VAR_GUARD.blocking_lock();
+        let secrets_dir = TempDir::new().unwrap();
+        std::env::set_var("LINUX_HELLO_SECRETS_DIR", secrets_dir.path());
+
+        let home = TempDir::new().unwrap();
+        let user_dir = home.path().join("users/3000");
+        std::fs::create_dir_all(&user_dir).unwrap();
+        let record = sample_record("face_3000_never_synced", 3000);
+        std::fs::write(
+            user_dir.join("face_3000_never_synced.meta.json"),
+            serde_json::to_string(&record).unwrap(),
+        )
+        .unwrap();
+
+        let storage = FaceStorage::open_read_only_for_system_verify(home.path(), 3000)
+            .unwrap()
+            .expect("home dir exists");
+        // Root never received a pushed copy for this face — must degrade to
+        // "not present" rather than erroring the whole batch.
+        let loaded = storage
+            .load_face_embeddings(3000, ["face_3000_never_synced"])
+            .unwrap();
+        assert!(loaded.is_empty());
+
+        std::env::remove_var("LINUX_HELLO_SECRETS_DIR");
     }
 }
