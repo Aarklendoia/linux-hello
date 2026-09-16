@@ -186,7 +186,7 @@ sudo apt install libpam-linux-hello
 
 `libpam-linux-hello` is already included if you installed the `linux-hello` metapackage. This is deliberately opt-in rather than automatic — see [docs/PAM_MODULE.md](docs/PAM_MODULE.md#sddm-login-screen) for why.
 
-A fourth card, "Cache session password", appears once SDDM face-login is enabled. It stores an encrypted, TPM-sealed copy of your account password so KWallet/the keyring can unlock automatically right after a face-only login instead of prompting separately — see [docs/PAM_MODULE.md](docs/PAM_MODULE.md#password-caching--kwallet-auto-unlock) for the trust trade-off this involves before turning it on.
+A fourth card, "Cache session password", is grayed out until SDDM face-login is enabled above. Once active, it stores an encrypted, TPM-sealed copy of your account password so KWallet/the keyring can unlock automatically right after a face-only login instead of prompting separately — see [docs/PAM_MODULE.md](docs/PAM_MODULE.md#password-caching--kwallet-auto-unlock) for the trust trade-off this involves before turning it on.
 
 ## Security notes
 
