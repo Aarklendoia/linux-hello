@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.7.0](https://github.com/Aarklendoia/linux-hello/compare/v1.6.3...v1.7.0) (2026-09-16)
+
+
+### Features
+
+* **gui:** add AppStream MetaInfo for linux-hello-gui ([1d93f91](https://github.com/Aarklendoia/linux-hello/commit/1d93f91598d53bfc5dde8ac2138c3eaf89c260d3))
+* KWallet auto-unlock after face-only SDDM login (TPM-sealed password cache) ([#150](https://github.com/Aarklendoia/linux-hello/issues/150)) ([b79f85d](https://github.com/Aarklendoia/linux-hello/commit/b79f85d5bc6b770fe5eceb77918247895a0b2ca2))
+
 ## [1.6.3](https://github.com/Aarklendoia/linux-hello/compare/v1.6.2...v1.6.3) (2026-08-25)
 
 
