@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.7.1](https://github.com/Aarklendoia/linux-hello/compare/v1.7.0...v1.7.1) (2026-09-16)
+
+
+### Bug Fixes
+
+* **gui:** stop reporting a working SDDM config as disabled ([#153](https://github.com/Aarklendoia/linux-hello/issues/153)) ([43b9472](https://github.com/Aarklendoia/linux-hello/commit/43b9472790079d144c893206fbcf7f74a5306703))
+
 ## [1.7.0](https://github.com/Aarklendoia/linux-hello/compare/v1.6.3...v1.7.0) (2026-09-16)
 
 
