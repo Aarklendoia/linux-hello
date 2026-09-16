@@ -154,6 +154,10 @@ linux-hello verify <uid> --context sudo
 # List / delete enrolled faces
 linux-hello list <uid>
 linux-hello delete <uid> [face_id]
+
+# Cache your session password so KWallet auto-unlocks after a face-only
+# SDDM login (requires SDDM face-login already enabled — see below)
+linux-hello cache-password
 ```
 
 ## Graphical app (GUI)
@@ -182,14 +186,17 @@ sudo apt install libpam-linux-hello
 
 `libpam-linux-hello` is already included if you installed the `linux-hello` metapackage. This is deliberately opt-in rather than automatic — see [docs/PAM_MODULE.md](docs/PAM_MODULE.md#sddm-login-screen) for why.
 
+A fourth card, "Cache session password", is grayed out until SDDM face-login is enabled above. Once active, it stores an encrypted, TPM-sealed copy of your account password so KWallet/the keyring can unlock automatically right after a face-only login instead of prompting separately — see [docs/PAM_MODULE.md](docs/PAM_MODULE.md#password-caching--kwallet-auto-unlock) for the trust trade-off this involves before turning it on.
+
 ## Security notes
 
-**You can never be locked out.** Every PAM line this project installs uses
-`auth sufficient` — if the camera fails, the face isn't recognized, or
-anything else goes wrong, PAM falls through to the normal password prompt.
-Face recognition only ever adds a faster option; it never replaces or gates
-your existing login. Calls are also bounded by a timeout, so a stuck camera
-can't hang a login attempt.
+**You can never be locked out.** Every PAM line this project installs falls
+through to the normal password prompt if the camera fails, the face isn't
+recognized, or anything else goes wrong — `auth sufficient` for `sudo` and
+the screen locker, and an equivalent (but KWallet-aware — see below) jump
+block for SDDM. Face recognition only ever adds a faster option; it never
+replaces or gates your existing login. Calls are also bounded by a timeout,
+so a stuck camera can't hang a login attempt.
 
 **Nothing leaves the machine.** All processing (face detection, embedding
 extraction, matching) runs locally via ONNX Runtime — no cloud service, no
@@ -219,6 +226,16 @@ telemetry, no network calls involved in authentication itself.
   launching user can read) — without it, any other local process could
   otherwise read your enrolled-face list or, worse, trigger the SDDM
   `pkexec` prompt on your behalf.
+- **Password caching (opt-in)**: `linux-hello cache-password`/the GUI's
+  "Cache session password" card stores an AES-256-GCM-encrypted copy of your
+  login password, with its key sealed inside the TPM and releasable only
+  after a real, IR-liveness-confirmed face match at the SDDM screen — never
+  enabled silently. This doesn't change root's own trust level (a live root
+  compromise was already equivalent to reading `/etc/shadow`), but it does
+  mean such a compromise now yields a reusable, exportable password instead
+  of just local control — read the consent warning shown before enabling it,
+  and see [docs/PAM_MODULE.md](docs/PAM_MODULE.md#password-caching--kwallet-auto-unlock)
+  for the full trust model.
 
 ## Documentation
 
