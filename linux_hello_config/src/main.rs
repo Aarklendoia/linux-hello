@@ -872,6 +872,33 @@ fn handle_ctrl_connection(
                 ("200 OK", r#"{"has_ir":true}"#.to_string())
             }
         }
+    } else if req.contains("/embedding-encryption-info") {
+        // Whether face embeddings are currently being encrypted at rest —
+        // see hello_daemon::dbus::embedding_encryption_info's doc comment.
+        // The Enrollment screen warns the user when it's false (no usable
+        // TPM/tpm2-abrmd), same convention as the IR warning above.
+        match run_command(Command::new("busctl").args([
+            "--user",
+            "call",
+            "com.linuxhello.FaceAuth",
+            "/com/linuxhello/FaceAuth",
+            "com.linuxhello.FaceAuth",
+            "EmbeddingEncryptionInfo",
+        ])) {
+            Ok(stdout) => {
+                let json = extract_busctl_json(&stdout)
+                    .unwrap_or_else(|| r#"{"encrypted":true}"#.to_string());
+                ("200 OK", json)
+            }
+            Err(err) => {
+                eprintln!("✗ EmbeddingEncryptionInfo error: {}", err);
+                // Fail open toward "encrypted" rather than flashing a false
+                // warning if the daemon is briefly unreachable — this route
+                // only feeds an informational banner, it doesn't affect
+                // whether encryption actually happens.
+                ("200 OK", r#"{"encrypted":true}"#.to_string())
+            }
+        }
     } else if req.contains("/capture-status") {
         // Polled by the enrollment screen (~2x/s) while a capture stream is
         // running, to show live "recherche du visage…"/"visage détecté"

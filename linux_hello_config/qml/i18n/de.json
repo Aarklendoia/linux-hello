@@ -48,7 +48,8 @@
         "previewValidating": "Wird überprüft…",
         "previewSuccess": "✓ Gesicht erfolgreich registriert!",
         "previewError": "✗ Fehler:",
-        "noIrWarning": "Diese Kamera hat keinen Infrarotsensor: Die Anti-Spoofing-Lebenderkennung verwendet stattdessen eine schwächere, rein RGB-basierte Heuristik, wodurch die Sicherheit anfälliger für Foto-/Video-Spoofing ist als mit Infrarot."
+        "noIrWarning": "Diese Kamera hat keinen Infrarotsensor: Die Anti-Spoofing-Lebenderkennung verwendet stattdessen eine schwächere, rein RGB-basierte Heuristik, wodurch die Sicherheit anfälliger für Foto-/Video-Spoofing ist als mit Infrarot.",
+        "noTpmWarning": "This machine has no usable TPM, or the TPM access broker (tpm2-abrmd) isn't installed: your enrolled face data is stored in plaintext instead of TPM-sealed. Consider enabling your TPM in the BIOS/UEFI, or installing tpm2-abrmd, for better protection against offline disk theft."
     },
     "manageFaces": {
         "title": "Gesichter verwalten",

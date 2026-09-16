@@ -134,6 +134,45 @@ Kirigami.Page {
             }
         }
 
+        // No-TPM-encryption notice — AppController.embeddingsEncrypted,
+        // from the daemon's EmbeddingEncryptionInfo D-Bus method, mirrors
+        // the no-IR warning above exactly (same convention, same styling):
+        // enrolled face data is stored in plaintext rather than TPM-sealed
+        // when there's no usable TPM/tpm2-abrmd — see embedding_cipher's
+        // module docs (issue #152).
+        Rectangle {
+            visible: !AppController.embeddingsEncrypted
+            Layout.fillWidth: true
+            radius: Kirigami.Units.smallSpacing * 1.4
+            color: Qt.rgba(Kirigami.Theme.neutralTextColor.r, Kirigami.Theme.neutralTextColor.g, Kirigami.Theme.neutralTextColor.b, 0.12)
+            border.width: 1
+            border.color: Qt.rgba(Kirigami.Theme.neutralTextColor.r, Kirigami.Theme.neutralTextColor.g, Kirigami.Theme.neutralTextColor.b, 0.35)
+            implicitHeight: noTpmWarnRow.implicitHeight + Kirigami.Units.largeSpacing
+
+            RowLayout {
+                id: noTpmWarnRow
+                anchors.fill: parent
+                anchors.margins: Kirigami.Units.smallSpacing * 1.2
+                spacing: Kirigami.Units.smallSpacing * 0.8
+
+                Kirigami.Icon {
+                    source: "dialog-warning"
+                    Layout.preferredWidth: Kirigami.Units.gridUnit
+                    Layout.preferredHeight: Kirigami.Units.gridUnit
+                    Layout.alignment: Qt.AlignTop
+                    color: Kirigami.Theme.neutralTextColor
+                    isMask: true
+                }
+                Label {
+                    text: I18n.tr("enrollment.noTpmWarning")
+                    font.pixelSize: 11
+                    color: Kirigami.Theme.textColor
+                    wrapMode: Text.WordWrap
+                    Layout.fillWidth: true
+                }
+            }
+        }
+
         // Camera preview with viewfinder-style corner brackets
         Item {
             id: previewRect

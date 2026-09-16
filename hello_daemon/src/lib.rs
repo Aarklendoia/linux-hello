@@ -17,6 +17,8 @@ pub mod capture_stream;
 pub mod dbus;
 pub mod dbus_interface;
 pub mod dbus_signals;
+pub mod embedding_cipher;
+pub mod embedding_relay;
 pub mod matcher;
 pub mod pam_helper;
 pub mod preview;
@@ -26,6 +28,7 @@ mod security_util;
 pub mod storage;
 #[cfg(test)]
 mod test_support;
+mod tpm_seal;
 
 use authz::EnrollmentAuthorizer;
 use camera::CameraManager;
@@ -390,6 +393,12 @@ impl FaceAuthDaemon {
             DaemonError::StorageError(e.to_string())
         })?;
 
+        // Best-effort: give root's own hello-daemon-system a copy to seal
+        // independently (see embedding_relay's module doc). A no-op on any
+        // machine that hasn't enabled SDDM face-login — never awaited by
+        // this request, never something enrollment can fail because of.
+        tokio::spawn(embedding_relay::push(record.clone(), embedding.clone()));
+
         info!("Face registered: face_id={}", face_id);
 
         // Return the response JSON
@@ -430,11 +439,13 @@ impl FaceAuthDaemon {
                 self.storage
                     .delete_face(request.user_id, &face_id)
                     .map_err(|e| DaemonError::StorageError(e.to_string()))?;
+                tokio::spawn(embedding_relay::delete(request.user_id, Some(face_id)));
             }
             None => {
                 self.storage
                     .delete_all_faces(request.user_id)
                     .map_err(|e| DaemonError::StorageError(e.to_string()))?;
+                tokio::spawn(embedding_relay::delete(request.user_id, None));
             }
         }
 
@@ -486,6 +497,15 @@ impl FaceAuthDaemon {
 
     pub fn config(&self) -> &DaemonConfig {
         &self.config
+    }
+
+    /// Used by `main.rs` to kick off `embedding_relay::sync_all` at startup.
+    /// Returns a cheap `Arc` clone rather than a borrow so the caller can
+    /// run the (potentially several-second) sync without holding this
+    /// daemon's `RwLock` for the duration — every other lock user (D-Bus/PAM
+    /// requests) would otherwise queue behind it.
+    pub fn storage(&self) -> Arc<FaceStorage> {
+        self.storage.clone()
     }
 
     pub fn is_camera_available(&self) -> bool {

@@ -111,6 +111,13 @@ override_dh_auto_install:
 	# re-authentication, since a successfully enrolled face unlocks sudo.
 	cp $(CURDIR)/debian/polkit/com.linuxhello.manage-faces.policy $(CURDIR)/debian/tmp/usr/share/polkit-1/actions/
 
+	# D-Bus system-bus policy letting an ordinary user's hello-daemon reach
+	# tpm2-abrmd (Recommends: tpm2-abrmd) to seal/unseal its own embedding
+	# encryption key — see debian/dbus/linux-hello-tabrmd.conf's own comment
+	# for why tpm2-abrmd's stock policy alone isn't enough (issue #152).
+	mkdir -p $(CURDIR)/debian/tmp/etc/dbus-1/system.d
+	cp $(CURDIR)/debian/dbus/linux-hello-tabrmd.conf $(CURDIR)/debian/tmp/etc/dbus-1/system.d/
+
 	# Install documentation
 	mkdir -p $(CURDIR)/debian/tmp/usr/share/doc/linux-hello
 	cp $(CURDIR)/README.md $(CURDIR)/debian/tmp/usr/share/doc/linux-hello/

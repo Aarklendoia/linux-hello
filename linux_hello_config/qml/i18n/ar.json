@@ -48,7 +48,8 @@
         "previewValidating": "جارٍ التحقق…",
         "previewSuccess": "✓ تم تسجيل الوجه بنجاح!",
         "previewError": "✗ خطأ:",
-        "noIrWarning": "لا تحتوي هذه الكاميرا على مستشعر أشعة تحت حمراء: يعتمد التحقق من مكافحة الانتحال بدلاً من ذلك على أسلوب أضعف يعتمد على الصورة الملونة (RGB) فقط، مما يجعل الأمان أكثر عرضة للانتحال بالصور أو الفيديو مقارنة بوجود الأشعة تحت الحمراء."
+        "noIrWarning": "لا تحتوي هذه الكاميرا على مستشعر أشعة تحت حمراء: يعتمد التحقق من مكافحة الانتحال بدلاً من ذلك على أسلوب أضعف يعتمد على الصورة الملونة (RGB) فقط، مما يجعل الأمان أكثر عرضة للانتحال بالصور أو الفيديو مقارنة بوجود الأشعة تحت الحمراء.",
+        "noTpmWarning": "This machine has no usable TPM, or the TPM access broker (tpm2-abrmd) isn't installed: your enrolled face data is stored in plaintext instead of TPM-sealed. Consider enabling your TPM in the BIOS/UEFI, or installing tpm2-abrmd, for better protection against offline disk theft."
     },
     "manageFaces": {
         "title": "إدارة الوجوه",

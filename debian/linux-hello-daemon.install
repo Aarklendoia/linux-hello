@@ -9,3 +9,4 @@ usr/share/doc/linux-hello/INTEGRATION_GUIDE.md
 usr/share/doc/linux-hello/PAM_MODULE.md
 usr/share/doc/linux-hello/sudo-linux-hello.pam
 etc/linux-hello/config.toml.example
+etc/dbus-1/system.d/linux-hello-tabrmd.conf
