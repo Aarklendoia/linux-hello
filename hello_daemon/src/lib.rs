@@ -17,6 +17,7 @@ pub mod capture_stream;
 pub mod dbus;
 pub mod dbus_interface;
 pub mod dbus_signals;
+pub mod embedding_cipher;
 pub mod matcher;
 pub mod pam_helper;
 pub mod preview;
