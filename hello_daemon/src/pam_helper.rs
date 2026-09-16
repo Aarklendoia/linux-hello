@@ -298,7 +298,10 @@ pub(crate) fn resolve_home_dir(uid: u32) -> Option<std::path::PathBuf> {
 /// `camera`/`matcher` are long-lived and shared across requests (built once
 /// by `hello-daemon-system`'s `main()`); `storage` is resolved fresh per
 /// request from the target user's own home directory, via
-/// [`FaceStorage::open_read_only`] — never the side-effecting `FaceStorage::new`.
+/// [`FaceStorage::open_read_only_for_system_verify`] — never the
+/// side-effecting `FaceStorage::new`, and never plain `open_read_only`
+/// (that would read embeddings out of the target user's home directory
+/// instead of root's own independently-sealed copy).
 pub async fn start_system_pam_helper(
     camera: Arc<crate::camera::CameraManager>,
     matcher: Arc<crate::matcher::FaceMatcher>,
@@ -380,7 +383,7 @@ async fn compute_verify_response(
         }
         Some(home) => {
             let base_path = home.join(".local/share/linux-hello");
-            match FaceStorage::open_read_only(&base_path) {
+            match FaceStorage::open_read_only_for_system_verify(&base_path, req.user_id) {
                 Ok(None) => PamHelperResponse::Failure {
                     reason: "No enrollment".to_string(),
                 },

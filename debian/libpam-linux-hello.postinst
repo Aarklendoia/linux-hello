@@ -11,4 +11,23 @@ set -e
 systemctl daemon-reload 2>/dev/null || true
 systemctl enable --now linux-hello-pam-autoconfigure.timer 2>/dev/null || true
 
-exit 0
+# hello-daemon-system.service is opt-in — only install-pam.sh --enable-sddm
+# (see pam-lib.sh) ever enables/starts it, deliberately never this postinst,
+# so a machine that hasn't opted into SDDM face login stays untouched here.
+#
+# But if it's ALREADY running, a package upgrade must restart it: it's a
+# long-lived root process, so without a restart it keeps executing the OLD
+# binary until the next manual restart or reboot. This isn't handled by
+# dh_installsystemd's usual auto-generated maintainer-script logic — that
+# gets generated (see debian/.debhelper/generated/<pkg>/postinst.service at
+# build time) but, empirically on this project's build (debhelper-compat 13,
+# 13.31ubuntu1, no `#DEBHELPER#` token in this script), never actually makes
+# it into the shipped postinst. So the restart is done explicitly here
+# instead of relying on that. This was invisible until the encrypted face
+# embeddings migration (#152) made a stale root daemon — still reading
+# plaintext files that migration had already deleted — actually break SDDM
+# face login outright, instead of just lagging one release behind.
+if systemctl is-active --quiet hello-daemon-system.service 2>/dev/null; then
+    systemctl restart hello-daemon-system.service 2>/dev/null || true
+    echo "✓ hello-daemon-system restarted"
+fi
