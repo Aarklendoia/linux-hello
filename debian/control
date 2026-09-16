@@ -56,6 +56,7 @@ Depends:
   polkitd,
   libonnxruntime1.23,
   linux-hello-models
+Recommends: tpm2-abrmd
 Description: Face Authentication System for Linux — daemon
  Linux Hello provides facial recognition authentication for:
  .
