@@ -291,7 +291,12 @@ pub fn seal_and_store(uid: u32, password: &str) -> Result<(), SecretCacheError> 
 
     let policy_digest = precompute_release_policy_digest(&mut ctx, uid)?;
     let sensitive_key = SensitiveData::try_from(key_bytes.to_vec())?;
-    let (public, private) = tpm_seal::seal_sensitive_data(&mut ctx, sensitive_key, policy_digest)?;
+    let (public, private) = tpm_seal::seal_sensitive_data(
+        &mut ctx,
+        sensitive_key,
+        policy_digest,
+        tpm_seal::Parent::RootPersistent,
+    )?;
     tpm_seal::write_sealed_blob(&sealed_key_path(uid), &public, &private)?;
     info!(
         "secret_cache: sealed a new session password cache for uid={}",
@@ -341,8 +346,14 @@ pub fn release_for_match(uid: u32) -> Result<Option<String>, SecretCacheError> {
     let selection = tpm_seal::pcr_selection_for(&slots)?;
     let pcr_digest_now = tpm_seal::pcr_digest(&mut ctx, &slots, &selection)?;
 
-    let unseal_result =
-        tpm_seal::unseal_with_pcr_policy(&mut ctx, public, private, pcr_digest_now, selection);
+    let unseal_result = tpm_seal::unseal_with_pcr_policy(
+        &mut ctx,
+        public,
+        private,
+        pcr_digest_now,
+        selection,
+        tpm_seal::Parent::RootPersistent,
+    );
 
     // Restore the liveness PCR regardless of whether unseal succeeded — a
     // policy mismatch (tampered boot, or a firmware that never actually

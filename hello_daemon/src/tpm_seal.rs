@@ -22,10 +22,11 @@ use tss_esapi::{
     abstraction::pcr::PcrData,
     attributes::{ObjectAttributesBuilder, SessionAttributesBuilder},
     constants::SessionType,
-    handles::KeyHandle,
+    handles::{KeyHandle, ObjectHandle, PersistentTpmHandle, TpmHandle},
     interface_types::{
         algorithm::{HashingAlgorithm, PublicAlgorithm},
-        resource_handles::Hierarchy,
+        dynamic_handles::Persistent,
+        resource_handles::{Hierarchy, Provision},
         session_handles::PolicySession,
     },
     structures::{
@@ -186,8 +187,11 @@ where
 /// one `tss-esapi`'s own test suite (`common::decryption_key_pub`) uses as
 /// its SRK-equivalent. Deterministic: creating a primary from this exact
 /// template under the Owner hierarchy always yields the same key on a given
-/// TPM, so nothing needs to be persisted for the parent itself — only the
-/// sealed child object's Public/Private blobs.
+/// TPM — nothing needs to be *stored* for the parent itself (only the sealed
+/// child object's Public/Private blobs do), but `TPM2_CreatePrimary` for an
+/// RSA-2048 key is itself slow on real hardware regardless of that — measured
+/// ~9s on a real fTPM. See [`root_persistent_primary_key`] for how root's own
+/// callers skip paying that cost on every call.
 pub(crate) fn primary_key(ctx: &mut Context) -> Result<KeyHandle, TpmSealError> {
     let public = utils::create_restricted_decryption_rsa_public(
         tss_esapi::abstraction::cipher::Cipher::aes_256_cfb()
@@ -202,6 +206,96 @@ pub(crate) fn primary_key(ctx: &mut Context) -> Result<KeyHandle, TpmSealError> 
         })
         .map_err(TpmSealError::from)?
         .key_handle)
+}
+
+/// A project-chosen (not a standard SRK slot like 0x81000001, to avoid
+/// touching a handle other system software might already use) owner-hierarchy
+/// persistent handle for [`primary_key`]'s deterministic parent — root-only.
+const ROOT_PRIMARY_KEY_PERSISTENT_HANDLE: u32 = 0x8102_0000;
+
+/// Where the parent key for a seal/unseal operation comes from.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum Parent {
+    /// Fresh `TPM2_CreatePrimary` every call. Required for the
+    /// `tpm2-abrmd`-brokered, unprivileged per-user path: persisting there
+    /// would mean any ordinary local user could evict/replace a TPM object
+    /// root and every other user's `hello-daemon` depend on — a new,
+    /// unprivileged-writable shared resource this project doesn't want (see
+    /// [`root_persistent_primary_key`]'s own doc for the full reasoning).
+    Ephemeral,
+    /// Root-only: a persistent TPM handle, created once and reused forever
+    /// after — skips `CreatePrimary`'s real cost (see [`primary_key`]'s doc)
+    /// on every subsequent seal/unseal.
+    RootPersistent,
+}
+
+/// Root's own persistent-parent optimization: same deterministic key
+/// [`primary_key`] would create, but made persistent
+/// (`TPM2_EvictControl`) the first time so every later call just loads it
+/// (fast) instead of re-running `CreatePrimary` (slow). Existing sealed
+/// blobs stay valid either way — a `Private` blob's integrity is bound to
+/// the parent's actual key material, not to which handle currently refers to
+/// it, and the two are the same key by construction.
+///
+/// **Root-only, deliberately.** The persistent handle lives in the owner
+/// hierarchy, reachable from an unprivileged `tpm2-abrmd` client with this
+/// project's own D-Bus policy (see `debian/dbus/linux-hello-tabrmd.conf`).
+/// `TPM2_EvictControl` only needs owner-hierarchy authorization — empty by
+/// default, same as every other session in this module — so *any* local
+/// user going through `tpm2-abrmd` could otherwise evict or overwrite this
+/// handle, breaking it for root and every other user until it's recreated.
+/// Root talks to the TPM directly (`/dev/tpmrm0`, not through the broker),
+/// so this persistent handle is only ever reachable from a trust boundary
+/// that already owns the whole machine.
+fn root_persistent_primary_key(ctx: &mut Context) -> Result<KeyHandle, TpmSealError> {
+    let persistent =
+        PersistentTpmHandle::new(ROOT_PRIMARY_KEY_PERSISTENT_HANDLE).map_err(TpmSealError::from)?;
+
+    if let Ok(existing) = ctx.tr_from_tpm_public(TpmHandle::Persistent(persistent)) {
+        return Ok(KeyHandle::from(existing));
+    }
+
+    let transient = primary_key(ctx)?;
+    let persisted = ctx
+        .execute_with_nullauth_session(|ctx| {
+            ctx.evict_control(
+                Provision::Owner,
+                transient.into(),
+                Persistent::Persistent(persistent),
+            )
+        })
+        .map_err(TpmSealError::from)?;
+    ctx.flush_context(transient.into())?;
+    Ok(KeyHandle::from(persisted))
+}
+
+/// Obtains the parent key handle per `parent`, alongside whether it's
+/// persistent — the caller needs that to know how to release it afterwards
+/// (see [`release_parent`]: `TPM2_FlushContext` is invalid on a persistent
+/// object handle).
+fn obtain_parent(ctx: &mut Context, parent: Parent) -> Result<(KeyHandle, bool), TpmSealError> {
+    match parent {
+        Parent::Ephemeral => Ok((primary_key(ctx)?, false)),
+        Parent::RootPersistent => Ok((root_persistent_primary_key(ctx)?, true)),
+    }
+}
+
+/// Releases a handle obtained from [`obtain_parent`] — `flush_context` for
+/// an ephemeral (transient) parent, `tr_close` for a persistent one (closes
+/// this process's local reference only; the TPM-resident object itself is
+/// untouched, exactly the point of having persisted it).
+fn release_parent(
+    ctx: &mut Context,
+    handle: KeyHandle,
+    is_persistent: bool,
+) -> Result<(), TpmSealError> {
+    if is_persistent {
+        let mut object_handle: ObjectHandle = handle.into();
+        ctx.tr_close(&mut object_handle)?;
+        Ok(())
+    } else {
+        Ok(ctx.flush_context(handle.into())?)
+    }
 }
 
 /// The `Public` template for a sealed data object, gated by `auth_policy`.
@@ -265,13 +359,14 @@ pub(crate) fn seal_sensitive_data(
     ctx: &mut Context,
     sensitive: SensitiveData,
     policy_digest: Digest,
+    parent: Parent,
 ) -> Result<(Public, Private), TpmSealError> {
     let public_template = sealed_object_public(policy_digest)?;
-    let parent = primary_key(ctx)?;
+    let (parent, parent_is_persistent) = obtain_parent(ctx, parent)?;
     let created = ctx.execute_with_nullauth_session(|ctx| {
         ctx.create(parent, public_template, None, Some(sensitive), None, None)
     });
-    ctx.flush_context(parent.into())?;
+    release_parent(ctx, parent, parent_is_persistent)?;
     let created = created?;
     Ok((created.out_public, created.out_private))
 }
@@ -286,6 +381,7 @@ pub(crate) fn unseal_with_pcr_policy(
     private: Private,
     pcr_digest: Digest,
     selection: PcrSelectionList,
+    parent: Parent,
 ) -> Result<SensitiveData, TpmSealError> {
     let policy = ctx
         .start_auth_session(
@@ -300,7 +396,7 @@ pub(crate) fn unseal_with_pcr_policy(
     let policy_session = PolicySession::try_from(policy)?;
     ctx.policy_pcr(policy_session, pcr_digest, selection)?;
 
-    let parent = primary_key(ctx)?;
+    let (parent, parent_is_persistent) = obtain_parent(ctx, parent)?;
     let handle = ctx.execute_with_nullauth_session(|ctx| ctx.load(parent, private, public));
 
     let unseal_result = handle.and_then(|handle| {
@@ -309,7 +405,7 @@ pub(crate) fn unseal_with_pcr_policy(
         result
     });
 
-    ctx.flush_context(parent.into())?;
+    release_parent(ctx, parent, parent_is_persistent)?;
     ctx.flush_context(tss_esapi::handles::SessionHandle::from(policy).into())?;
 
     Ok(unseal_result?)

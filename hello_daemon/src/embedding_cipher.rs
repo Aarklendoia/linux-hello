@@ -131,6 +131,20 @@ fn open_context(is_root: bool) -> Result<tss_esapi::Context, EmbeddingCipherErro
     Ok(tpm_seal::open_context(tcti_conf(is_root)?)?)
 }
 
+/// Root reuses a persistent parent key (see
+/// `tpm_seal::root_persistent_primary_key`) instead of paying a fresh
+/// `TPM2_CreatePrimary` on every call — safe only for root, which never
+/// exposes that persistent handle to another, less-trusted principal (root
+/// talks to `/dev/tpmrm0` directly, never through `tpm2-abrmd`). The
+/// unprivileged, `tpm2-abrmd`-brokered path stays ephemeral.
+fn parent_for(is_root: bool) -> tpm_seal::Parent {
+    if is_root {
+        tpm_seal::Parent::RootPersistent
+    } else {
+        tpm_seal::Parent::Ephemeral
+    }
+}
+
 /// Cheap-ish presence probe (one real TPM round trip: open a context, read
 /// the boot-integrity PCRs) — used to decide fresh-enroll vs. plaintext
 /// fallback without a hard error, and to answer the GUI's "is embedding
@@ -157,7 +171,8 @@ fn create_and_seal_key(
     let policy_digest = tpm_seal::trial_pcr_policy_digest(&mut ctx, pcr_digest_now, selection)?;
     let sensitive = SensitiveData::try_from(key_bytes.to_vec())
         .map_err(|e| EmbeddingCipherError::Crypto(e.to_string()))?;
-    let (public, private) = tpm_seal::seal_sensitive_data(&mut ctx, sensitive, policy_digest)?;
+    let (public, private) =
+        tpm_seal::seal_sensitive_data(&mut ctx, sensitive, policy_digest, parent_for(is_root))?;
     tpm_seal::write_sealed_blob(sealed_key_path, &public, &private)?;
     key_cache()
         .lock()
@@ -189,8 +204,14 @@ pub fn load_key(sealed_key_path: &Path, is_root: bool) -> Result<[u8; 32], Embed
     let (public, private) = tpm_seal::read_sealed_blob(sealed_key_path)?;
     let selection = tpm_seal::pcr_selection_for(&tpm_seal::BOOT_PCR_SLOTS)?;
     let pcr_digest_now = tpm_seal::pcr_digest(&mut ctx, &tpm_seal::BOOT_PCR_SLOTS, &selection)?;
-    let sensitive =
-        tpm_seal::unseal_with_pcr_policy(&mut ctx, public, private, pcr_digest_now, selection)?;
+    let sensitive = tpm_seal::unseal_with_pcr_policy(
+        &mut ctx,
+        public,
+        private,
+        pcr_digest_now,
+        selection,
+        parent_for(is_root),
+    )?;
     let bytes = sensitive.value();
     if bytes.len() != 32 {
         return Err(EmbeddingCipherError::Crypto(
