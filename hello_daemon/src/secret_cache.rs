@@ -16,6 +16,13 @@
 //! sealed *inside the TPM* (`fixedTPM`/`fixedParent`, never exportable), so
 //! the on-disk sealed blob is meaningless without that exact chip.
 //!
+//! Low-level TPM plumbing (context/TCTI setup, the primary key, PCR-policy
+//! digest computation, seal/unseal, blob marshalling) lives in
+//! [`crate::tpm_seal`], shared with [`crate::embedding_cipher`] — see that
+//! module's doc comment for why. This module only adds what's specific to
+//! caching a *password* released on a *confirmed live match*: the liveness
+//! PCR extend/reset dance below.
+//!
 //! # The two PCR roles
 //!
 //! The seal's TPM policy is a compound `TPM2_PolicyPCR` over two different
@@ -49,8 +56,8 @@
 //! a live root compromise, which remains equivalent to today's
 //! `/etc/shadow` trust level.
 
-use std::convert::{TryFrom, TryInto};
-use std::path::{Path, PathBuf};
+use std::convert::TryFrom;
+use std::path::PathBuf;
 
 use aes_gcm::aead::{array::Array, Aead, KeyInit, Nonce};
 use aes_gcm::Aes256Gcm;
@@ -58,50 +65,21 @@ use sha2::{Digest as _, Sha256};
 use thiserror::Error;
 use tracing::{debug, info, warn};
 use tss_esapi::{
-    abstraction::pcr::PcrData,
-    attributes::{ObjectAttributesBuilder, SessionAttributesBuilder},
-    constants::SessionType,
-    handles::{KeyHandle, PcrHandle},
-    interface_types::{
-        algorithm::{HashingAlgorithm, PublicAlgorithm},
-        resource_handles::Hierarchy,
-        session_handles::PolicySession,
-    },
-    structures::{
-        Digest, DigestValues, KeyedHashScheme, MaxBuffer, PcrSelectionList,
-        PcrSelectionListBuilder, PcrSlot, Private, Public, PublicBuilder,
-        PublicKeyedHashParameters, SensitiveData, SymmetricDefinition,
-    },
+    handles::PcrHandle,
+    interface_types::algorithm::HashingAlgorithm,
+    structures::{Digest, DigestValues, PcrSelectionListBuilder, PcrSlot, SensitiveData},
     tcti_ldr::TctiNameConf,
-    traits::{Marshall, UnMarshall},
-    utils, Context,
+    Context,
 };
 use zeroize::Zeroizing;
 
 use crate::security_util::write_owner_only_file;
-
-/// Reads `N` random bytes directly from `/dev/urandom` — same technique (and
-/// same rationale: `read_exact`, not `fs::read`, since the latter blocks
-/// forever on a character device that never returns EOF) as
-/// `security_util::generate_token`, just returning raw bytes instead of a
-/// hex string.
-fn random_bytes<const N: usize>() -> Result<[u8; N], SecretCacheError> {
-    use std::io::Read;
-    let mut buf = [0u8; N];
-    std::fs::File::open("/dev/urandom")?.read_exact(&mut buf)?;
-    Ok(buf)
-}
+use crate::tpm_seal::{self, TpmSealError};
 
 /// The dedicated liveness PCR — see the module docs above for why PCR16 was
 /// chosen over the originally-proposed PCR23.
 const LIVENESS_PCR_HANDLE: PcrHandle = PcrHandle::Pcr16;
 const LIVENESS_PCR_SLOT: PcrSlot = PcrSlot::Slot16;
-
-/// Boot-integrity PCRs folded into the same policy — Secure Boot state
-/// (7), and the bootloader/kernel/initrd measurements (8, 9) most distros'
-/// shim/GRUB chain populates. Same selection `systemd-cryptenroll`'s
-/// `--tpm2-pcrs=7,8,9` default uses for LUKS auto-unlock.
-const BOOT_PCR_SLOTS: [PcrSlot; 3] = [PcrSlot::Slot7, PcrSlot::Slot8, PcrSlot::Slot9];
 
 #[derive(Debug, Error)]
 pub enum SecretCacheError {
@@ -113,6 +91,16 @@ pub enum SecretCacheError {
     Crypto(String),
     #[error("no TPM available")]
     NoTpm,
+}
+
+impl From<TpmSealError> for SecretCacheError {
+    fn from(e: TpmSealError) -> Self {
+        match e {
+            TpmSealError::Tpm(e) => SecretCacheError::Tpm(e),
+            TpmSealError::Io(e) => SecretCacheError::Io(e),
+            TpmSealError::Crypto(s) => SecretCacheError::Crypto(s),
+        }
+    }
 }
 
 /// What [`probe_tpm_capability`] found on this machine — surfaced to the
@@ -169,121 +157,15 @@ fn tcti_conf() -> Result<TctiNameConf, SecretCacheError> {
 }
 
 fn open_context() -> Result<Context, SecretCacheError> {
-    let mut ctx = Context::new(tcti_conf()?).map_err(|e| {
-        warn!("secret_cache: could not open TPM context: {}", e);
-        SecretCacheError::from(e)
-    })?;
-    // A real hardware TPM is already started by the firmware/kernel driver
-    // before `/dev/tpmrm0` is even usable, so this fails harmlessly there
-    // (TPM_RC_INITIALIZE) — ignored rather than treated as fatal. A fresh
-    // swtpm state directory (as used in tests) genuinely needs this once per
-    // process, or every subsequent command fails the same way.
-    let _ = ctx.startup(tss_esapi::constants::StartupType::Clear);
-    Ok(ctx)
+    Ok(tpm_seal::open_context(tcti_conf()?)?)
 }
 
-/// The two-role PCR selection (boot-integrity + liveness), SHA256 bank only.
-fn pcr_selection() -> Result<PcrSelectionList, SecretCacheError> {
-    let mut slots = BOOT_PCR_SLOTS.to_vec();
+/// The two-role PCR slot list (boot-integrity + liveness), in the fixed
+/// order [`tpm_seal::pcr_digest`] concatenates them in.
+fn full_pcr_slots() -> Vec<PcrSlot> {
+    let mut slots = tpm_seal::BOOT_PCR_SLOTS.to_vec();
     slots.push(LIVENESS_PCR_SLOT);
-    Ok(PcrSelectionListBuilder::new()
-        .with_selection(HashingAlgorithm::Sha256, &slots)
-        .build()?)
-}
-
-/// Standard RSA2048 restricted-decryption primary key template — the same
-/// one `tss-esapi`'s own test suite (`common::decryption_key_pub`) uses as
-/// its SRK-equivalent. Deterministic: creating a primary from this exact
-/// template under the Owner hierarchy always yields the same key on a given
-/// TPM, so nothing needs to be persisted for the parent itself — only the
-/// sealed child object's Public/Private blobs (see [`SealedBlob`]).
-fn primary_key(ctx: &mut Context) -> Result<KeyHandle, SecretCacheError> {
-    let public = utils::create_restricted_decryption_rsa_public(
-        tss_esapi::abstraction::cipher::Cipher::aes_256_cfb()
-            .try_into()
-            .map_err(SecretCacheError::from)?,
-        tss_esapi::interface_types::key_bits::RsaKeyBits::Rsa2048,
-        Default::default(),
-    )?;
-    Ok(ctx
-        .execute_with_nullauth_session(|ctx| {
-            ctx.create_primary(Hierarchy::Owner, public.clone(), None, None, None, None)
-        })
-        .map_err(SecretCacheError::from)?
-        .key_handle)
-}
-
-/// Digest of the concatenated current PCR values for `selection`, in
-/// ascending slot order — this is exactly what `TPM2_PolicyPCR` itself folds
-/// into the session's policy digest (see the doc comment on
-/// `tss-esapi`'s own `common::get_pcr_policy_digest` test helper, which this
-/// mirrors), so computing it the same way here lets us both (a) precompute
-/// the expected policy digest at seal time via a *trial* session, and (b)
-/// authorize the real unseal at release time via a real *policy* session —
-/// both calls read whatever the live PCR content is at that moment, which is
-/// the whole point: they only agree when nothing has changed since sealing.
-fn current_pcr_digest(
-    ctx: &mut Context,
-    selection: &PcrSelectionList,
-) -> Result<Digest, SecretCacheError> {
-    let (_, read_selections, read_digests) = ctx.pcr_read(selection.clone())?;
-    let pcr_data = PcrData::create(&read_selections, &read_digests)?;
-    let bank = pcr_data
-        .pcr_bank(HashingAlgorithm::Sha256)
-        .ok_or_else(|| SecretCacheError::Crypto("no SHA256 PCR bank returned".to_string()))?;
-
-    let mut concatenated = Vec::new();
-    for slot in BOOT_PCR_SLOTS
-        .iter()
-        .chain(std::iter::once(&LIVENESS_PCR_SLOT))
-    {
-        let digest = bank.get_digest(*slot).ok_or_else(|| {
-            SecretCacheError::Crypto(format!("missing PCR digest for {:?}", slot))
-        })?;
-        concatenated.extend_from_slice(digest.value());
-    }
-
-    let (hashed, _ticket) = ctx.hash(
-        MaxBuffer::try_from(concatenated)?,
-        HashingAlgorithm::Sha256,
-        Hierarchy::Owner,
-    )?;
-    Ok(hashed)
-}
-
-/// Runs `f` under a one-shot HMAC session used purely to authorize
-/// `pcr_extend`/`pcr_reset` (both PCR's default authValue is empty, but the
-/// TPM still requires *some* authorization session for these — see
-/// `tss-esapi`'s own `test_pcr_extend_reset_commands`, which uses the same
-/// pattern), then flushes the session immediately — a real TPM/swtpm only
-/// has a handful of session slots, and this module's callers open several
-/// sessions in sequence within a single [`Context`], so leaving each one
-/// alive until the whole `Context` drops exhausts them (confirmed: this
-/// failed with `TPM_RC_SESSION_MEMORY` against swtpm before this function
-/// started flushing eagerly).
-fn with_pcr_auth_session<F, T>(ctx: &mut Context, f: F) -> Result<T, SecretCacheError>
-where
-    F: FnOnce(&mut Context) -> Result<T, SecretCacheError>,
-{
-    let session = ctx
-        .start_auth_session(
-            None,
-            None,
-            None,
-            SessionType::Hmac,
-            SymmetricDefinition::AES_256_CFB,
-            HashingAlgorithm::Sha256,
-        )?
-        .ok_or_else(|| SecretCacheError::Crypto("TPM returned no session handle".to_string()))?;
-    let (attrs, mask) = SessionAttributesBuilder::new()
-        .with_decrypt(true)
-        .with_encrypt(true)
-        .build();
-    ctx.tr_sess_set_attributes(session, attrs, mask)?;
-
-    let result = ctx.execute_with_session(Some(session), f);
-    ctx.flush_context(tss_esapi::handles::SessionHandle::from(session).into())?;
-    result
+    slots
 }
 
 fn extend_liveness_pcr(ctx: &mut Context, uid: u32) -> Result<(), SecretCacheError> {
@@ -292,7 +174,9 @@ fn extend_liveness_pcr(ctx: &mut Context, uid: u32) -> Result<(), SecretCacheErr
     let mut values = DigestValues::new();
     values.set(HashingAlgorithm::Sha256, event_digest);
 
-    with_pcr_auth_session(ctx, |ctx| Ok(ctx.pcr_extend(LIVENESS_PCR_HANDLE, values)?))
+    Ok(tpm_seal::with_pcr_auth_session(ctx, |ctx| {
+        Ok(ctx.pcr_extend(LIVENESS_PCR_HANDLE, values)?)
+    })?)
 }
 
 /// Resets the liveness PCR back to baseline. Returns `Ok(false)` (not an
@@ -301,13 +185,13 @@ fn extend_liveness_pcr(ctx: &mut Context, uid: u32) -> Result<(), SecretCacheErr
 /// PCRs other than the one they've hardcoded — the caller degrades to
 /// "release worked once this boot" rather than treating it as fatal.
 fn reset_liveness_pcr(ctx: &mut Context) -> Result<bool, SecretCacheError> {
-    with_pcr_auth_session(ctx, |ctx| Ok(ctx.pcr_reset(LIVENESS_PCR_HANDLE)?))?;
+    tpm_seal::with_pcr_auth_session(ctx, |ctx| Ok(ctx.pcr_reset(LIVENESS_PCR_HANDLE)?))?;
 
     let selection = PcrSelectionListBuilder::new()
         .with_selection(HashingAlgorithm::Sha256, &[LIVENESS_PCR_SLOT])
         .build()?;
     let (_, read_selections, read_digests) = ctx.pcr_read(selection)?;
-    let pcr_data = PcrData::create(&read_selections, &read_digests)?;
+    let pcr_data = tss_esapi::abstraction::pcr::PcrData::create(&read_selections, &read_digests)?;
     let value = pcr_data
         .pcr_bank(HashingAlgorithm::Sha256)
         .and_then(|bank| bank.get_digest(LIVENESS_PCR_SLOT).cloned());
@@ -327,10 +211,11 @@ pub fn probe_tpm_capability() -> TpmCapability {
             }
         }
     };
-    if pcr_selection()
-        .and_then(|sel| current_pcr_digest(&mut ctx, &sel))
-        .is_err()
-    {
+    let slots = full_pcr_slots();
+    let readable = tpm_seal::pcr_selection_for(&slots)
+        .and_then(|sel| tpm_seal::pcr_digest(&mut ctx, &slots, &sel))
+        .is_ok();
+    if !readable {
         return TpmCapability {
             available: false,
             liveness_pcr_resettable: false,
@@ -349,89 +234,6 @@ pub fn probe_tpm_capability() -> TpmCapability {
     }
 }
 
-/// Sealed-object blob layout on disk: two length-prefixed sections
-/// (marshalled `Public`, then raw `Private` bytes) — simple enough not to
-/// need serde/base64 for what's fundamentally two opaque byte buffers.
-fn write_sealed_blob(
-    path: &Path,
-    public: &Public,
-    private: &Private,
-) -> Result<(), SecretCacheError> {
-    let pub_bytes = public.marshall()?;
-    let priv_bytes = private.value();
-    let mut out = Vec::with_capacity(8 + pub_bytes.len() + priv_bytes.len());
-    out.extend_from_slice(&(pub_bytes.len() as u32).to_be_bytes());
-    out.extend_from_slice(&pub_bytes);
-    out.extend_from_slice(&(priv_bytes.len() as u32).to_be_bytes());
-    out.extend_from_slice(priv_bytes);
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    std::fs::write(path, out)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
-    }
-    Ok(())
-}
-
-fn read_sealed_blob(path: &Path) -> Result<(Public, Private), SecretCacheError> {
-    let data = std::fs::read(path)?;
-    if data.len() < 8 {
-        return Err(SecretCacheError::Crypto(
-            "sealed blob truncated".to_string(),
-        ));
-    }
-    let pub_len = u32::from_be_bytes(data[0..4].try_into().unwrap()) as usize;
-    let pub_end = 4 + pub_len;
-    if data.len() < pub_end + 4 {
-        return Err(SecretCacheError::Crypto(
-            "sealed blob truncated".to_string(),
-        ));
-    }
-    let public = Public::unmarshall(&data[4..pub_end])?;
-    let priv_len_start = pub_end;
-    let priv_len =
-        u32::from_be_bytes(data[priv_len_start..priv_len_start + 4].try_into().unwrap()) as usize;
-    let priv_start = priv_len_start + 4;
-    if data.len() < priv_start + priv_len {
-        return Err(SecretCacheError::Crypto(
-            "sealed blob truncated".to_string(),
-        ));
-    }
-    let private = Private::try_from(data[priv_start..priv_start + priv_len].to_vec())?;
-    Ok((public, private))
-}
-
-/// The `Public` template for the sealed AES-key object, gated by
-/// `auth_policy`. Deliberately `with_user_with_auth(false)`: unlike
-/// `tss-esapi`'s own test template (`common::create_public_sealed_object`,
-/// which sets this `true` for its own unrelated test purposes), USER-role
-/// actions on this object — which is what `TPM2_Unseal` requires — must be
-/// satisfiable *only* via the PCR policy, never via the object's (empty,
-/// default) plain authValue. Getting this bit wrong would mean anyone could
-/// unseal the key with a trivial empty-password session, bypassing the PCR
-/// gate entirely.
-fn sealed_object_public(auth_policy: Digest) -> Result<Public, SecretCacheError> {
-    let object_attributes = ObjectAttributesBuilder::new()
-        .with_fixed_tpm(true)
-        .with_fixed_parent(true)
-        .with_no_da(true)
-        .with_user_with_auth(false)
-        .with_admin_with_policy(true)
-        .build()?;
-
-    Ok(PublicBuilder::new()
-        .with_public_algorithm(PublicAlgorithm::KeyedHash)
-        .with_name_hashing_algorithm(HashingAlgorithm::Sha256)
-        .with_object_attributes(object_attributes)
-        .with_auth_policy(auth_policy)
-        .with_keyed_hash_parameters(PublicKeyedHashParameters::new(KeyedHashScheme::Null))
-        .with_keyed_hash_unique_identifier(Default::default())
-        .build()?)
-}
-
 /// Precomputes the policy digest the seal will require at release time, by
 /// *actually* extending the liveness PCR to its post-match value, capturing
 /// the resulting digest via a trial session, then immediately resetting it
@@ -444,23 +246,10 @@ fn precompute_release_policy_digest(
     uid: u32,
 ) -> Result<Digest, SecretCacheError> {
     extend_liveness_pcr(ctx, uid)?;
-    let selection = pcr_selection()?;
-    let pcr_digest = current_pcr_digest(ctx, &selection)?;
-
-    let trial = ctx
-        .start_auth_session(
-            None,
-            None,
-            None,
-            SessionType::Trial,
-            SymmetricDefinition::AES_256_CFB,
-            HashingAlgorithm::Sha256,
-        )?
-        .ok_or_else(|| SecretCacheError::Crypto("TPM returned no trial session".to_string()))?;
-    let trial_policy = PolicySession::try_from(trial)?;
-    ctx.policy_pcr(trial_policy, pcr_digest, selection)?;
-    let digest = ctx.policy_get_digest(trial_policy)?;
-    ctx.flush_context(tss_esapi::handles::SessionHandle::from(trial).into())?;
+    let slots = full_pcr_slots();
+    let selection = tpm_seal::pcr_selection_for(&slots)?;
+    let pcr_digest_now = tpm_seal::pcr_digest(ctx, &slots, &selection)?;
+    let digest = tpm_seal::trial_pcr_policy_digest(ctx, pcr_digest_now, selection)?;
 
     // Whether or not the reset actually took (see reset_liveness_pcr's
     // doc), the seal step must not leave the liveness PCR sitting in its
@@ -482,10 +271,10 @@ fn precompute_release_policy_digest(
 pub fn seal_and_store(uid: u32, password: &str) -> Result<(), SecretCacheError> {
     let mut ctx = open_context()?;
 
-    let key_bytes = random_bytes::<32>()?;
+    let key_bytes = tpm_seal::random_bytes::<32>()?;
     let cipher = Aes256Gcm::new_from_slice(&key_bytes)
         .map_err(|e| SecretCacheError::Crypto(e.to_string()))?;
-    let nonce_bytes = random_bytes::<12>()?;
+    let nonce_bytes = tpm_seal::random_bytes::<12>()?;
     let nonce: Nonce<Aes256Gcm> = Array::try_from(nonce_bytes.as_slice())
         .map_err(|_| SecretCacheError::Crypto("bad nonce length".to_string()))?;
     let ciphertext = cipher
@@ -501,26 +290,9 @@ pub fn seal_and_store(uid: u32, password: &str) -> Result<(), SecretCacheError> 
     write_owner_only_file(&authtok_path, &on_disk).map_err(SecretCacheError::Io)?;
 
     let policy_digest = precompute_release_policy_digest(&mut ctx, uid)?;
-    let public_template = sealed_object_public(policy_digest)?;
-    let parent = primary_key(&mut ctx)?;
     let sensitive_key = SensitiveData::try_from(key_bytes.to_vec())?;
-    let created = ctx.execute_with_nullauth_session(|ctx| {
-        ctx.create(
-            parent,
-            public_template,
-            None,
-            Some(sensitive_key),
-            None,
-            None,
-        )
-    })?;
-    ctx.flush_context(parent.into())?;
-
-    write_sealed_blob(
-        &sealed_key_path(uid),
-        &created.out_public,
-        &created.out_private,
-    )?;
+    let (public, private) = tpm_seal::seal_sensitive_data(&mut ctx, sensitive_key, policy_digest)?;
+    tpm_seal::write_sealed_blob(&sealed_key_path(uid), &public, &private)?;
     info!(
         "secret_cache: sealed a new session password cache for uid={}",
         uid
@@ -541,7 +313,13 @@ pub fn has_cached_password(uid: u32) -> bool {
 
 /// Attempts to release the cached password for `uid`, assuming a face match
 /// for that uid *just* succeeded. Returns `Ok(None)` — never an error — for
-/// "no cache exists", so callers treat that identically to nothing-to-do.
+/// "no cache exists" *or* for a failed unseal (policy mismatch, tampered
+/// boot chain, or a corrupted/incompatible sealed blob) — every one of these
+/// just means "nothing to release", handled identically by callers, rather
+/// than a hard error interrupting a face-only login that would otherwise
+/// have succeeded (a slightly more forgiving stance than treating a load
+/// failure as fatal, taken deliberately when this was generalized alongside
+/// [`crate::embedding_cipher`], which needs the same graceful degradation).
 ///
 /// Blocking (real TPM I/O) — callers on an async runtime must wrap this in
 /// `tokio::task::spawn_blocking`.
@@ -556,33 +334,15 @@ pub fn release_for_match(uid: u32) -> Result<Option<String>, SecretCacheError> {
     }
 
     let mut ctx = open_context()?;
-    let (public, private) = read_sealed_blob(&sealed_path)?;
+    let (public, private) = tpm_seal::read_sealed_blob(&sealed_path)?;
 
     extend_liveness_pcr(&mut ctx, uid)?;
-    let selection = pcr_selection()?;
-    let pcr_digest = current_pcr_digest(&mut ctx, &selection)?;
+    let slots = full_pcr_slots();
+    let selection = tpm_seal::pcr_selection_for(&slots)?;
+    let pcr_digest_now = tpm_seal::pcr_digest(&mut ctx, &slots, &selection)?;
 
-    let policy = ctx
-        .start_auth_session(
-            None,
-            None,
-            None,
-            SessionType::Policy,
-            SymmetricDefinition::AES_256_CFB,
-            HashingAlgorithm::Sha256,
-        )?
-        .ok_or_else(|| SecretCacheError::Crypto("TPM returned no policy session".to_string()))?;
-    let policy_session = PolicySession::try_from(policy)?;
-    ctx.policy_pcr(policy_session, pcr_digest, selection)?;
-
-    let parent = primary_key(&mut ctx)?;
-    let handle = ctx.execute_with_nullauth_session(|ctx| ctx.load(parent, private, public))?;
-
-    let unseal_result = ctx.execute_with_session(Some(policy), |ctx| ctx.unseal(handle.into()));
-
-    ctx.flush_context(handle.into())?;
-    ctx.flush_context(parent.into())?;
-    ctx.flush_context(tss_esapi::handles::SessionHandle::from(policy).into())?;
+    let unseal_result =
+        tpm_seal::unseal_with_pcr_policy(&mut ctx, public, private, pcr_digest_now, selection);
 
     // Restore the liveness PCR regardless of whether unseal succeeded — a
     // policy mismatch (tampered boot, or a firmware that never actually
@@ -599,7 +359,7 @@ pub fn release_for_match(uid: u32) -> Result<Option<String>, SecretCacheError> {
         Ok(sensitive) => Zeroizing::new(sensitive.value().to_vec()),
         Err(e) => {
             debug!(
-                "secret_cache: unseal failed for uid={} (policy mismatch or tampered boot chain): {}",
+                "secret_cache: unseal failed for uid={} (policy mismatch, tampered boot chain, or corrupted blob): {}",
                 uid, e
             );
             return Ok(None);

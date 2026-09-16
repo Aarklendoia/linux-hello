@@ -26,6 +26,7 @@ mod security_util;
 pub mod storage;
 #[cfg(test)]
 mod test_support;
+mod tpm_seal;
 
 use authz::EnrollmentAuthorizer;
 use camera::CameraManager;
