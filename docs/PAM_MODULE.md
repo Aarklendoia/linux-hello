@@ -257,33 +257,46 @@ context: instead of
 auth sufficient pam_linux_hello.so context=sddm
 ```
 
-it writes a **substack** (`pam-lib.sh`'s `lh_sddm_write_substack`
-generates `/etc/pam.d/linux-hello-sddm-auth`):
+`install-pam.sh --enable-sddm` writes a small **jump-count block**
+(`pam-lib.sh`'s `lh_sddm_auth_block`) directly into `/etc/pam.d/sddm`,
+ahead of `@include common-auth`:
 
 ```text
 # /etc/pam.d/sddm
-auth [success=done default=ignore] substack linux-hello-sddm-auth
+auth [success=ok default=3]  pam_linux_hello.so context=sddm
+auth optional                 pam_kwallet5.so use_first_pass
+auth optional                 pam_gnome_keyring.so use_first_pass
+auth sufficient                pam_permit.so
 @include common-auth
 ...
-
-# /etc/pam.d/linux-hello-sddm-auth
-auth [success=ok default=ignore] pam_linux_hello.so context=sddm
-auth optional pam_kwallet5.so use_first_pass
-auth optional pam_gnome_keyring.so use_first_pass
 ```
 
-`pam_linux_hello`'s own line inside the substack uses `[success=ok
-default=ignore]`, not `sufficient`: on success it falls through into the
-two keyring lines (instead of terminating), so their `auth` hooks actually
-run and capture the now-populated `PAM_AUTHTOK`. Being `optional`, their own
-individual success or failure can't change the substack's aggregate result
-either way. The outer `sddm` file then treats *that aggregate result* as
-sufficient (`[success=done default=ignore]`): a real face match skips
-`@include common-auth` (avoiding both an unwanted second password prompt
-and `pam_unix.so`/`pam_deny.so`'s hard failure path), while a face-match
-failure falls through into `common-auth` exactly as before — `use_first_pass`
-on the two keyring lines means they fail quietly rather than prompting when
-`PAM_AUTHTOK` was never set.
+An earlier version of this wrapped the two keyring lines in a PAM
+**substack**, jumped into from the outer line via
+`[success=done default=ignore] substack ...`. That turned out to be invalid
+PAM syntax: `pam.conf(5)`'s `control` field is either a simple keyword
+(`substack` included) *or* a `[value=action ...]` expression, never both on
+the same line. Real Linux-PAM parsed the bracket as the complete control
+token and then treated the literal word `substack` as a *module path* to
+`dlopen` — confirmed on real hardware via `PAM adding faulty module:
+substack` in the journal, which silently disabled face login on SDDM
+entirely (`pam_linux_hello.so` was no longer referenced by the file at all),
+not just the KWallet auto-unlock.
+
+The jump-count block avoids that failure mode entirely — no substack, just
+documented primitives combined the way `pam.conf(5)` describes them:
+`pam_linux_hello`'s own line uses `[success=ok default=3]`, not
+`sufficient`: on success it falls through into the two `optional` keyring
+lines (instead of terminating), so their `auth` hooks actually run and
+capture the now-populated `PAM_AUTHTOK`, then reach `pam_permit.so` — a
+module that always succeeds and, being `sufficient`, ends the auth phase
+right there, skipping `@include common-auth`. On any other outcome,
+`default=3` jumps clean over all three of those lines (per `pam.conf(5)`,
+a jumped-over module's own contribution counts as `ignore` during
+`pam_authenticate`, not a recorded failure) straight into `@include
+common-auth` — the ordinary password fallback, untouched. `use_first_pass`
+on the two keyring lines means they no-op quietly rather than prompting
+when `PAM_AUTHTOK` was never set.
 
 The password is captured once, explicitly, via `linux-hello cache-password`
 (CLI or the settings GUI's "Cache session password" card) — never from a
@@ -324,11 +337,13 @@ face-only login, since there's no password to capture there. It's:
 Requires SDDM face-login already enabled (`sudo install-pam.sh --enable-sddm`
 — `hello-daemon-system`, the only process with TPM access, doesn't run
 otherwise) and a working TPM. If SDDM face-login was already enabled
-*before* the substack described above existed, re-run
+*before* the jump-count block described above existed (either the original
+plain `sufficient` line, or the short-lived broken substack version), re-run
 `sudo install-pam.sh --enable-sddm` once — it's idempotent-safe to re-run,
-and picks up the substack file needed for the KWallet unlock to actually
-take effect (the plain `sufficient` line it replaces still authenticates
-correctly on its own, it just never reaches `pam_kwallet5`). Then:
+and upgrades the file to the block needed for the KWallet unlock to actually
+take effect (the lines it replaces still authenticate correctly on their
+own, they just never reach `pam_kwallet5`, or — for the broken substack
+version — never reach `pam_linux_hello.so` either). Then:
 
 ```bash
 linux-hello cache-password
@@ -439,8 +454,8 @@ This plain `sufficient` line is fine on its own, but on a KDE/Plasma session
 it silently defeats KWallet auto-unlock even with password caching enabled:
 `sufficient`'s success skips every later `auth` line in the file, including
 `pam_kwallet5`/`pam_gnome_keyring`'s own — see "Password caching / KWallet
-auto-unlock" below for why that matters and the substack `install-pam.sh
---enable-sddm` actually writes instead.
+auto-unlock" below for why that matters and the jump-count block
+`install-pam.sh --enable-sddm` actually writes instead.
 
 #### Sudo
 
