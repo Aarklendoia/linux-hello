@@ -38,6 +38,27 @@ use tss_esapi::{
     utils, Context,
 };
 
+/// The device TCTI root should use to talk to the TPM directly.
+///
+/// Deliberately **not** `TctiNameConf::Device(Default::default())` — that
+/// default resolves to `/dev/tpm0`, the raw device, which the kernel only
+/// ever lets one process hold open at a time. `tpm2-abrmd` (needed for the
+/// per-user daemon's own, unprivileged TPM access — see
+/// `crate::embedding_cipher`) holds `/dev/tpm0` open for as long as it runs,
+/// which is continuously once enabled. Root opening `/dev/tpm0` too would
+/// race it for exclusive access instead of actually working alongside it —
+/// caught for real on hardware, not in testing (`swtpm` doesn't reproduce
+/// this contention). `/dev/tpmrm0`, the in-kernel resource-managed device,
+/// is built for exactly this: any number of processes — the standalone
+/// broker and root's own direct callers — can hold it open concurrently.
+pub(crate) fn root_device_tcti() -> TctiNameConf {
+    TctiNameConf::Device(
+        "/dev/tpmrm0"
+            .parse()
+            .expect("hardcoded device path always parses"),
+    )
+}
+
 #[derive(Debug, Error)]
 pub(crate) enum TpmSealError {
     #[error("TPM error: {0}")]

@@ -49,8 +49,10 @@
 //! key per running daemon's storage; root's side is genuinely one key per
 //! target uid, since one root process serves every enrolled user.
 
+use std::collections::HashMap;
 use std::convert::TryFrom;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
 
 use aes_gcm::aead::{array::Array, Aead, KeyInit, Nonce, Payload};
 use aes_gcm::Aes256Gcm;
@@ -93,12 +95,33 @@ impl From<TpmSealError> for EmbeddingCipherError {
 /// awaits while holding this.
 static CREATE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+/// In-memory cache of already-unsealed keys, keyed by sealed-key file path.
+///
+/// A real hardware TPM's PCR-policy unseal is not cheap — measured ~9
+/// *seconds* round-tripping through `tpm2-abrmd` on real fTPM hardware, not
+/// hypothetical. Boot-integrity PCRs 7/8/9 don't change until the next
+/// reboot, so the unsealed key is valid for this whole process's lifetime;
+/// re-unsealing on every call was pure waste, not extra security — and a
+/// real, measured one, since `verify_with_storage` calls into here at least
+/// once per authentication attempt (sudo, screenlock, polkit, SDDM), so
+/// every single face login was paying that multi-second cost. Keeping the
+/// plaintext key resident here for the process's life is no weaker than the
+/// status quo: any process already holding it can decrypt on demand anyway,
+/// and this is about offline disk theft, not a live-process compromise (see
+/// the module doc's "Policy" section). Never evicted except by process
+/// restart — a changed PCR state would fail a fresh unseal here exactly the
+/// same as it would fail one done without this cache.
+fn key_cache() -> &'static Mutex<HashMap<PathBuf, [u8; 32]>> {
+    static CACHE: OnceLock<Mutex<HashMap<PathBuf, [u8; 32]>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
 fn tcti_conf(is_root: bool) -> Result<TctiNameConf, EmbeddingCipherError> {
     if let Ok(spec) = std::env::var("LINUX_HELLO_TPM_TCTI") {
         return spec.parse().map_err(|_| EmbeddingCipherError::NoTpm);
     }
     if is_root {
-        Ok(TctiNameConf::Device(Default::default()))
+        Ok(tpm_seal::root_device_tcti())
     } else {
         Ok(TctiNameConf::Tabrmd(Default::default()))
     }
@@ -136,6 +159,10 @@ fn create_and_seal_key(
         .map_err(|e| EmbeddingCipherError::Crypto(e.to_string()))?;
     let (public, private) = tpm_seal::seal_sensitive_data(&mut ctx, sensitive, policy_digest)?;
     tpm_seal::write_sealed_blob(sealed_key_path, &public, &private)?;
+    key_cache()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(sealed_key_path.to_path_buf(), key_bytes);
     Ok(key_bytes)
 }
 
@@ -148,6 +175,13 @@ fn create_and_seal_key(
 /// Blocking (real TPM I/O) — callers on an async runtime must wrap this in
 /// `tokio::task::spawn_blocking`.
 pub fn load_key(sealed_key_path: &Path, is_root: bool) -> Result<[u8; 32], EmbeddingCipherError> {
+    if let Some(key) = key_cache()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(sealed_key_path)
+    {
+        return Ok(*key);
+    }
     if !sealed_key_path.exists() {
         return Err(EmbeddingCipherError::NoTpm);
     }
@@ -165,6 +199,10 @@ pub fn load_key(sealed_key_path: &Path, is_root: bool) -> Result<[u8; 32], Embed
     }
     let mut key = [0u8; 32];
     key.copy_from_slice(bytes);
+    key_cache()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(sealed_key_path.to_path_buf(), key);
     Ok(key)
 }
 

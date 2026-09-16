@@ -153,7 +153,7 @@ fn tcti_conf() -> Result<TctiNameConf, SecretCacheError> {
     if let Ok(spec) = std::env::var("LINUX_HELLO_TPM_TCTI") {
         return spec.parse().map_err(|_| SecretCacheError::NoTpm);
     }
-    Ok(TctiNameConf::Device(Default::default()))
+    Ok(tpm_seal::root_device_tcti())
 }
 
 fn open_context() -> Result<Context, SecretCacheError> {
