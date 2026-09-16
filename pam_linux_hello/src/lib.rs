@@ -764,26 +764,42 @@ pub extern "C" fn pam_sm_acct_mgmt(
 // ============================================================================
 
 /// Translate a username into a UID
+///
+/// Uses `getpwnam_r`, not `getpwnam` — the latter returns a pointer into a
+/// static, per-process buffer that any other concurrent `getpwnam`/`getpwuid`
+/// call (another thread, anywhere in the process) can overwrite mid-call.
+/// That's not hypothetical: it produced a real, if rare, CI failure here —
+/// `uid_from_name("root")` returning another test's/thread's uid instead of
+/// 0. `getpwnam_r` takes a caller-owned buffer instead, so it's race-free.
 fn uid_from_name(username: &str) -> Option<u32> {
     use std::ffi::CString;
 
-    unsafe {
-        let username_cstr = match CString::new(username) {
-            Ok(cstr) => cstr,
-            Err(_) => return None,
+    let username_cstr = CString::new(username).ok()?;
+
+    let mut buf_len: usize = 1024;
+    loop {
+        let mut buf = vec![0i8; buf_len];
+        let mut pwd: libc::passwd = unsafe { std::mem::zeroed() };
+        let mut result: *mut libc::passwd = std::ptr::null_mut();
+
+        let ret = unsafe {
+            libc::getpwnam_r(
+                username_cstr.as_ptr(),
+                &mut pwd,
+                buf.as_mut_ptr(),
+                buf_len,
+                &mut result,
+            )
         };
 
-        // getpwnam is a C function from libc
-        extern "C" {
-            fn getpwnam(name: *const c_char) -> *mut libc::passwd;
+        if ret == libc::ERANGE {
+            buf_len *= 2;
+            continue;
         }
-
-        let pwd = getpwnam(username_cstr.as_ptr());
-        if pwd.is_null() {
+        if ret != 0 || result.is_null() {
             return None;
         }
-
-        Some((*pwd).pw_uid)
+        return Some(pwd.pw_uid);
     }
 }
 
