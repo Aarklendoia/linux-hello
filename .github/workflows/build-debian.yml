@@ -42,6 +42,7 @@ jobs:
             libdbus-1-dev \
             libv4l-dev \
             libjpeg-dev \
+            libtss2-dev \
             libclang-dev \
             clang \
             pkg-config \

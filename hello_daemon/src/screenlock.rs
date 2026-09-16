@@ -253,6 +253,7 @@ async fn try_face_unlock(
         Ok(VerifyResult::Success {
             face_id,
             similarity_score,
+            ..
         }) => {
             info!(
                 "Face recognized (id={}, score={:.3}) → unlocking",

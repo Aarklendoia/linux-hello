@@ -18,4 +18,8 @@ path = "src/lib.rs"
 serde = { version = "1", features = ["derive"] }
 serde_json.workspace = true
 libc.workspace = true
+# Wipes the released cached password from process memory right after
+# pam_set_item copies it — no async runtime pulled in, same constraint as
+# everything else in this crate (see the comment above).
+zeroize = "1.9.0"
 

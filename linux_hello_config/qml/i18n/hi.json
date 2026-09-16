@@ -24,7 +24,11 @@
         "registerBtnDesc": "नई बायोमेट्रिक प्रोफ़ाइल जोड़ें",
         "manageFacesBtnDesc": "%1 चेहरे पंजीकृत",
         "fallbackNote": "यदि आपका चेहरा पहचाना नहीं जाता, तो पासवर्ड हमेशा उपलब्ध रहता है — चेहरा पहचान केवल एक तेज़ विकल्प जोड़ता है, यह कभी भी आपको बाहर नहीं रोकता।",
-        "manageFacesBtnDescOne": "1 चेहरा पंजीकृत"
+        "manageFacesBtnDescOne": "1 चेहरा पंजीकृत",
+        "cachePasswordTitle": "Cache session password",
+        "cachePasswordActiveSub": "Cached — auto-unlocks KWallet",
+        "cachePasswordInactiveSub": "Not cached — tap to set up",
+        "cachePasswordUnavailableSub": "Unavailable — enable the login screen first"
     },
     "enrollment": {
         "title": "चेहरा पंजीकरण",
@@ -69,5 +73,19 @@
         "builtWith": "Rust, Qt6 और KDE Kirigami के साथ निर्मित",
         "licenseTitle": "लाइसेंस",
         "licenseLoading": "लोड हो रहा है…"
+    },
+    "cachePassword": {
+        "title": "Cache session password",
+        "intro": "This stores an encrypted, TPM-sealed copy of your account password so KWallet/the keyring can unlock automatically after a face-only login at the SDDM login screen.",
+        "warningBody": "A future root-level compromise of this machine could recover this EXACT password — and if you use the same password anywhere else (email, banking, other machines), that compromise follows it there too, even after this machine's own compromise is fixed.\n\nIf you reuse this login password elsewhere, either change this account's password to one used only for logging into this machine before continuing, or don't enable this.",
+        "passwordLabel": "Password",
+        "passwordPlaceholder": "Your account password",
+        "showPassword": "Show password",
+        "hidePassword": "Hide password",
+        "confirmButton": "Cache password",
+        "cancelButton": "Cancel",
+        "busy": "Working…",
+        "successMessage": "Cached — KWallet should now auto-unlock after a face-only login.",
+        "unavailableNote": "Enable the login screen first (Home → Login screen), then come back here."
     }
 }

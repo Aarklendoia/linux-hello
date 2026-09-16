@@ -23,6 +23,15 @@ pub struct MatchResult {
 
     /// Match succeeded?
     pub matched: bool,
+
+    /// Whether this match's liveness check used the IR path (well-validated)
+    /// rather than the weaker RGB-only fallback (see `match_with_liveness`).
+    /// `false` for a bare `match_embedding` result, which never evaluated
+    /// liveness. Consumed by `hello_daemon::pam_helper` to decide whether a
+    /// successful `context=sddm` match is trustworthy enough to release a
+    /// TPM-cached session password — see `secret_cache`'s module docs for why
+    /// a spoofed match becomes a bigger prize once that feature is enabled.
+    pub used_ir_liveness: bool,
 }
 
 /// Face matching manager
@@ -126,6 +135,7 @@ impl FaceMatcher {
             threshold,
             all_scores,
             matched,
+            used_ir_liveness: false,
         }
     }
 
@@ -197,11 +207,16 @@ impl FaceMatcher {
                 threshold,
                 all_scores: rgb_result.all_scores,
                 matched: false,
+                used_ir_liveness: ir_liveness.is_some(),
             };
         }
 
-        // Liveness confirmed → the RGB result stands
-        rgb_result
+        // Liveness confirmed → the RGB result stands, tagged with which
+        // liveness path actually passed.
+        MatchResult {
+            used_ir_liveness: ir_liveness.is_some(),
+            ..rgb_result
+        }
     }
 
     /// Compute the cosine similarity between two vectors

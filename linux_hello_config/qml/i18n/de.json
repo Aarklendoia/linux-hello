@@ -24,7 +24,11 @@
         "registerBtnDesc": "Neues biometrisches Profil hinzufügen",
         "manageFacesBtnDesc": "%1 Gesichter registriert",
         "fallbackNote": "Wird Ihr Gesicht nicht erkannt, steht das Passwort immer zur Verfügung — die Gesichtserkennung fügt nur eine schnellere Option hinzu und sperrt Sie nie aus.",
-        "manageFacesBtnDescOne": "1 Gesicht registriert"
+        "manageFacesBtnDescOne": "1 Gesicht registriert",
+        "cachePasswordTitle": "Cache session password",
+        "cachePasswordActiveSub": "Cached — auto-unlocks KWallet",
+        "cachePasswordInactiveSub": "Not cached — tap to set up",
+        "cachePasswordUnavailableSub": "Unavailable — enable the login screen first"
     },
     "enrollment": {
         "title": "Gesichtsregistrierung",
@@ -69,5 +73,19 @@
         "builtWith": "Erstellt mit Rust, Qt6 & KDE Kirigami",
         "licenseTitle": "Lizenz",
         "licenseLoading": "Wird geladen…"
+    },
+    "cachePassword": {
+        "title": "Cache session password",
+        "intro": "This stores an encrypted, TPM-sealed copy of your account password so KWallet/the keyring can unlock automatically after a face-only login at the SDDM login screen.",
+        "warningBody": "A future root-level compromise of this machine could recover this EXACT password — and if you use the same password anywhere else (email, banking, other machines), that compromise follows it there too, even after this machine's own compromise is fixed.\n\nIf you reuse this login password elsewhere, either change this account's password to one used only for logging into this machine before continuing, or don't enable this.",
+        "passwordLabel": "Password",
+        "passwordPlaceholder": "Your account password",
+        "showPassword": "Show password",
+        "hidePassword": "Hide password",
+        "confirmButton": "Cache password",
+        "cancelButton": "Cancel",
+        "busy": "Working…",
+        "successMessage": "Cached — KWallet should now auto-unlock after a face-only login.",
+        "unavailableNote": "Enable the login screen first (Home → Login screen), then come back here."
     }
 }

@@ -69,6 +69,10 @@ pub enum VerifyResult {
     Success {
         face_id: String,
         similarity_score: f32,
+
+        /// Whether the match's liveness check used the IR path rather than
+        /// the weaker RGB-only fallback — see `MatchResult::used_ir_liveness`.
+        used_ir_liveness: bool,
     },
 
     /// No face detected
@@ -93,6 +97,7 @@ impl fmt::Display for VerifyResult {
             VerifyResult::Success {
                 face_id,
                 similarity_score,
+                ..
             } => {
                 write!(f, "Success ({}): {:.2}", face_id, similarity_score)
             }
@@ -119,6 +124,7 @@ mod tests {
         let result = VerifyResult::Success {
             face_id: "face_1".to_string(),
             similarity_score: 0.87,
+            used_ir_liveness: false,
         };
         assert!(result.to_string().contains("0.87"));
     }

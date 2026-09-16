@@ -4,7 +4,13 @@ import QtQuick.Layouts
 import org.kde.kirigami as Kirigami
 import Linux.Hello 1.0
 
-Kirigami.Page {
+// ScrollablePage rather than plain Page: this page's content already grows
+// with the number of action cards (Register/Manage/Login screen/Cache
+// password, and possibly more later), and a fixed-height, non-scrolling
+// Page just clips whatever doesn't fit — confirmed on a real run once the
+// "Cache session password" card was added, which pushed the fallback note
+// below the window's bottom edge with no way to reach it.
+Kirigami.ScrollablePage {
     id: homePage
 
     title: I18n.tr("home.title")
@@ -44,7 +50,13 @@ Kirigami.Page {
     }
 
     ColumnLayout {
-        anchors.fill: parent
+        // Width-only, not anchors.fill: a ScrollablePage's direct child must
+        // size its own height from its content (the sum of its children) so
+        // the wrapping Flickable knows how far there is to scroll — filling
+        // the viewport's height here would make it always exactly as tall
+        // as the visible area, which is what caused the clipping this
+        // ScrollablePage change fixes in the first place.
+        width: parent.width
         spacing: Kirigami.Units.largeSpacing * 1.5
 
         // Hero mark — the project's own app icon (face-ID corners + verified
@@ -215,57 +227,95 @@ Kirigami.Page {
                 }
                 onClicked: AppController.toggleSddm()
             }
-        }
 
-        // SDDM toggle error — no toast/notification system in this app yet,
-        // so a plain inline line is the simplest honest feedback for a
-        // failed/cancelled pkexec attempt.
-        Label {
-            visible: AppController.sddmError !== ""
-            text: sddmErrorText(AppController.sddmError)
-            font.pixelSize: 10
-            color: Kirigami.Theme.negativeTextColor
-            wrapMode: Text.WordWrap
-            Layout.fillWidth: true
-        }
-
-        // SDDM only starts checking once a login attempt is actually
-        // submitted (pressing Enter/clicking the login button) — it can't
-        // scan passively just from the greeter being on screen, since PAM
-        // itself only runs at that point. Not obvious from the greeter
-        // alone (confirmed: a real user tried it and asked "how do I
-        // explain this?"), so spell it out here rather than only in docs.
-        RowLayout {
-            visible: AppController.sddmActive
-            Layout.fillWidth: true
-            spacing: Kirigami.Units.smallSpacing
-
-            Kirigami.Icon {
-                source: "info-symbolic"
-                width: Kirigami.Units.gridUnit * 0.9
-                height: width
-                color: Kirigami.Theme.disabledTextColor
-                isMask: true
-                Layout.alignment: Qt.AlignTop
+            // SDDM toggle feedback — a passive (auto-dismissing) notification
+            // rather than a permanent inline line, using Kirigami's own
+            // toast mechanism (no custom component needed). Cancelling
+            // pkexec's own prompt is treated as a silent no-op by
+            // toggleSddm() itself (see AppController.qml) — indistinguishable
+            // from a genuine auth failure at the process-exit-code level, but
+            // by far the more common reason this fires, so it's not worth
+            // alarming the user over. This notification only ever fires for
+            // an actual failure (script error, unreachable helper, etc.).
+            Connections {
+                target: AppController
+                function onSddmErrorChanged() {
+                    if (AppController.sddmError !== "")
+                        applicationWindow().showPassiveNotification(sddmErrorText(AppController.sddmError));
+                }
             }
-            Label {
-                text: I18n.tr("home.sddmHowToNote")
-                font.pixelSize: 10
-                color: Kirigami.Theme.disabledTextColor
-                wrapMode: Text.WordWrap
+
+            // SDDM only starts checking once a login attempt is actually
+            // submitted (pressing Enter/clicking the login button) — it
+            // can't scan passively just from the greeter being on screen,
+            // since PAM itself only runs at that point. Not obvious from
+            // the greeter alone (confirmed: a real user tried it and asked
+            // "how do I explain this?"), so spell it out here, directly
+            // under the SDDM card it explains rather than after every card
+            // on the page (where an unrelated card could end up sitting
+            // between the two, as the Cache password card originally did).
+            RowLayout {
+                visible: AppController.sddmActive
                 Layout.fillWidth: true
+                spacing: Kirigami.Units.smallSpacing
+
+                Kirigami.Icon {
+                    source: "info-symbolic"
+                    width: Kirigami.Units.gridUnit * 0.9
+                    height: width
+                    color: Kirigami.Theme.disabledTextColor
+                    isMask: true
+                    Layout.alignment: Qt.AlignTop
+                }
+                Label {
+                    text: I18n.tr("home.sddmHowToNote")
+                    font.pixelSize: 10
+                    color: Kirigami.Theme.disabledTextColor
+                    wrapMode: Text.WordWrap
+                    Layout.fillWidth: true
+                }
+            }
+
+            // Session-password cache — navigates to a sub-page (the consent
+            // warning + password field don't fit a one-line card action),
+            // unlike the SDDM toggle above which acts immediately. Disabled
+            // until SDDM face-login is enabled: hello-daemon-system, the
+            // only process with TPM access, doesn't run otherwise.
+            ActionCard {
+                enabled: AppController.passwordCacheAvailable
+                iconSource: "dialog-password-symbolic"
+                iconColor: AppController.passwordCacheActive ? Kirigami.Theme.positiveTextColor : Kirigami.Theme.highlightColor
+                badgeColor: AppController.passwordCacheActive
+                    ? Qt.rgba(Kirigami.Theme.positiveTextColor.r, Kirigami.Theme.positiveTextColor.g, Kirigami.Theme.positiveTextColor.b, 0.15)
+                    : Qt.rgba(Kirigami.Theme.highlightColor.r, Kirigami.Theme.highlightColor.g, Kirigami.Theme.highlightColor.b, 0.15)
+                title: I18n.tr("home.cachePasswordTitle")
+                subtitle: {
+                    if (!AppController.passwordCacheAvailable)
+                        return I18n.tr("home.cachePasswordUnavailableSub");
+                    return AppController.passwordCacheActive ? I18n.tr("home.cachePasswordActiveSub") : I18n.tr("home.cachePasswordInactiveSub");
+                }
+                onClicked: AppController.navigateToCachePasswordImpl()
             }
         }
 
-        // Flexible spacer — only this gap is elastic, so the fallback note
-        // below is pinned to the bottom of the window while everything
-        // above it (hero, status, actions) keeps its natural top-down flow,
-        // matching the approved mockup instead of centering the whole block.
-        Item { Layout.fillHeight: true }
+    }
 
-        // Password-fallback reassurance
+    // Password-fallback reassurance — pinned in the page's `footer` rather
+    // than living in the scrolling ColumnLayout above, so it always sits at
+    // the window's bottom edge regardless of how many action cards fit
+    // above the fold, instead of just trailing the last card in the
+    // scrollable content (which pushed it out of sight once a 4th card was
+    // added, and left it "floating" mid-page on a tall window otherwise).
+    footer: Rectangle {
+        implicitHeight: fallbackRow.implicitHeight + Kirigami.Units.largeSpacing * 2
+        color: Kirigami.Theme.backgroundColor
+        border.width: 1
+        border.color: Qt.rgba(Kirigami.Theme.textColor.r, Kirigami.Theme.textColor.g, Kirigami.Theme.textColor.b, 0.08)
+
         RowLayout {
-            Layout.fillWidth: true
+            id: fallbackRow
+            anchors.fill: parent
+            anchors.margins: Kirigami.Units.largeSpacing
             spacing: Kirigami.Units.smallSpacing
 
             Kirigami.Icon {

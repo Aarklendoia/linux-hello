@@ -218,6 +218,195 @@ Known limitations (accepted, not solved):
   shipping its own `Login.qml` in the `SessionManagementScreen` style); a
   custom/non-Breeze theme falls back to no visual feedback, same as before.
 
+## Password caching / KWallet auto-unlock
+
+`pam_kwallet5`/`pam_gnome_keyring` don't read `PAM_AUTHTOK` generically at
+session-open time — each has its own `auth`-phase entry point whose entire
+job is reading `PAM_AUTHTOK` *there* and stashing it via `pam_set_data()`
+(as e.g. `"kwallet5_key"`) for its `pam_sm_open_session` to hand off to
+`kwalletd`/the keyring daemon later. If that `auth` entry point never runs,
+`pam_sm_open_session` has nothing to hand off, no matter what `PAM_AUTHTOK`
+holds by then.
+
+When `pam_linux_hello.so` is stacked plain `sufficient` (as it is for every
+*other* context — sudo, su, polkit) and a face match succeeds, PAM's
+`sufficient` semantics stop the whole `auth` phase right there: nothing
+below that line in the file runs, including `pam_kwallet5`'s/
+`pam_gnome_keyring`'s own `auth optional` lines, wherever they're
+positioned. **Populating `PAM_AUTHTOK` alone does not fix this** — confirmed
+the hard way on real hardware: `pam_set_item` ran and logged success, yet
+`pam_kwallet5` still logged `open_session called without kwallet5_key` and
+fell back to its own prompt, because its `auth` hook was never reached.
+
+**This only applies to `context=sddm`.** Screenlock doesn't use PAM at all
+(see above — the watcher unlocks directly via `loginctl unlock-session`, so
+there's no `pam_sm_authenticate` call to inject `PAM_AUTHTOK` into), and
+`sudo` doesn't restart or unlock a session/wallet, so caching a password for
+either context would accomplish nothing.
+
+### How it works
+
+After a verified face match, `pam_sm_authenticate` calls
+`pam_set_item(pamh, PAM_AUTHTOK, cached_password)` — exactly the item a real
+password entry would have populated — before returning `PAM_SUCCESS`. That
+part alone isn't sufficient (see above), so `install-pam.sh --enable-sddm`
+also writes `context=sddm`'s auth line differently from every other
+context: instead of
+
+```text
+auth sufficient pam_linux_hello.so context=sddm
+```
+
+`install-pam.sh --enable-sddm` writes a small **jump-count block**
+(`pam-lib.sh`'s `lh_sddm_auth_block`) directly into `/etc/pam.d/sddm`,
+ahead of `@include common-auth`:
+
+```text
+# /etc/pam.d/sddm
+auth [success=ok default=3]  pam_linux_hello.so context=sddm
+auth optional                 pam_kwallet5.so use_first_pass
+auth optional                 pam_gnome_keyring.so use_first_pass
+auth sufficient                pam_permit.so
+@include common-auth
+...
+```
+
+An earlier version of this wrapped the two keyring lines in a PAM
+**substack**, jumped into from the outer line via
+`[success=done default=ignore] substack ...`. That turned out to be invalid
+PAM syntax: `pam.conf(5)`'s `control` field is either a simple keyword
+(`substack` included) *or* a `[value=action ...]` expression, never both on
+the same line. Real Linux-PAM parsed the bracket as the complete control
+token and then treated the literal word `substack` as a *module path* to
+`dlopen` — confirmed on real hardware via `PAM adding faulty module:
+substack` in the journal, which silently disabled face login on SDDM
+entirely (`pam_linux_hello.so` was no longer referenced by the file at all),
+not just the KWallet auto-unlock.
+
+The jump-count block avoids that failure mode entirely — no substack, just
+documented primitives combined the way `pam.conf(5)` describes them:
+`pam_linux_hello`'s own line uses `[success=ok default=3]`, not
+`sufficient`: on success it falls through into the two `optional` keyring
+lines (instead of terminating), so their `auth` hooks actually run and
+capture the now-populated `PAM_AUTHTOK`, then reach `pam_permit.so` — a
+module that always succeeds and, being `sufficient`, ends the auth phase
+right there, skipping `@include common-auth`. On any other outcome,
+`default=3` jumps clean over all three of those lines (per `pam.conf(5)`,
+a jumped-over module's own contribution counts as `ignore` during
+`pam_authenticate`, not a recorded failure) straight into `@include
+common-auth` — the ordinary password fallback, untouched. `use_first_pass`
+on the two keyring lines means they no-op quietly rather than prompting
+when `PAM_AUTHTOK` was never set.
+
+The password is captured once, explicitly, via `linux-hello cache-password`
+(CLI or the settings GUI's "Cache session password" card) — never from a
+face-only login, since there's no password to capture there. It's:
+
+- **Encrypted at rest** with AES-256-GCM
+  (`/var/lib/linux-hello/secrets/<uid>.authtok.enc`, root-owned mode 0600 —
+  deliberately *not* under the user's own home directory, since
+  `hello-daemon-system.service` runs with `ProtectHome=read-only`).
+- **Its key sealed inside the TPM** (`/var/lib/linux-hello/secrets/<uid>.tpm-sealed`),
+  never exportable from the chip, gated by a compound `TPM2_PolicyPCR`
+  policy:
+  1. **Boot-integrity PCRs 7/8/9** (Secure Boot state, kernel, initrd) —
+     read at `cache-password` time and baked into the policy, same technique
+     `systemd-cryptenroll --tpm2-pcrs=7,8,9` uses for LUKS auto-unlock. An
+     altered boot chain permanently breaks the seal.
+  2. **A dedicated "liveness" PCR, PCR 16** — extended by
+     `hello-daemon-system` right after a verified match, with a
+     precomputable, uid-specific digest, then reset back to baseline once
+     the release completes so the cycle repeats on every later login within
+     the same boot. PCR16 rather than the PCR23 floated early in design
+     discussion (see
+     [issue #149](https://github.com/Aarklendoia/linux-hello/issues/149)):
+     `tss-esapi`'s own upstream integration test picks PCR16 specifically
+     because it's "the only one that is resettable and extendable from the
+     locality" on the reference TPM stack this project also targets —
+     confirmed empirically here too (`hello_daemon::secret_cache`'s test
+     suite runs a real seal → release → release-again-same-boot round trip
+     against a real TPM/`swtpm`).
+- **Only ever decrypted inside `hello-daemon-system`** (root, the same
+  process already trusted for `context=sddm`), gated on `used_ir_liveness`
+  being `true` for that specific match — the weaker RGB-only liveness
+  fallback (see Security below) never triggers a release, since a spoofed
+  match now has a materially bigger prize behind it.
+
+### Enabling it
+
+Requires SDDM face-login already enabled (`sudo install-pam.sh --enable-sddm`
+— `hello-daemon-system`, the only process with TPM access, doesn't run
+otherwise) and a working TPM. If SDDM face-login was already enabled
+*before* the jump-count block described above existed (either the original
+plain `sufficient` line, or the short-lived broken substack version), re-run
+`sudo install-pam.sh --enable-sddm` once — it's idempotent-safe to re-run,
+and upgrades the file to the block needed for the KWallet unlock to actually
+take effect (the lines it replaces still authenticate correctly on their
+own, they just never reach `pam_kwallet5`, or — for the broken substack
+version — never reach `pam_linux_hello.so` either). Then:
+
+```bash
+linux-hello cache-password
+```
+
+or the settings GUI's "Cache session password" card. Both show the same
+consent warning before prompting for the password — this is a genuine,
+irreversible-in-spirit trade-off, not a checkbox to click past:
+
+> This stores an encrypted, TPM-sealed copy of your account password so
+> KWallet/the keyring can unlock automatically after a face-only login. A
+> future root-level compromise of this machine could recover this exact
+> password — and if you use the same password anywhere else, that
+> compromise follows it there too. If you reuse this login password
+> elsewhere, either change this account's password to one used only for
+> logging into this machine before continuing, or don't enable this.
+
+Changing the account password afterward through the normal `passwd`/PAM
+flow refreshes the cache automatically (`pam_sm_chauthtok`) — no need to
+re-run `cache-password`.
+
+### Security notes
+
+- **Root-equivalent trust, not biometric-strength — stated as plainly as
+  the RGB-liveness caveat below.** The liveness tag folded into PCR16
+  depends only on public constants (the uid, a fixed string), so this does
+  not cryptographically prove a face match happened — a compromised root
+  process on a correctly-booted, untampered machine could replay the same
+  `TPM2_PCR_Extend` call itself, without ever going through a real match,
+  and then unseal. What this design actually buys: the sealed key is
+  unusable if the disk/backup is stolen (offline attack — the key never
+  leaves the TPM in the first place) and unusable if the boot chain was
+  tampered with. It does **not** buy immunity to a live root compromise,
+  which remains equivalent to today's `/etc/shadow` trust level — except
+  that a live root compromise can now recover the literal, reusable
+  password, not just reset it. That's why this is opt-in, off by default,
+  and why the consent warning above exists.
+- Password verification for `cache-password` goes through a real PAM `auth`
+  call against `/etc/pam.d/linux-hello-cache-password`
+  (`auth required pam_unix.so`) — not a custom/weaker check.
+- The plaintext password only ever exists in `hello-daemon-system`'s memory
+  (zeroized immediately after use, both there and in `pam_linux_hello`
+  after `pam_set_item`) and on the wire over the peer-uid-verified
+  `/run/hello-pam/cache.socket` — never on the D-Bus session bus or any
+  channel a same-user unprivileged process could snoop.
+
+### Known limitations (accepted, not solved)
+
+- No TPM present (older hardware, some VMs): `cache-password` fails outright
+  rather than falling back to a weaker on-disk key — a TPM is a hard
+  prerequisite for this feature, not an optional hardening layer.
+- Not every TPM/firmware honors a locality-0 reset of PCR16 reliably. When
+  it doesn't, cache release still works once per boot, then falls back to
+  the normal KWallet prompt until reboot — a safe degradation, not a hard
+  failure, but a real one worth knowing about if auto-unlock seems to stop
+  working after the first login of a session.
+- Face embeddings themselves are **not** encrypted at rest yet (still plain
+  JSON, protected only by Unix permissions) — a separate, harder problem
+  since embeddings are read by both the per-user `hello-daemon`
+  (unprivileged) and root `hello-daemon-system`, and a root-only TPM-sealed
+  key would break the per-user daemon's own enroll/verify/sudo/list
+  operations. Tracked separately from this feature.
+
 ## PAM Configuration
 
 ### Basic format
@@ -260,6 +449,13 @@ auth [sufficient|required] /path/to/libpam_linux_hello.so [options]
 auth sufficient /lib/x86_64-linux-gnu/security/pam_linux_hello.so context=sddm timeout_ms=5000
 auth include common-auth
 ```
+
+This plain `sufficient` line is fine on its own, but on a KDE/Plasma session
+it silently defeats KWallet auto-unlock even with password caching enabled:
+`sufficient`'s success skips every later `auth` line in the file, including
+`pam_kwallet5`/`pam_gnome_keyring`'s own — see "Password caching / KWallet
+auto-unlock" below for why that matters and the jump-count block
+`install-pam.sh --enable-sddm` actually writes instead.
 
 #### Sudo
 

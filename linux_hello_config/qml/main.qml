@@ -7,9 +7,16 @@ Kirigami.ApplicationWindow {
     id: mainWindow
     title: qsTr("Linux Hello - Configuration")
     width: 480
-    height: 640
+    // Was 640/560 — the Home screen grew a fourth action card ("Cache
+    // session password") plus its info note, which no longer fit; 720/620
+    // (a first attempt) turned out to overshoot, leaving visible empty
+    // space below the last note on a real run. This value was confirmed
+    // against that same real run — see Home.qml/CachePassword.qml's own
+    // ScrollablePage comments for the belt-and-suspenders fallback if
+    // content grows further (a longer translation, another card, …).
+    height: 680
     minimumWidth: 420
-    minimumHeight: 560
+    minimumHeight: 580
     visible: true
 
     // Signal for language changes
@@ -65,6 +72,12 @@ Kirigami.ApplicationWindow {
 
         function onNavigateToLicenseSignal() {
             mainWindow.pageStack.push(Qt.resolvedUrl("License.qml"));
+        }
+
+        // push (not replace): peek-and-return, same as About/License —
+        // Home stays underneath so the back button/gesture returns to it.
+        function onNavigateToCachePasswordSignal() {
+            mainWindow.pageStack.push(Qt.resolvedUrl("CachePassword.qml"));
         }
     }
 

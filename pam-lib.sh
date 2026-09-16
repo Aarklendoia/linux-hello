@@ -14,6 +14,10 @@ LH_MARKER_START="# >>> linux-hello-start"
 LH_MARKER_END="# <<< linux-hello-end"
 LH_LINE_TEMPLATE="auth       sufficient   pam_linux_hello.so context=%CONTEXT%"
 LH_OPTOUT_MARKER="${LH_OPTOUT_MARKER:-/etc/linux-hello/pam-disabled}"
+# Substack file backing SDDM's auth line — see lh_sddm_write_substack's own
+# comment for why SDDM needs this instead of the plain LH_LINE_TEMPLATE every
+# other service (sudo/su/polkit-1) uses.
+LH_SDDM_SUBSTACK_NAME="linux-hello-sddm-auth"
 LH_LOCK_FILE="${LH_LOCK_FILE:-/run/lock/linux-hello-pam.lock}"
 LH_TIMESTAMP="$(date +%s)"
 
@@ -108,8 +112,17 @@ lh_all_configured() {
 # <extra_opts>, if given, is appended verbatim after context=<context> on the
 # generated auth line (e.g. "confirm", to require an explicit [y/N] before
 # granting access — used for sudo/su, not for screenlock/sddm/polkit).
+#
+# <raw_line>, if given, is inserted verbatim instead of building a line from
+# LH_LINE_TEMPLATE/context/extra_opts — used by lh_sddm_enable, whose auth
+# line references a substack rather than pam_linux_hello.so directly (see
+# lh_sddm_write_substack). <marker_substr> (default "pam_linux_hello") is
+# what the idempotency pre-check and post-write validation grep for; SDDM's
+# caller passes the substack's name instead, since its own auth line no
+# longer contains the literal string "pam_linux_hello".
 lh_configure_service() {
     local svc="$1" context="$2" anchor_re="$3" extra_opts="${4:-}"
+    local raw_line="${5:-}" marker_substr="${6:-pam_linux_hello}"
     local file="$PAM_DIR/$svc"
 
     if [[ ! -f "$file" ]]; then
@@ -117,7 +130,7 @@ lh_configure_service() {
         return 0
     fi
 
-    if grep -q "pam_linux_hello" "$file"; then
+    if grep -q -- "$marker_substr" "$file"; then
         echo "Service $svc: already configured (skipped)"
         return 0
     fi
@@ -127,9 +140,14 @@ lh_configure_service() {
     local orig_lines
     orig_lines=$(wc -l < "$file")
 
-    local lh_auth="${LH_LINE_TEMPLATE//%CONTEXT%/$context}"
-    if [[ -n "$extra_opts" ]]; then
-        lh_auth="$lh_auth $extra_opts"
+    local lh_auth
+    if [[ -n "$raw_line" ]]; then
+        lh_auth="$raw_line"
+    else
+        lh_auth="${LH_LINE_TEMPLATE//%CONTEXT%/$context}"
+        if [[ -n "$extra_opts" ]]; then
+            lh_auth="$lh_auth $extra_opts"
+        fi
     fi
     python3 - "$file" "$anchor_re" "$lh_auth" "$LH_MARKER_START" "$LH_MARKER_END" << 'PYEOF'
 import sys, re
@@ -159,8 +177,8 @@ PYEOF
 
     # Post-write validation.
     local ok=1 hello_count new_lines
-    grep -q "pam_linux_hello" "$file" || ok=0
-    hello_count=$(grep -c "pam_linux_hello" "$file")
+    grep -q -- "$marker_substr" "$file" || ok=0
+    hello_count=$(grep -c -- "$marker_substr" "$file")
     [[ "$hello_count" -eq 1 ]] || ok=0
     new_lines=$(wc -l < "$file")
     [[ "$new_lines" -ge "$orig_lines" ]] || ok=0
@@ -175,6 +193,66 @@ PYEOF
     fi
 }
 
+# ── SDDM auth block ───────────────────────────────────────────────────────────
+# pam_kwallet5/pam_gnome_keyring don't unlock from a generically-populated
+# PAM_AUTHTOK at session-open time — each has its own `auth` entry point
+# whose *entire job* is reading PAM_AUTHTOK there and then and squirreling it
+# away via pam_set_data() (as "kwallet5_key" etc.) for pam_sm_open_session to
+# hand off later. If that auth entry point never runs, open_session finds
+# nothing to hand off — confirmed on real hardware: pam_set_item(PAM_AUTHTOK)
+# alone was not enough, kwalletd still fell back to its own prompt.
+#
+# The plain `auth sufficient pam_linux_hello.so context=sddm` line every
+# other context uses can't fix this by itself: `sufficient`'s success
+# terminates the *whole* auth phase immediately, skipping any line after it
+# in the file — including pam_kwallet5's own auth entry, wherever it's
+# placed.
+#
+# A first attempt at fixing this wrapped the two keyring lines in a
+# `substack`, jumped into via `[success=done default=ignore] substack ...`
+# on the outer sddm line. That is invalid PAM syntax and fails *silently at
+# the wrong layer*: pam.conf(5)'s `control` field is either a simple keyword
+# (`substack` included) OR a `[value=action ...]` expression, never both on
+# the same line. Real Linux-PAM parses `[success=done default=ignore]` as
+# the complete control token and then treats the next word, `substack`, as
+# the *module path* — confirmed on real hardware via
+# `PAM unable to dlopen(substack): ... Aucun fichier ou dossier de ce nom` /
+# `PAM adding faulty module: substack` in the journal, which silently
+# disabled face login on the SDDM screen entirely (not just the kwallet
+# auto-unlock) since pam_linux_hello.so was no longer referenced by the file
+# at all.
+#
+# Correct approach: no substack. Use the documented jump-count form of the
+# `[value=action]` syntax directly in the outer file, with `pam_permit.so
+# sufficient` as a plain, always-succeeds terminator (the standard idiom for
+# "treat everything since the last jump as one sufficient unit" — see
+# pam.conf(5)'s worked expansion of `sufficient` as
+# `[success=done new_authtok_reqd=done default=ignore]`):
+#
+#   auth [success=ok default=3]  pam_linux_hello.so context=sddm
+#   auth optional                 pam_kwallet5.so use_first_pass
+#   auth optional                 pam_gnome_keyring.so use_first_pass
+#   auth sufficient                pam_permit.so
+#
+# On a face match, pam_linux_hello's `ok` falls through into the two
+# `optional` keyring lines (use_first_pass reads the PAM_AUTHTOK it just
+# set), then reaches pam_permit.so, which always succeeds and — being
+# `sufficient` — ends the auth phase right there, skipping the
+# `@include common-auth` that follows (so pam_unix.so never re-prompts for a
+# password PAM_AUTHTOK already holds). On any other outcome, `default=3`
+# jumps clean over all three of those lines (per pam.conf(5), a module's own
+# contribution on a jump is `ignore` during pam_authenticate, not a
+# recorded failure) straight into `@include common-auth` — the ordinary
+# password fallback, untouched.
+lh_sddm_auth_block() {
+    cat <<'EOF'
+auth       [success=ok default=3]   pam_linux_hello.so context=sddm
+auth       optional                  pam_kwallet5.so use_first_pass
+auth       optional                  pam_gnome_keyring.so use_first_pass
+auth       sufficient                pam_permit.so
+EOF
+}
+
 # ── SDDM (login screen) enable/disable ───────────────────────────────────────
 # Deliberately separate from lh_configure_service's sudo/su/polkit-1 callers:
 # SDDM starts hello-daemon-system.service, a root-owned, always-on,
@@ -186,8 +264,29 @@ PYEOF
 # configured greeter theme (caller resolves the packaged-vs-checkout path).
 lh_sddm_enable() {
     local sddm_qml_source="$1"
+    local f="$PAM_DIR/sddm"
 
-    lh_configure_service "sddm" "sddm" "@include common-auth"
+    # Upgrade path: a machine configured under either prior scheme — the
+    # original plain `sufficient pam_linux_hello.so` line, or the broken
+    # substack-jump line from the short-lived intermediate design (see
+    # lh_sddm_auth_block's comment) — has neither "pam_permit.so" (unique to
+    # the current design) anywhere in the file. Leaving either of those in
+    # place while inserting the new block would either double up the auth
+    # phase or leave the old, still-short-circuiting/still-broken line ahead
+    # of the new one. Strip any old marked block first so the insertion
+    # below starts clean; matches on "pam_linux_hello" (old direct line) or
+    # the substack name (broken intermediate line references it as an
+    # argument, without the literal string "pam_linux_hello" anywhere).
+    if [[ -f "$f" ]] && grep -qE "pam_linux_hello|$LH_SDDM_SUBSTACK_NAME" "$f" && ! grep -q "pam_permit.so" "$f"; then
+        cp -p "$f" "$f.pre-linuxhello-$LH_TIMESTAMP"
+        sed -i "/$LH_MARKER_START/,/$LH_MARKER_END/d" "$f"
+        sed -i '/pam_linux_hello/d' "$f"
+        echo "Service sddm: upgrading old/broken linux-hello line to the kwallet-capable jump block"
+    fi
+    rm -f "$PAM_DIR/$LH_SDDM_SUBSTACK_NAME"
+
+    lh_configure_service "sddm" "sddm" "@include common-auth" "" \
+        "$(lh_sddm_auth_block)"
     if systemctl enable --now hello-daemon-system.service 2>/dev/null; then
         echo "Service hello-daemon-system: enabled"
     else
@@ -223,6 +322,7 @@ lh_sddm_disable() {
         sed -i '/pam_linux_hello/d' "$f"
         echo "Cleaned: sddm (linux-hello lines removed)"
     fi
+    rm -f "$PAM_DIR/$LH_SDDM_SUBSTACK_NAME"
 
     if systemctl disable --now hello-daemon-system.service 2>/dev/null; then
         echo "Service hello-daemon-system: disabled"
