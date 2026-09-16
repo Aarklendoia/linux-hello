@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.8.0](https://github.com/Aarklendoia/linux-hello/compare/v1.7.1...v1.8.0) (2026-09-16)
+
+
+### Features
+
+* encrypt face embeddings at rest with per-principal TPM-sealed keys ([#155](https://github.com/Aarklendoia/linux-hello/issues/155)) ([a3b4dc7](https://github.com/Aarklendoia/linux-hello/commit/a3b4dc7a3e6b6d8d431e9596b6e6d45b5a1abd12))
+
+
+### Bug Fixes
+
+* real-hardware fixes for encrypted face embeddings ([#152](https://github.com/Aarklendoia/linux-hello/issues/152)) ([#157](https://github.com/Aarklendoia/linux-hello/issues/157)) ([e1b39ba](https://github.com/Aarklendoia/linux-hello/commit/e1b39ba596a2ea0fd2516ab4daee08af56f44974))
+
 ## [1.7.1](https://github.com/Aarklendoia/linux-hello/compare/v1.7.0...v1.7.1) (2026-09-16)
 
 
