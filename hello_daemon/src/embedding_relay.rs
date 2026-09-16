@@ -113,9 +113,16 @@ pub async fn sync_all(storage: &crate::storage::FaceStorage, user_id: u32) {
         return;
     }
 
-    // Bound the whole sweep, not just each individual push — a
-    // reachable-but-very-slow root must not delay daemon startup
-    // indefinitely just because there happen to be many enrolled faces.
+    // Bound the whole sweep, not just each individual push — this task is
+    // already spawned detached from daemon startup (see main.rs), so this
+    // isn't about user-facing responsiveness; it's only to give up
+    // eventually if root is reachable but stuck. 30s, not 10s: a real
+    // hardware TPM's PCR-policy unseal can itself take several seconds
+    // (measured ~9s via tpm2-abrmd on real fTPM hardware) for the *first*
+    // face alone — load_face_embedding's own key cache (embedding_cipher)
+    // makes every face after the first near-instant within this same
+    // process, but that one unseal must fit inside the bound regardless of
+    // how many faces there are.
     let sweep = async {
         for record in faces {
             let face_id = record.face_id.clone();
@@ -128,7 +135,7 @@ pub async fn sync_all(storage: &crate::storage::FaceStorage, user_id: u32) {
             }
         }
     };
-    if tokio::time::timeout(Duration::from_secs(10), sweep)
+    if tokio::time::timeout(Duration::from_secs(30), sweep)
         .await
         .is_err()
     {
