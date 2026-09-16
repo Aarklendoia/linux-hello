@@ -311,6 +311,15 @@ pub(crate) fn write_sealed_blob(
     out.extend_from_slice(priv_bytes);
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
+        // Defense in depth alongside whatever permissions the directory
+        // that contains it already has: a sealed blob is useless without
+        // its TPM, but the directory a *future* caller might also drop
+        // other sensitive files into shouldn't rely on that alone.
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700))?;
+        }
     }
     std::fs::write(path, out)?;
     #[cfg(unix)]
