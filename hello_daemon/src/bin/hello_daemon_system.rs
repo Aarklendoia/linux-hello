@@ -2,18 +2,24 @@
 //!
 //! Started at boot as root, before any user logs in. Deliberately minimal:
 //! no D-Bus, no MJPEG preview server, no screenlock watcher, no
-//! `FaceAuthDaemon` — just two socket listeners: the Verify-only one
+//! `FaceAuthDaemon` — just three socket listeners: the Verify-only one
 //! `pam_linux_hello` connects to for `context=sddm` (see
-//! `hello_daemon::pam_helper::start_system_pam_helper`), and the
-//! password-cache one used by `linux-hello cache-password` (see
+//! `hello_daemon::pam_helper::start_system_pam_helper`), the password-cache
+//! one used by `linux-hello cache-password` (see
 //! `hello_daemon::pam_helper::start_cache_helper` and `secret_cache`'s
-//! module docs — sealing a session password needs TPM access, which only
-//! this root-owned process has). Enrollment always happens through a user's
-//! own per-user `hello-daemon` session, never here.
+//! module docs), and the embedding-relay one each user's own per-user
+//! `hello-daemon` uses to give this process a plaintext copy of one of its
+//! own embeddings to seal independently (see
+//! `hello_daemon::pam_helper::start_embedding_relay_helper` and
+//! `embedding_cipher`'s module docs) — all three need TPM access, which
+//! only this root-owned process has. Enrollment always happens through a
+//! user's own per-user `hello-daemon` session, never here.
 
 use hello_daemon::camera::CameraManager;
 use hello_daemon::matcher::FaceMatcher;
-use hello_daemon::pam_helper::{start_cache_helper, start_system_pam_helper};
+use hello_daemon::pam_helper::{
+    start_cache_helper, start_embedding_relay_helper, start_system_pam_helper,
+};
 use std::sync::Arc;
 use tracing::{error, info, warn};
 
@@ -52,6 +58,12 @@ async fn main() -> anyhow::Result<()> {
         return Err(anyhow::anyhow!(e.to_string()));
     }
     info!("✓ Password-cache listener ready");
+
+    if let Err(e) = start_embedding_relay_helper().await {
+        error!("Failed to start the embedding-relay listener: {}", e);
+        return Err(anyhow::anyhow!(e.to_string()));
+    }
+    info!("✓ Embedding-relay listener ready");
 
     tokio::signal::ctrl_c().await?;
     info!("Stopping system listener");

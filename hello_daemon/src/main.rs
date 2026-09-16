@@ -58,6 +58,21 @@ async fn main() -> anyhow::Result<()> {
     let daemon_arc = std::sync::Arc::new(tokio::sync::RwLock::new(daemon));
     let uid = unsafe { libc::getuid() };
 
+    // Best-effort sync of every enrolled face to root's own independently-
+    // sealed embedding store (see embedding_relay's module docs) — covers
+    // faces enrolled before SDDM face-login was turned on, or belonging to
+    // a user other than whoever last ran `install-pam.sh --enable-sddm`.
+    // Detached: only a brief read-lock to grab the storage handle, then runs
+    // fully in the background so it can never delay the listeners below, and
+    // is a silent no-op on any machine that hasn't enabled SDDM face-login
+    // (nothing listening on the relay socket at all).
+    {
+        let storage = daemon_arc.read().await.storage();
+        tokio::spawn(async move {
+            hello_daemon::embedding_relay::sync_all(&storage, uid).await;
+        });
+    }
+
     // These five each bind their own socket/listener and don't depend on any
     // of the others' results, so they're started concurrently rather than
     // one at a time — each is a fast local bind, but there's no reason to

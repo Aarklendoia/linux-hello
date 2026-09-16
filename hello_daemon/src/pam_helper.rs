@@ -706,6 +706,237 @@ async fn handle_cache_request(
     Ok(())
 }
 
+// ============================================================================
+// Embedding-relay socket (encrypted face embeddings at rest — #152)
+// ============================================================================
+//
+// A third listener served by `hello-daemon-system` (root), used by each
+// user's own per-user `hello-daemon` to give root a plaintext copy of an
+// embedding so *root* can seal its own independent copy under its own
+// TPM-sealed key — root never enrolls anything itself (see
+// `hello_daemon_system.rs`'s module doc), so this is the only way it ever
+// gets one. Same peer-uid-gated, mode-0666 shape as the password-cache
+// socket above: a user may only push/delete embeddings for their own uid,
+// never anyone else's.
+//
+// Best-effort by design on the caller's side (see `crate::lib`'s
+// `register_face`/`delete_face` and the per-user daemon's startup sync):
+// this socket, and the `hello-daemon-system` process serving it, only exist
+// at all once SDDM face-login has been opted into. A connection failure here
+// must never affect enrollment/deletion on a machine that never enabled it.
+
+/// One embedding to upsert into root's own store, or a deletion. `Push` is
+/// an idempotent overwrite — root always re-encrypts under its current key,
+/// so the caller never needs to check whether a copy already exists first.
+///
+/// `pub(crate)`: also constructed by [`crate::embedding_relay`], the
+/// per-user daemon's client for this same socket — shared rather than
+/// duplicated so the two sides of the wire format can't drift apart.
+#[derive(Debug, Serialize, Deserialize)]
+pub(crate) enum EmbeddingRelayRequest {
+    Push {
+        record: crate::FaceRecord,
+        embedding: hello_face_core::Embedding,
+    },
+    /// `face_id: None` deletes every face root has stored for `user_id`
+    /// (mirrors `FaceStorage::delete_all_faces`).
+    Delete {
+        user_id: u32,
+        face_id: Option<String>,
+    },
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub(crate) enum EmbeddingRelayResponse {
+    Ok,
+    Error { reason: String },
+}
+
+/// Fixed socket path for the embedding-relay listener. Overridable via
+/// `LINUX_HELLO_EMBEDDING_RELAY_SOCKET_PATH` for testing, same convention as
+/// [`cache_socket_path`].
+pub fn embedding_relay_socket_path() -> String {
+    std::env::var("LINUX_HELLO_EMBEDDING_RELAY_SOCKET_PATH")
+        .unwrap_or_else(|_| "/run/hello-pam/embedding-relay.socket".to_string())
+}
+
+/// Starts the embedding-relay socket listener. Only ever called from
+/// `hello-daemon-system`'s `main()`, alongside [`start_cache_helper`] —
+/// sealing root's own copy requires the same TPM access.
+pub async fn start_embedding_relay_helper() -> Result<(), Box<dyn std::error::Error>> {
+    let socket_path = embedding_relay_socket_path();
+    let _ = fs::remove_file(&socket_path);
+
+    let listener = UnixListener::bind(&socket_path)?;
+    info!("Embedding-relay helper listening on {}", socket_path);
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&socket_path, fs::Permissions::from_mode(0o666))?;
+    }
+
+    tokio::spawn(async move {
+        loop {
+            match listener.accept().await {
+                Ok((stream, _)) => {
+                    tokio::spawn(async move {
+                        if let Err(e) = handle_embedding_relay_request(stream).await {
+                            error!("Embedding-relay helper error: {}", e);
+                        }
+                    });
+                }
+                Err(e) => {
+                    error!("Embedding-relay helper accept error: {}", e);
+                    break;
+                }
+            }
+        }
+    });
+
+    Ok(())
+}
+
+async fn handle_embedding_relay_request(
+    mut stream: tokio::net::UnixStream,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    #[cfg(unix)]
+    let peer_uid: Option<u32> = stream.peer_cred().ok().map(|c| c.uid());
+    #[cfg(not(unix))]
+    let peer_uid: Option<u32> = None;
+
+    // Bounded read: an embedding is a few KiB at most (a few hundred f32s as
+    // JSON), but an unbounded read would let a stalled/malicious peer tie up
+    // a connection indefinitely — same defense-in-depth posture as the other
+    // two sockets' own bounds.
+    const MAX_REQUEST_BYTES: usize = 65536;
+    let mut buf = Vec::new();
+    let mut chunk = [0u8; 4096];
+    loop {
+        let n = stream.read(&mut chunk).await?;
+        if n == 0 || buf.len() > MAX_REQUEST_BYTES {
+            break;
+        }
+        buf.extend_from_slice(&chunk[..n]);
+    }
+    if buf.is_empty() || buf.len() > MAX_REQUEST_BYTES {
+        return Ok(());
+    }
+
+    let req: EmbeddingRelayRequest = serde_json::from_slice(&buf)?;
+    let user_id = match &req {
+        EmbeddingRelayRequest::Push { record, .. } => record.user_id,
+        EmbeddingRelayRequest::Delete { user_id, .. } => *user_id,
+    };
+
+    if peer_uid != Some(user_id) {
+        error!(
+            "Embedding-relay helper: connection refused — peer uid={:?} requested to relay/delete embeddings for user_id={}",
+            peer_uid, user_id
+        );
+        let resp = EmbeddingRelayResponse::Error {
+            reason: "Unauthorized: you may only relay your own embeddings".to_string(),
+        };
+        stream
+            .write_all(serde_json::to_string(&resp)?.as_bytes())
+            .await?;
+        stream.shutdown().await?;
+        return Ok(());
+    }
+
+    // face_id crossed a socket — validate it before it's ever joined onto a
+    // path, even though the peer-uid check above already authenticates the
+    // *sender*.
+    let face_id_to_validate: Option<&str> = match &req {
+        EmbeddingRelayRequest::Push { record, .. } => Some(record.face_id.as_str()),
+        EmbeddingRelayRequest::Delete { face_id, .. } => face_id.as_deref(),
+    };
+    if let Some(face_id) = face_id_to_validate {
+        if !crate::storage::is_safe_face_id(face_id) {
+            error!(
+                "Embedding-relay helper: rejected invalid face_id from user_id={}",
+                user_id
+            );
+            let resp = EmbeddingRelayResponse::Error {
+                reason: "Invalid face_id".to_string(),
+            };
+            stream
+                .write_all(serde_json::to_string(&resp)?.as_bytes())
+                .await?;
+            stream.shutdown().await?;
+            return Ok(());
+        }
+    }
+
+    let response = match req {
+        EmbeddingRelayRequest::Push { record, embedding } => {
+            let result = tokio::task::spawn_blocking(move || {
+                crate::storage::push_root_embedding(&record, &embedding)
+            })
+            .await;
+            match result {
+                Ok(Ok(())) => {
+                    info!(
+                        "Embedding-relay helper: stored root copy for user_id={}",
+                        user_id
+                    );
+                    EmbeddingRelayResponse::Ok
+                }
+                Ok(Err(e)) => {
+                    error!(
+                        "Embedding-relay helper: push_root_embedding failed for user_id={}: {}",
+                        user_id, e
+                    );
+                    EmbeddingRelayResponse::Error {
+                        reason: e.to_string(),
+                    }
+                }
+                Err(e) => {
+                    error!(
+                        "Embedding-relay helper: push task panicked for user_id={}: {}",
+                        user_id, e
+                    );
+                    EmbeddingRelayResponse::Error {
+                        reason: "internal error".to_string(),
+                    }
+                }
+            }
+        }
+        EmbeddingRelayRequest::Delete { user_id, face_id } => {
+            let result = tokio::task::spawn_blocking(move || {
+                crate::storage::delete_root_embedding(user_id, face_id.as_deref())
+            })
+            .await;
+            match result {
+                Ok(Ok(())) => EmbeddingRelayResponse::Ok,
+                Ok(Err(e)) => {
+                    error!(
+                        "Embedding-relay helper: delete_root_embedding failed for user_id={}: {}",
+                        user_id, e
+                    );
+                    EmbeddingRelayResponse::Error {
+                        reason: e.to_string(),
+                    }
+                }
+                Err(e) => {
+                    error!(
+                        "Embedding-relay helper: delete task panicked for user_id={}: {}",
+                        user_id, e
+                    );
+                    EmbeddingRelayResponse::Error {
+                        reason: "internal error".to_string(),
+                    }
+                }
+            }
+        }
+    };
+    stream
+        .write_all(serde_json::to_string(&response)?.as_bytes())
+        .await?;
+    stream.shutdown().await?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1072,6 +1303,169 @@ mod tests {
 
         let released = crate::secret_cache::release_for_match(uid).unwrap();
         assert_eq!(released.as_deref(), Some("correct horse battery staple"));
+
+        std::env::remove_var("LINUX_HELLO_SECRETS_DIR");
+    }
+
+    // ------------------------------------------------------------------
+    // Embedding-relay socket (`handle_embedding_relay_request`) — same
+    // `UnixStream::pair()` trick as the other two sockets' own tests above.
+    // ------------------------------------------------------------------
+
+    fn sample_embedding_json() -> serde_json::Value {
+        serde_json::json!({
+            "vector": [0.1, 0.2, 0.3],
+            "metadata": {
+                "model": "test",
+                "model_version": "0.1.0",
+                "extracted_at": 0,
+                "quality_score": 0.9
+            }
+        })
+    }
+
+    #[tokio::test]
+    async fn test_handle_embedding_relay_request_rejects_a_different_users_uid() {
+        if my_uid() == 0 {
+            return; // root can act on any UID; the check is a no-op then
+        }
+        let (a, mut b) = tokio::net::UnixStream::pair().unwrap();
+
+        let req = serde_json::json!({
+            "Push": {
+                "record": {
+                    "face_id": "face_1_1",
+                    "user_id": not_my_uid(),
+                    "quality_score": 0.9,
+                    "registered_at": 0,
+                    "context": "test"
+                },
+                "embedding": sample_embedding_json()
+            }
+        });
+        b.write_all(req.to_string().as_bytes()).await.unwrap();
+        b.shutdown().await.unwrap();
+
+        handle_embedding_relay_request(a).await.unwrap();
+
+        let mut buf = Vec::new();
+        b.read_to_end(&mut buf).await.unwrap();
+        let response: EmbeddingRelayResponse = serde_json::from_slice(&buf).unwrap();
+        match response {
+            EmbeddingRelayResponse::Error { reason } => assert!(reason.contains("Unauthorized")),
+            other => panic!("expected Error: user_id didn't match the peer uid, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_handle_embedding_relay_request_rejects_an_unsafe_face_id() {
+        let uid = my_uid();
+        let (a, mut b) = tokio::net::UnixStream::pair().unwrap();
+
+        let req = serde_json::json!({
+            "Push": {
+                "record": {
+                    "face_id": "../../../etc/cron.d/evil",
+                    "user_id": uid,
+                    "quality_score": 0.9,
+                    "registered_at": 0,
+                    "context": "test"
+                },
+                "embedding": sample_embedding_json()
+            }
+        });
+        b.write_all(req.to_string().as_bytes()).await.unwrap();
+        b.shutdown().await.unwrap();
+
+        handle_embedding_relay_request(a).await.unwrap();
+
+        let mut buf = Vec::new();
+        b.read_to_end(&mut buf).await.unwrap();
+        let response: EmbeddingRelayResponse = serde_json::from_slice(&buf).unwrap();
+        match response {
+            EmbeddingRelayResponse::Error { reason } => assert!(reason.contains("Invalid face_id")),
+            other => panic!("expected Error: unsafe face_id, got {other:?}"),
+        }
+    }
+
+    /// End-to-end through the real socket handler and `storage`'s real
+    /// root-relay-store functions (against `swtpm`/a real TPM) — push, then
+    /// read it back exactly the way `FaceStorage::open_read_only_for_system_verify`
+    /// does, then delete.
+    #[tokio::test]
+    async fn test_handle_embedding_relay_request_push_then_delete_round_trip() {
+        if std::env::var("LINUX_HELLO_TPM_TCTI").is_err() {
+            eprintln!("skipping: set LINUX_HELLO_TPM_TCTI to run against a real/simulated TPM");
+            return;
+        }
+        let _guard = crate::secret_cache::ENV_VAR_GUARD.lock().await;
+        let secrets_dir = tempfile::tempdir().unwrap();
+        std::env::set_var("LINUX_HELLO_SECRETS_DIR", secrets_dir.path());
+
+        let uid = my_uid();
+        let face_id = "face_relay_test_1";
+
+        let (a, mut b) = tokio::net::UnixStream::pair().unwrap();
+        let req = serde_json::json!({
+            "Push": {
+                "record": {
+                    "face_id": face_id,
+                    "user_id": uid,
+                    "quality_score": 0.9,
+                    "registered_at": 0,
+                    "context": "sddm"
+                },
+                "embedding": sample_embedding_json()
+            }
+        });
+        b.write_all(req.to_string().as_bytes()).await.unwrap();
+        b.shutdown().await.unwrap();
+        handle_embedding_relay_request(a).await.unwrap();
+        let mut buf = Vec::new();
+        b.read_to_end(&mut buf).await.unwrap();
+        let response: EmbeddingRelayResponse = serde_json::from_slice(&buf).unwrap();
+        assert!(
+            matches!(response, EmbeddingRelayResponse::Ok),
+            "expected Ok, got {response:?}"
+        );
+
+        let home = tempfile::tempdir().unwrap();
+        let user_dir = home.path().join(format!("users/{}", uid));
+        std::fs::create_dir_all(&user_dir).unwrap();
+        std::fs::write(
+            user_dir.join(format!("{}.meta.json", face_id)),
+            serde_json::json!({
+                "face_id": face_id,
+                "user_id": uid,
+                "quality_score": 0.9,
+                "registered_at": 0,
+                "context": "sddm"
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let storage =
+            crate::storage::FaceStorage::open_read_only_for_system_verify(home.path(), uid)
+                .unwrap()
+                .expect("home dir exists");
+        let loaded = storage.load_face_embeddings(uid, [face_id]).unwrap();
+        assert_eq!(
+            loaded.get(face_id).map(|e| e.vector.clone()),
+            Some(vec![0.1, 0.2, 0.3])
+        );
+
+        let (a, mut b) = tokio::net::UnixStream::pair().unwrap();
+        let req = serde_json::json!({ "Delete": { "user_id": uid, "face_id": face_id } });
+        b.write_all(req.to_string().as_bytes()).await.unwrap();
+        b.shutdown().await.unwrap();
+        handle_embedding_relay_request(a).await.unwrap();
+        let mut buf = Vec::new();
+        b.read_to_end(&mut buf).await.unwrap();
+        let response: EmbeddingRelayResponse = serde_json::from_slice(&buf).unwrap();
+        assert!(matches!(response, EmbeddingRelayResponse::Ok));
+
+        let loaded_after_delete = storage.load_face_embeddings(uid, [face_id]).unwrap();
+        assert!(loaded_after_delete.is_empty());
 
         std::env::remove_var("LINUX_HELLO_SECRETS_DIR");
     }
