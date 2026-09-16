@@ -13,23 +13,24 @@ formal "vous" register — `pam_linux_hello`'s own `pam_t()` prompts already est
 ("Regardez vers la caméra...", "Confirmer ?"). Match it: "vous"/"votre", imperative verbs as
 "-ez" (activez, appuyez, revenez), never "tu"/"ton"/"-e" tu-forms.
 
-## In-progress feature: TPM-sealed session-password cache for KWallet auto-unlock
+## Shipped feature: TPM-sealed session-password cache for KWallet auto-unlock
 
-Branch `feature/kwallet-authtok-password-cache`, tracking
+Merged to `main` via #150 (+ the follow-up PAM syntax fix in the same branch), tracking
 [issue #149](https://github.com/Aarklendoia/linux-hello/issues/149). Problem: a face-only SDDM
 login never populates `PAM_AUTHTOK` (`pam_linux_hello.so` is `sufficient` and returns before
 `pam_unix.so`/`pam_kwallet5` run), so KWallet can't auto-unlock. Fix: cache the real login
 password, sealed inside the TPM, released only on an IR-liveness-confirmed `context=sddm` match,
-injected via `pam_set_item`.
+injected via `pam_set_item`. Full user-facing docs: [docs/PAM_MODULE.md](docs/PAM_MODULE.md#password-caching--kwallet-auto-unlock)
+and the README's Security notes section — end-to-end verified working on real hardware (real TPM,
+real SDDM face login, KWallet auto-unlocking with no manual prompt).
 
-**Commit status** (check `git log`/`git status` for the current state — this will drift):
-- Committed: the core Rust — `hello_daemon::secret_cache` (TPM sealing), the
-  `PamHelperResponse`/wire-protocol changes, the cache socket, `pam_linux_hello`'s
-  `pam_set_item`/`pam_sm_chauthtok` changes.
-- Not yet committed as of this writing: `linux_hello_cli`'s `cache-password` subcommand
-  (`cache_password.rs`), `install-pam.sh`'s new PAM service file, the GUI (`CachePassword.qml`,
-  `Home.qml`'s new card, `AppController.qml` wiring, `linux_hello_config/src/main.rs`'s new
-  routes), i18n strings, and `docs/PAM_MODULE.md`'s new section.
+**Note for future PAM control-line changes on this project**: `pam.conf(5)`'s `control` field is
+either a simple keyword (`sufficient`, `substack`, ...) *or* a `[value=action ...]` bracket
+expression — never both combined on the same line. A first attempt at the SDDM auth line here
+combined them (`[success=done default=ignore] substack ...`), which real Linux-PAM silently
+misparsed as a bogus module named `substack`, disabling face login on SDDM entirely until caught
+on a real reboot. See `pam-lib.sh`'s `lh_sddm_auth_block` for the corrected jump-count-based
+design, and its comment for the full story.
 
 **Key design decisions, in case they need re-justifying:**
 - **PCR16, not PCR23**, for the "liveness" tag extended after a face match. `tss-esapi`'s own
