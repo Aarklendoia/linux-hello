@@ -454,16 +454,24 @@ fn extract_face_id_from_busctl(output: &str) -> Option<String> {
 }
 
 /// Whether `/etc/pam.d/sddm` already has the linux-hello auth line — the
-/// same substring check `install-pam.sh --status` uses to decide "already
-/// configured". Checks for the `linux-hello-sddm-auth` substack reference
-/// (see `pam-lib.sh`'s `lh_sddm_write_substack`), not a literal
-/// `pam_linux_hello` string: SDDM's own auth line references that substack
-/// by name rather than naming `pam_linux_hello.so` directly, so that
-/// `pam_kwallet5`/`pam_gnome_keyring`'s own auth-phase hooks still run on a
-/// successful face match instead of being skipped by a bare `sufficient`
-/// line (see `docs/PAM_MODULE.md`'s "Password caching" section).
+/// same substring check `install-pam.sh --status`/`pam-lib.sh`'s
+/// `lh_configure_service` idempotency check uses to decide "already
+/// configured" (default `marker_substr`, `"pam_linux_hello"`).
+///
+/// This used to check for a `linux-hello-sddm-auth` PAM substack reference
+/// instead — an earlier version of the KWallet-auto-unlock fix wrapped
+/// SDDM's kwallet/gnome-keyring lines in a substack, jumped into from the
+/// outer line by name rather than naming `pam_linux_hello.so` directly.
+/// That substack design turned out to be invalid PAM syntax (`pam.conf(5)`'s
+/// `control` field can't combine a `[value=action]` bracket with a control
+/// keyword like `substack` on the same line — confirmed on real hardware via
+/// `PAM adding faulty module: substack` in the journal) and was replaced by
+/// a jump-count block that references `pam_linux_hello.so` directly (see
+/// `pam-lib.sh`'s `lh_sddm_auth_block` and `docs/PAM_MODULE.md`'s "Password
+/// caching" section) — this check was left stale, always reporting SDDM as
+/// disabled on any machine actually running the corrected, working config.
 fn sddm_pam_line_present(contents: &str) -> bool {
-    contents.contains("linux-hello-sddm-auth")
+    contents.contains("pam_linux_hello")
 }
 
 /// Starts a multi-threaded HTTP server on 127.0.0.1 (port allocated by the OS).
@@ -995,7 +1003,25 @@ mod tests {
         let contents = "#%PAM-1.0\n\
             auth    requisite       pam_nologin.so\n\
             # >>> linux-hello-start\n\
-            auth       [success=done default=ignore]   substack     linux-hello-sddm-auth\n\
+            auth       [success=ok default=3]   pam_linux_hello.so context=sddm\n\
+            auth       optional                  pam_kwallet5.so use_first_pass\n\
+            auth       optional                  pam_gnome_keyring.so use_first_pass\n\
+            auth       sufficient                pam_permit.so\n\
+            # <<< linux-hello-end\n\
+            @include common-auth\n";
+        assert!(sddm_pam_line_present(contents));
+    }
+
+    #[test]
+    fn sddm_pam_line_present_detects_the_old_plain_sufficient_line_too() {
+        // Pre-jump-block installs (or a machine mid-upgrade) still have this
+        // form until install-pam.sh --enable-sddm is re-run — must still
+        // report "enabled", not flip to "disabled" just because the file
+        // hasn't been migrated to the current design yet.
+        let contents = "#%PAM-1.0\n\
+            auth    requisite       pam_nologin.so\n\
+            # >>> linux-hello-start\n\
+            auth       sufficient   pam_linux_hello.so context=sddm\n\
             # <<< linux-hello-end\n\
             @include common-auth\n";
         assert!(sddm_pam_line_present(contents));
