@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.1](https://github.com/Aarklendoia/linux-hello/compare/v1.8.0...v1.8.1) (2026-09-17)
+
+
+### Bug Fixes
+
+* **deb:** stop libpam-linux-hello.postinst self-corrupting on every install ([#158](https://github.com/Aarklendoia/linux-hello/issues/158)) ([bb76d0f](https://github.com/Aarklendoia/linux-hello/commit/bb76d0f9f3473913f409fd19147095c357cc25ff))
+
 ## [1.8.0](https://github.com/Aarklendoia/linux-hello/compare/v1.7.1...v1.8.0) (2026-09-16)
 
 
