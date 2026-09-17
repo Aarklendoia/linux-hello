@@ -20,13 +20,16 @@ systemctl enable --now linux-hello-pam-autoconfigure.timer 2>/dev/null || true
 # binary until the next manual restart or reboot. This isn't handled by
 # dh_installsystemd's usual auto-generated maintainer-script logic — that
 # gets generated (see debian/.debhelper/generated/<pkg>/postinst.service at
-# build time) but, empirically on this project's build (debhelper-compat 13,
-# 13.31ubuntu1, no `#DEBHELPER#` token in this script), never actually makes
-# it into the shipped postinst. So the restart is done explicitly here
-# instead of relying on that. This was invisible until the encrypted face
-# embeddings migration (#152) made a stale root daemon — still reading
-# plaintext files that migration had already deleted — actually break SDDM
-# face login outright, instead of just lagging one release behind.
+# build time), and dh_installdeb splices it in wherever that literal marker
+# token appears in this script — note it's spelled out with a space here
+# (# DEBHELPER #), not contiguously, precisely so this sentence describing
+# it doesn't itself become a splice point. Without the marker anywhere,
+# nothing here relied on that splice actually landing correctly — this
+# restart is done explicitly instead. This was invisible until the
+# encrypted face embeddings migration (#152) made a stale root daemon —
+# still reading plaintext files that migration had already deleted —
+# actually break SDDM face login outright, instead of just lagging one
+# release behind.
 if systemctl is-active --quiet hello-daemon-system.service 2>/dev/null; then
     systemctl restart hello-daemon-system.service 2>/dev/null || true
     echo "✓ hello-daemon-system restarted"
