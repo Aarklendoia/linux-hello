@@ -73,10 +73,28 @@ pub(crate) enum TpmSealError {
 /// Boot-integrity PCRs — Secure Boot state (7), and the bootloader/kernel/
 /// initrd measurements (8, 9) most distros' shim/GRUB chain populates. Same
 /// selection `systemd-cryptenroll`'s `--tpm2-pcrs=7,8,9` default uses for
-/// LUKS auto-unlock. Shared by every caller of this module — `secret_cache`
-/// folds a liveness PCR in on top of this set; `embedding_cipher` uses it
-/// alone.
+/// LUKS auto-unlock. `secret_cache` (the session-password cache) folds a
+/// liveness PCR in on top of this set and keeps using all three — that
+/// secret is released once per login and re-cached on every enrollment, so
+/// the occasional forced re-cache an initrd/GRUB regen causes is cheap.
 pub(crate) const BOOT_PCR_SLOTS: [PcrSlot; 3] = [PcrSlot::Slot7, PcrSlot::Slot8, PcrSlot::Slot9];
+
+/// `embedding_cipher`'s own, narrower PCR selection — Secure Boot state (7)
+/// and the bootloader/kernel measurement (8) only, deliberately **without**
+/// PCR9 (initrd). See https://github.com/Aarklendoia/linux-hello/issues/160:
+/// unlike the password cache, an embedding-key unseal failure is not
+/// cheaply recoverable — the plaintext embedding is gone for good once the
+/// legacy-plaintext fallback has been migrated away (`storage.rs`'s
+/// `migrate_plaintext_embedding`), so the only fix is re-enrolling in
+/// person. PCR9 changes on nearly every `update-initramfs` run — which
+/// routine, unrelated package upgrades trigger constantly, not just kernel
+/// updates — for a marginal security benefit on top of PCR7/8 (an attacker
+/// who can already swap the initrd measured by 8 typically also controls
+/// what's measured by 9). Trading that narrow slice of evil-maid
+/// resistance for not silently losing every enrolled face on routine
+/// desktop maintenance is the right call for this specific key; it is not
+/// automatically the right call for `secret_cache`; see the note above.
+pub(crate) const EMBEDDING_PCR_SLOTS: [PcrSlot; 2] = [PcrSlot::Slot7, PcrSlot::Slot8];
 
 /// Reads `N` random bytes directly from `/dev/urandom` — same technique (and
 /// same rationale: `read_exact`, not `fs::read`, since the latter blocks

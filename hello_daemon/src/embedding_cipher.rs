@@ -29,20 +29,29 @@
 //! convention `secret_cache` uses, for tests to point at `swtpm` directly or
 //! at a locally-run `tpm2-abrmd`.
 //!
-//! # Policy: boot-integrity PCRs only, no liveness PCR
+//! # Policy: boot-integrity PCRs only, no liveness PCR, and narrower than
+//! # `secret_cache`'s
 //!
 //! Unlike [`crate::secret_cache`]'s password cache, an embedding must be
 //! decryptable on **every** verify attempt — matched or not, since the
 //! plaintext is needed *to determine* whether it's a match. There is no
 //! "confirmed match" event available beforehand to gate release on the way
 //! the password cache's liveness PCR does, so inventing one would be
-//! circular. The policy here binds only to the same boot-integrity PCRs
-//! 7/8/9 `secret_cache` also uses (see [`crate::tpm_seal::BOOT_PCR_SLOTS`]),
-//! protecting exactly the threat this feature targets: offline disk theft
-//! (reading the drive on different, or no, hardware). It does not — and
-//! isn't meant to — defend against a live compromise of either principal,
-//! whose blast radius is already whatever files that principal can read
-//! today.
+//! circular. The policy here binds to [`crate::tpm_seal::EMBEDDING_PCR_SLOTS`]
+//! (Secure Boot state + bootloader/kernel, **not** `secret_cache`'s full
+//! `BOOT_PCR_SLOTS` — no PCR9/initrd), protecting exactly the threat this
+//! feature targets: offline disk theft (reading the drive on different, or
+//! no, hardware). It does not — and isn't meant to — defend against a live
+//! compromise of either principal, whose blast radius is already whatever
+//! files that principal can read today. See
+//! [`crate::tpm_seal::EMBEDDING_PCR_SLOTS`]'s own doc for why this key
+//! specifically excludes PCR9 where `secret_cache` doesn't: an unseal
+//! failure here is unrecoverable (issue #160), unlike there.
+//!
+//! A `POLICY_FAIL` from the TPM (boot measurements no longer match what was
+//! sealed) is therefore treated as its own [`EmbeddingCipherError::PolicyFailure`]
+//! variant, distinct from a transient TPM error — see its doc for why
+//! callers must not treat the two the same way.
 //!
 //! One key protects every embedding under one (principal, storage-tree): a
 //! per-user daemon only ever has its own uid in play, so this is really one
@@ -64,7 +73,23 @@ use crate::tpm_seal::{self, TpmSealError};
 #[derive(Debug, Error)]
 pub enum EmbeddingCipherError {
     #[error("TPM error: {0}")]
-    Tpm(#[from] tss_esapi::Error),
+    Tpm(tss_esapi::Error),
+    /// The TPM's `TPM2_PolicyPCR` check failed: the boot-integrity PCRs this
+    /// key is sealed against no longer match what they were when it was
+    /// sealed (an initrd/GRUB/kernel change happened, then a reboot). Unlike
+    /// [`EmbeddingCipherError::Tpm`]'s other cases (e.g. `tpm2-abrmd`
+    /// momentarily unreachable), this is **not transient** — the exact old
+    /// PCR digest can never recur, so the sealed key can never be unsealed
+    /// again, and every embedding it protects is permanently unreadable.
+    /// Callers must surface this distinctly (loudly, and pointing at
+    /// re-enrollment) rather than folding it into ordinary "couldn't read
+    /// this face, try again" handling. See
+    /// https://github.com/Aarklendoia/linux-hello/issues/160.
+    #[error(
+        "TPM policy check failed: boot measurements changed since this key was sealed; \
+         the protected embedding(s) can no longer be decrypted and must be re-enrolled"
+    )]
+    PolicyFailure,
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
     #[error("encryption error: {0}")]
@@ -73,10 +98,31 @@ pub enum EmbeddingCipherError {
     NoTpm,
 }
 
+/// `true` if `err` is a `TPM2_RC_POLICY_FAIL` response — the TPM's own
+/// signal that a `TPM2_PolicyPCR` check didn't match, as opposed to any
+/// other TSS/transport-level failure.
+fn is_policy_failure(err: &tss_esapi::Error) -> bool {
+    use tss_esapi::constants::Tss2ResponseCodeKind;
+    matches!(
+        err,
+        tss_esapi::Error::Tss2Error(rc) if rc.kind() == Some(Tss2ResponseCodeKind::PolicyFail)
+    )
+}
+
+impl From<tss_esapi::Error> for EmbeddingCipherError {
+    fn from(e: tss_esapi::Error) -> Self {
+        if is_policy_failure(&e) {
+            EmbeddingCipherError::PolicyFailure
+        } else {
+            EmbeddingCipherError::Tpm(e)
+        }
+    }
+}
+
 impl From<TpmSealError> for EmbeddingCipherError {
     fn from(e: TpmSealError) -> Self {
         match e {
-            TpmSealError::Tpm(e) => EmbeddingCipherError::Tpm(e),
+            TpmSealError::Tpm(e) => EmbeddingCipherError::from(e),
             TpmSealError::Io(e) => EmbeddingCipherError::Io(e),
             TpmSealError::Crypto(s) => EmbeddingCipherError::Crypto(s),
         }
@@ -155,8 +201,8 @@ pub fn probe(is_root: bool) -> bool {
         Ok(ctx) => ctx,
         Err(_) => return false,
     };
-    tpm_seal::pcr_selection_for(&tpm_seal::BOOT_PCR_SLOTS)
-        .and_then(|sel| tpm_seal::pcr_digest(&mut ctx, &tpm_seal::BOOT_PCR_SLOTS, &sel))
+    tpm_seal::pcr_selection_for(&tpm_seal::EMBEDDING_PCR_SLOTS)
+        .and_then(|sel| tpm_seal::pcr_digest(&mut ctx, &tpm_seal::EMBEDDING_PCR_SLOTS, &sel))
         .is_ok()
 }
 
@@ -166,8 +212,9 @@ fn create_and_seal_key(
 ) -> Result<[u8; 32], EmbeddingCipherError> {
     let mut ctx = open_context(is_root)?;
     let key_bytes = tpm_seal::random_bytes::<32>()?;
-    let selection = tpm_seal::pcr_selection_for(&tpm_seal::BOOT_PCR_SLOTS)?;
-    let pcr_digest_now = tpm_seal::pcr_digest(&mut ctx, &tpm_seal::BOOT_PCR_SLOTS, &selection)?;
+    let selection = tpm_seal::pcr_selection_for(&tpm_seal::EMBEDDING_PCR_SLOTS)?;
+    let pcr_digest_now =
+        tpm_seal::pcr_digest(&mut ctx, &tpm_seal::EMBEDDING_PCR_SLOTS, &selection)?;
     let policy_digest = tpm_seal::trial_pcr_policy_digest(&mut ctx, pcr_digest_now, selection)?;
     let sensitive = SensitiveData::try_from(key_bytes.to_vec())
         .map_err(|e| EmbeddingCipherError::Crypto(e.to_string()))?;
@@ -202,8 +249,9 @@ pub fn load_key(sealed_key_path: &Path, is_root: bool) -> Result<[u8; 32], Embed
     }
     let mut ctx = open_context(is_root)?;
     let (public, private) = tpm_seal::read_sealed_blob(sealed_key_path)?;
-    let selection = tpm_seal::pcr_selection_for(&tpm_seal::BOOT_PCR_SLOTS)?;
-    let pcr_digest_now = tpm_seal::pcr_digest(&mut ctx, &tpm_seal::BOOT_PCR_SLOTS, &selection)?;
+    let selection = tpm_seal::pcr_selection_for(&tpm_seal::EMBEDDING_PCR_SLOTS)?;
+    let pcr_digest_now =
+        tpm_seal::pcr_digest(&mut ctx, &tpm_seal::EMBEDDING_PCR_SLOTS, &selection)?;
     let sensitive = tpm_seal::unseal_with_pcr_policy(
         &mut ctx,
         public,
@@ -318,6 +366,37 @@ pub fn decrypt_embedding(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// No real TPM needed: `Tss2ResponseCode::from` is a pure response-code
+    /// decode, so a `POLICY_FAIL` response can be constructed directly and
+    /// fed through the same `From<tss_esapi::Error>` conversion the real
+    /// unseal path uses.
+    #[test]
+    fn policy_fail_response_is_classified_as_policy_failure() {
+        use tss_esapi::constants::tss::TPM2_RC_POLICY_FAIL;
+        use tss_esapi::constants::Tss2ResponseCode;
+
+        let err = tss_esapi::Error::Tss2Error(Tss2ResponseCode::from(TPM2_RC_POLICY_FAIL));
+        assert!(matches!(
+            EmbeddingCipherError::from(err),
+            EmbeddingCipherError::PolicyFailure
+        ));
+    }
+
+    /// A different TPM error (session memory exhausted, picked arbitrarily —
+    /// any non-`POLICY_FAIL` code works) must stay a generic, presumed-
+    /// transient `Tpm` error, not get misclassified as the permanent case.
+    #[test]
+    fn other_tpm_errors_are_not_classified_as_policy_failure() {
+        use tss_esapi::constants::tss::TPM2_RC_SESSION_MEMORY;
+        use tss_esapi::constants::Tss2ResponseCode;
+
+        let err = tss_esapi::Error::Tss2Error(Tss2ResponseCode::from(TPM2_RC_SESSION_MEMORY));
+        assert!(matches!(
+            EmbeddingCipherError::from(err),
+            EmbeddingCipherError::Tpm(_)
+        ));
+    }
 
     fn tpm_available_for_tests() -> bool {
         std::env::var("LINUX_HELLO_TPM_TCTI").is_ok()

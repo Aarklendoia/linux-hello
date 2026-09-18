@@ -51,6 +51,18 @@ pub enum DaemonError {
     #[error("Storage failed: {0}")]
     StorageError(String),
 
+    /// Distinct from [`DaemonError::StorageError`]: the embedding key for
+    /// `user_id`/`face_id` failed with a TPM `POLICY_FAIL` (see
+    /// `embedding_cipher::EmbeddingCipherError::PolicyFailure`) — permanent,
+    /// not a transient read hiccup. Callers should log this loudly and point
+    /// at re-enrollment rather than treat it like any other storage error.
+    /// https://github.com/Aarklendoia/linux-hello/issues/160
+    #[error(
+        "embedding key for user {user_id} can no longer be decrypted (boot measurements \
+         changed since it was sealed) — face {face_id} must be re-enrolled"
+    )]
+    EmbeddingKeyPermanentlyInvalid { user_id: u32, face_id: String },
+
     #[error("D-Bus error: {0}")]
     DbusError(String),
 
