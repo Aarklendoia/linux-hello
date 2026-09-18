@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.8.3](https://github.com/Aarklendoia/linux-hello/compare/v1.8.2...v1.8.3) (2026-09-18)
+
+
+### Bug Fixes
+
+* **daemon:** distinguish a squatted PAM socket from an ordinary stale one ([#166](https://github.com/Aarklendoia/linux-hello/issues/166)) ([0cab250](https://github.com/Aarklendoia/linux-hello/commit/0cab25095e06433db8f4a72955549f65fb598661)), closes [#165](https://github.com/Aarklendoia/linux-hello/issues/165)
+* **daemon:** make a contended camera lock diagnosable, not silent ([#168](https://github.com/Aarklendoia/linux-hello/issues/168)) ([8566679](https://github.com/Aarklendoia/linux-hello/commit/85666796ce0ff68a954da49e28121516dfd3482d)), closes [#167](https://github.com/Aarklendoia/linux-hello/issues/167)
+* **daemon:** seal embedding + password-cache keys to PCR7 only ([#182](https://github.com/Aarklendoia/linux-hello/issues/182)) ([29d8455](https://github.com/Aarklendoia/linux-hello/commit/29d84554f8662dcb2e0e9f6111c96f7a721aa7d5)), closes [#181](https://github.com/Aarklendoia/linux-hello/issues/181)
+* **daemon:** stop a failed MJPEG preview bind from killing the whole daemon ([#164](https://github.com/Aarklendoia/linux-hello/issues/164)) ([6a9de96](https://github.com/Aarklendoia/linux-hello/commit/6a9de9672ea8378496e1c9069ff4903a55173832))
+* **deb:** correct operator-precedence bug in postinst's tmpfiles fallback ([#175](https://github.com/Aarklendoia/linux-hello/issues/175)) ([20dca75](https://github.com/Aarklendoia/linux-hello/commit/20dca7520e2c69b780e84e11fd510f45cd1bae5c)), closes [#174](https://github.com/Aarklendoia/linux-hello/issues/174)
+* **deb:** make hello-daemon-system.service's no-auto-enable explicit ([#171](https://github.com/Aarklendoia/linux-hello/issues/171)) ([5804c6b](https://github.com/Aarklendoia/linux-hello/commit/5804c6b9bbd14448b2a3da579574c487c7a7f81e)), closes [#170](https://github.com/Aarklendoia/linux-hello/issues/170)
+* **docs:** replace stale developer path in the shipped sudo PAM example ([#177](https://github.com/Aarklendoia/linux-hello/issues/177)) ([498c8b2](https://github.com/Aarklendoia/linux-hello/commit/498c8b21189bf13322ddad6ee97f32212569a0fe)), closes [#176](https://github.com/Aarklendoia/linux-hello/issues/176)
+
 ## [1.8.2](https://github.com/Aarklendoia/linux-hello/compare/v1.8.1...v1.8.2) (2026-09-18)
 
 
