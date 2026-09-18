@@ -323,10 +323,21 @@ face-only login, since there's no password to capture there. It's:
 - **Its key sealed inside the TPM** (`/var/lib/linux-hello/secrets/<uid>.tpm-sealed`),
   never exportable from the chip, gated by a compound `TPM2_PolicyPCR`
   policy:
-  1. **Boot-integrity PCRs 7/8/9** (Secure Boot state, kernel, initrd) —
-     read at `cache-password` time and baked into the policy, same technique
-     `systemd-cryptenroll --tpm2-pcrs=7,8,9` uses for LUKS auto-unlock. An
-     altered boot chain permanently breaks the seal.
+  1. **PCR7, Secure Boot policy state** — read at `cache-password` time and
+     baked into the policy, the same default binding Windows BitLocker uses
+     for its own TPM sealing. Earlier versions of this project also bound to
+     PCR8/9 (bootloader/kernel/initrd measurements, closer to
+     `systemd-cryptenroll --tpm2-pcrs=7,8,9`'s default for LUKS) on the
+     assumption those only change on an actual kernel/bootloader update —
+     confirmed wrong on real hardware (they can change across a plain
+     reboot with no update at all), so this project now only binds to PCR7,
+     the same reason BitLocker survives Windows Update but re-prompts for a
+     recovery key on a firmware/Secure-Boot-relevant change. **This only
+     provides a real integrity guarantee with Secure Boot enabled and
+     enforced** — with it off, PCR7 is a static "disabled" value that buys
+     update-stability but no protection against a tampered boot chain. See
+     [`hello_daemon::tpm_seal::STABLE_PCR_SLOTS`]'s doc and
+     [issue #181](https://github.com/Aarklendoia/linux-hello/issues/181).
   2. **A dedicated "liveness" PCR, PCR 16** — extended by
      `hello-daemon-system` right after a verified match, with a
      precomputable, uid-specific digest, then reset back to baseline once
@@ -416,21 +427,20 @@ re-run `cache-password`.
   working after the first login of a session.
 - Face embeddings are encrypted at rest with their own, separate TPM-sealed
   key per principal (see `hello_daemon::embedding_cipher`'s module docs,
-  [issue #152](https://github.com/Aarklendoia/linux-hello/issues/152)) — a
-  different key and a narrower PCR policy than this section's password
-  cache, since an embedding-key unseal failure has no cheap recovery (a
-  password can just be re-typed and re-cached; an unreadable embedding must
-  be re-enrolled in person). **Known fragility**: that key is sealed to
-  boot-integrity PCRs, so an initrd/GRUB/kernel change that lands across a
-  reboot permanently invalidates every enrolled face with no recovery but
-  re-enrollment — tracked in
-  [issue #160](https://github.com/Aarklendoia/linux-hello/issues/160).
-  `linux-hello-pam-autoconfigure` (root's periodic timer) logs a best-effort
-  warning when `/var/run/reboot-required` appears while a face is enrolled,
-  and a `POLICY_FAIL` unseal now logs loudly with the re-enroll command
-  rather than silently dropping the face — it doesn't prevent the breakage,
-  just makes it discoverable instead of a silent "face login stopped
-  working".
+  [issue #152](https://github.com/Aarklendoia/linux-hello/issues/152)), also
+  bound to PCR7 only (same as this section's password cache, as of
+  [issue #181](https://github.com/Aarklendoia/linux-hello/issues/181) — the
+  two used a different PCR set for a while, see that issue for why they were
+  unified). An unseal failure still has no cheap recovery here (a password
+  can just be re-typed and re-cached; an unreadable embedding must be
+  re-enrolled in person), so this key's policy stays the narrower, more
+  update-stable one on purpose — a `POLICY_FAIL` unseal logs loudly with the
+  re-enroll command rather than silently dropping the face
+  ([issue #160](https://github.com/Aarklendoia/linux-hello/issues/160)).
+  With Secure Boot disabled, expect this to still happen (rarely) on events
+  like a firmware update or manual Secure Boot key enrollment — enabling
+  Secure Boot is recommended for this feature to mean anything beyond
+  update-stability.
 
 ## PAM Configuration
 

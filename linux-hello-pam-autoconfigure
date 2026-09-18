@@ -92,26 +92,16 @@ if [[ "$has_enrollment" -eq 0 ]]; then
     done < "$PASSWD_FILE"
 fi
 
-# ── Pending-reboot warning for embedding-key TPM fragility (#160) ───────────
-# Embeddings are encrypted at rest with a key sealed to boot-integrity PCRs
-# (secure boot state + bootloader/kernel — see hello_daemon's tpm_seal.rs /
-# embedding_cipher.rs). That key can never be unsealed again once those
-# measurements change across a reboot, permanently invalidating every
-# enrolled face with no recovery but re-enrollment. Ubuntu's own
-# /var/run/reboot-required (written by kernel/dependency postinst hooks
-# whenever a reboot is needed to pick up a change) is a reasonable,
-# already-correct proxy for "the next reboot risks doing exactly that" —
-# reused here rather than reinventing boot-measurement prediction. This is a
-# best-effort heads-up (checked every 5 minutes by this timer), not a
-# guarantee: a reboot happening in the few minutes before the next tick, or
-# not going through PackageKit/apt at all, won't be caught in time. Runs
-# unconditionally (even if PAM activation below has nothing left to do, or is
-# opted out) — this warning is about TPM/embedding fragility, unrelated to
-# PAM configuration state.
-REBOOT_REQUIRED_FILE="${REBOOT_REQUIRED_FILE:-/var/run/reboot-required}"
-if [[ "$has_enrollment" -eq 1 && -f "$REBOOT_REQUIRED_FILE" ]]; then
-    log "WARNING: a reboot is pending ($REBOOT_REQUIRED_FILE exists) and at least one face is enrolled — rebooting may invalidate encrypted face data sealed to the current boot state (https://github.com/Aarklendoia/linux-hello/issues/160). Re-enroll (linux-hello enroll <uid>) after rebooting if face login stops working."
-fi
+# No pending-reboot warning here anymore (removed, issue #181): embeddings
+# and the KWallet password cache are now sealed to PCR7 (Secure Boot policy
+# state) only, not the bootloader/kernel/initrd measurements that change on
+# an ordinary kernel update — see hello_daemon's tpm_seal.rs. Ubuntu's
+# /var/run/reboot-required is set for many reasons unrelated to Secure Boot
+# (most commonly just a kernel or library update), so under the current
+# design it would almost always be a false alarm; there's no simple,
+# existing signal for "the Secure Boot certificate database is about to
+# change" (a firmware update via fwupd, or manual key enrollment) to warn
+# on instead.
 
 if lh_pam_autoconfig_disabled; then
     log "automatic activation disabled ($LH_OPTOUT_MARKER present), skipping"

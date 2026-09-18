@@ -28,10 +28,14 @@
 //! The seal's TPM policy is a compound `TPM2_PolicyPCR` over two different
 //! kinds of PCR, read together at both seal time and release time:
 //!
-//! 1. **Boot-integrity PCRs 7/8/9** (Secure Boot state, kernel, initrd) — if
-//!    any of these change (an altered boot chain), the policy digest no
-//!    longer matches and the seal becomes permanently unusable on that
-//!    machine, exactly like `systemd-cryptenroll --tpm2-pcrs=7,8,9` for LUKS.
+//! 1. **PCR7, Secure Boot policy state** (see
+//!    [`crate::tpm_seal::STABLE_PCR_SLOTS`]'s doc for why this project
+//!    stopped also binding to PCR8/9 — those change across a plain reboot
+//!    with no actual kernel/bootloader update, confirmed on real hardware)
+//!    — if the Secure Boot state or trusted certificate database changes,
+//!    the policy digest no longer matches and the seal becomes permanently
+//!    unusable on that machine, the same event BitLocker's own default TPM
+//!    binding re-prompts for a recovery key on.
 //! 2. **A dedicated "liveness" PCR, PCR 16** — the TCG-reserved
 //!    resettable/application PCR confirmed extendable and resettable from
 //!    locality 0 by `tss-esapi`'s own upstream integration test
@@ -163,7 +167,7 @@ fn open_context() -> Result<Context, SecretCacheError> {
 /// The two-role PCR slot list (boot-integrity + liveness), in the fixed
 /// order [`tpm_seal::pcr_digest`] concatenates them in.
 fn full_pcr_slots() -> Vec<PcrSlot> {
-    let mut slots = tpm_seal::BOOT_PCR_SLOTS.to_vec();
+    let mut slots = tpm_seal::STABLE_PCR_SLOTS.to_vec();
     slots.push(LIVENESS_PCR_SLOT);
     slots
 }

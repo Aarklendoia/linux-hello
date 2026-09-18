@@ -70,31 +70,40 @@ pub(crate) enum TpmSealError {
     Crypto(String),
 }
 
-/// Boot-integrity PCRs — Secure Boot state (7), and the bootloader/kernel/
-/// initrd measurements (8, 9) most distros' shim/GRUB chain populates. Same
-/// selection `systemd-cryptenroll`'s `--tpm2-pcrs=7,8,9` default uses for
-/// LUKS auto-unlock. `secret_cache` (the session-password cache) folds a
-/// liveness PCR in on top of this set and keeps using all three — that
-/// secret is released once per login and re-cached on every enrollment, so
-/// the occasional forced re-cache an initrd/GRUB regen causes is cheap.
-pub(crate) const BOOT_PCR_SLOTS: [PcrSlot; 3] = [PcrSlot::Slot7, PcrSlot::Slot8, PcrSlot::Slot9];
-
-/// `embedding_cipher`'s own, narrower PCR selection — Secure Boot state (7)
-/// and the bootloader/kernel measurement (8) only, deliberately **without**
-/// PCR9 (initrd). See https://github.com/Aarklendoia/linux-hello/issues/160:
-/// unlike the password cache, an embedding-key unseal failure is not
-/// cheaply recoverable — the plaintext embedding is gone for good once the
-/// legacy-plaintext fallback has been migrated away (`storage.rs`'s
-/// `migrate_plaintext_embedding`), so the only fix is re-enrolling in
-/// person. PCR9 changes on nearly every `update-initramfs` run — which
-/// routine, unrelated package upgrades trigger constantly, not just kernel
-/// updates — for a marginal security benefit on top of PCR7/8 (an attacker
-/// who can already swap the initrd measured by 8 typically also controls
-/// what's measured by 9). Trading that narrow slice of evil-maid
-/// resistance for not silently losing every enrolled face on routine
-/// desktop maintenance is the right call for this specific key; it is not
-/// automatically the right call for `secret_cache`; see the note above.
-pub(crate) const EMBEDDING_PCR_SLOTS: [PcrSlot; 2] = [PcrSlot::Slot7, PcrSlot::Slot8];
+/// The PCR both `embedding_cipher` and `secret_cache` seal against: **Secure
+/// Boot policy state only** — same default binding Windows BitLocker itself
+/// uses (PCR7, sometimes +11), not the wider `--tpm2-pcrs=7,8,9`
+/// `systemd-cryptenroll` defaults to for LUKS. PCR7 measures whether Secure
+/// Boot is on/off and the certificate database (PK/KEK/db/dbx) that
+/// validated whatever booted — it does not depend on the actual bytes of
+/// the bootloader/kernel/initrd, so it survives routine, signed OS updates
+/// exactly like BitLocker survives Windows Update but re-prompts for the
+/// recovery key on a firmware/Secure-Boot-relevant change.
+///
+/// This project used to also bind to PCR8 (bootloader/kernel measurement),
+/// on the assumption that it only changes on an actual kernel/bootloader
+/// *update* — a rare, meaningful event. That assumption doesn't hold in
+/// practice: confirmed directly on real hardware, the embedding key (then
+/// PCR 7+8) failed to unseal after a plain reboot with **no kernel, GRUB,
+/// or bootloader package change in between** (same kernel version and same
+/// `dpkg.log` entries before and after) — GRUB's own PCR8 event (grub.cfg
+/// content/commands executed, and on Ubuntu, `grubenv`'s "recordfail" state
+/// rewritten on every boot) is not the stable signal it was assumed to be.
+/// PCR9 (initrd) is even more volatile: it changes on nearly every
+/// `update-initramfs` run, which routine, unrelated package upgrades
+/// trigger constantly.
+///
+/// **This trade-off only provides a real security guarantee with Secure
+/// Boot enabled and enforced** — see `docs/PAM_MODULE.md`. With Secure Boot
+/// on, an attacker can't swap in an unsigned/modified boot component
+/// without either failing verification outright or changing the
+/// certificate database (which *does* change PCR7, correctly invalidating
+/// the seal). With Secure Boot off, PCR7 is a static "disabled" value that
+/// buys update-stability but no real integrity check — accepted here as a
+/// documented, deliberate choice (see
+/// https://github.com/Aarklendoia/linux-hello/issues/181) rather than
+/// silently assumed.
+pub(crate) const STABLE_PCR_SLOTS: [PcrSlot; 1] = [PcrSlot::Slot7];
 
 /// Reads `N` random bytes directly from `/dev/urandom` — same technique (and
 /// same rationale: `read_exact`, not `fs::read`, since the latter blocks
