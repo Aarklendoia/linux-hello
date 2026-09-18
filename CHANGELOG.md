@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.2](https://github.com/Aarklendoia/linux-hello/compare/v1.8.1...v1.8.2) (2026-09-18)
+
+
+### Bug Fixes
+
+* **daemon:** stop embedding-key TPM policy failures from failing silently, narrow their PCR scope ([#161](https://github.com/Aarklendoia/linux-hello/issues/161)) ([c5d5288](https://github.com/Aarklendoia/linux-hello/commit/c5d528862a359cdf2cc48346ed87ff2e8c9a6df5))
+
 ## [1.8.1](https://github.com/Aarklendoia/linux-hello/compare/v1.8.0...v1.8.1) (2026-09-17)
 
 
