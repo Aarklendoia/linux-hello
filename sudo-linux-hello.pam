@@ -3,7 +3,7 @@
 # Enables facial authentication instead of a password for sudo
 
 # Facial authentication first (sufficient = if successful, stop here)
-auth sufficient /home/edtech/Documents/linux-hello-rust/target/debug/libpam_linux_hello.so context=sudo timeout_ms=3000 debug
+auth sufficient /lib/x86_64-linux-gnu/security/pam_linux_hello.so context=sudo timeout_ms=3000
 
 # If facial authentication fails or the module returns IGNORE, try the password
 @include common-auth
