@@ -487,11 +487,35 @@ impl FaceAuthDaemon {
         Ok(serde_json::to_string(&faces)?)
     }
 
-    /// Check that the current user has permission to access this UID
+    /// Check that the current user has permission to access this UID.
+    ///
+    /// This only ever compares `target_uid` against the *daemon process's
+    /// own* `getuid()` — it has no way to learn the actual identity of
+    /// whoever made the D-Bus call, because it doesn't need one: `main.rs`
+    /// unconditionally connects to the **session** bus
+    /// (`zbus::Connection::session()`), which is itself only reachable by
+    /// processes already running as that same uid. The `current_uid == 0`
+    /// branch below can only ever be reached if this whole daemon process is
+    /// running as root, in which case root's own session bus
+    /// (`/run/user/0/bus`) still isn't reachable by any other uid — so
+    /// nothing is actually granted here beyond what the transport already
+    /// enforces.
+    ///
+    /// That means this bypass (and `DaemonConfig::root_mode`, which mirrors
+    /// `getuid() == 0` purely for logging/the read-only D-Bus property of
+    /// the same name today — it has no other effect) is safe *only* as long
+    /// as this interface stays session-bus-only. If a future change ever
+    /// puts it on the system bus, or any other transport reachable across
+    /// uids, this branch must be replaced with a real per-call caller
+    /// identity check (e.g. `zbus`'s `Connection::peer_credentials` for the
+    /// message in flight) first — otherwise any local user could act as any
+    /// `target_uid` here (register/delete/list/verify faces on someone
+    /// else's behalf). See issue #172.
     fn check_user_permission(&self, target_uid: u32) -> Result<(), DaemonError> {
         let current_uid = unsafe { libc::getuid() };
 
-        // Root can do anything
+        // Root can do anything — see this function's doc comment for why
+        // that's currently safe and what must change before it's touched.
         if current_uid == 0 {
             return Ok(());
         }
