@@ -25,6 +25,34 @@ ProtectHome=read-only
 NoNewPrivileges=true
 ReadWritePaths=/home/%u/.local/share/linux-hello %t /run/lock /run/hello-pam
 
+# Additional sandboxing (see issue #179 for how each of these was checked
+# against this daemon's actual needs — camera capture, ONNX inference,
+# tokio, D-Bus, and its two loopback TCP servers). Deliberately excludes
+# MemoryDenyWriteExecute (numerical/ML libraries sometimes JIT) and any
+# CapabilityBoundingSet/DeviceAllow restriction (camera device access,
+# not yet verified safe to narrow) — left for a future, more carefully
+# tested pass.
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+UMask=0077
+PrivateTmp=yes
+ProtectProc=invisible
+ProcSubset=pid
+# AF_INET: the MJPEG preview and screenlock control servers (127.0.0.1 only,
+# but RestrictAddressFamilies has no loopback-only granularity). AF_UNIX:
+# the PAM helper socket and D-Bus.
+RestrictAddressFamilies=AF_UNIX AF_INET
+
 # Timeout settings
 TimeoutStartSec=15
 TimeoutStopSec=5

@@ -30,6 +30,35 @@ NoNewPrivileges=true
 # need to be loosened for it.
 ReadWritePaths=/run/hello-pam /run/lock /var/lib/linux-hello/secrets
 
+# Additional sandboxing — see hello-daemon.service's own comment and issue
+# #179 for how each of these was checked. This unit opens no TCP sockets at
+# all (only its three Unix-domain listeners, see its module doc), so
+# RestrictAddressFamilies is narrower here than on the per-user unit.
+# Deliberately excludes MemoryDenyWriteExecute, CapabilityBoundingSet, and
+# any DeviceAllow restriction for the same reasons as hello-daemon.service —
+# this unit additionally needs to read arbitrary local users' home
+# directories and touch the TPM device directly as root, so under-scoping
+# either would risk silently breaking SDDM login rather than just camera
+# preview. Not live-tested against this specific binary (see #179) —
+# verify with a real reboot before/along the next beta cycle.
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictRealtime=yes
+RestrictNamespaces=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+UMask=0077
+PrivateTmp=yes
+ProtectProc=invisible
+ProcSubset=pid
+RestrictAddressFamilies=AF_UNIX
+
 TimeoutStartSec=15
 TimeoutStopSec=5
 
