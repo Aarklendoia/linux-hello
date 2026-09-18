@@ -50,6 +50,30 @@ pub enum PamHelperResponse {
     },
 }
 
+/// Who (if anyone) owns whatever's currently sitting at `socket_path`.
+enum StaleSocketOwner {
+    /// Nothing there — a fresh bind can proceed directly.
+    Absent,
+    /// Owned by `our_uid` — an ordinary stale socket, safe to remove.
+    Ours,
+    /// Owned by a different uid — do not touch it.
+    OtherUid(u32),
+}
+
+/// Classifies whatever currently exists at `socket_path` without mutating
+/// anything, so [`start_pam_helper`] can decide whether removing it before a
+/// fresh `bind()` is safe. See the call site for why this distinction
+/// matters on a shared, sticky, world-writable directory.
+fn stale_socket_owner(socket_path: &str, our_uid: u32) -> std::io::Result<StaleSocketOwner> {
+    use std::os::unix::fs::MetadataExt;
+    match fs::metadata(socket_path) {
+        Ok(meta) if meta.uid() == our_uid => Ok(StaleSocketOwner::Ours),
+        Ok(meta) => Ok(StaleSocketOwner::OtherUid(meta.uid())),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(StaleSocketOwner::Absent),
+        Err(e) => Err(e),
+    }
+}
+
 /// Start the PAM socket listener (async tokio)
 pub async fn start_pam_helper(
     uid: u32,
@@ -62,14 +86,36 @@ pub async fn start_pam_helper(
     // Security relies on peer_cred in handle_pam_request, not on the path.
     let socket_path = format!("/run/hello-pam/{}.socket", uid);
 
-    // Clean up the old socket (previous crash or update). A failure here
-    // (e.g. the socket directory isn't in this unit's ReadWritePaths under
-    // ProtectSystem=strict) would otherwise surface only as a confusing
-    // "Address already in use" from bind() below, with no indication why.
-    if let Err(e) = fs::remove_file(&socket_path) {
-        if e.kind() != std::io::ErrorKind::NotFound {
-            warn!("Could not remove stale socket {}: {}", socket_path, e);
+    // Clean up the old socket (previous crash or update) — but only if it's
+    // actually ours. `/run/hello-pam/` is 1777 (sticky, world-writable, see
+    // above), so a different local user could have planted a file at this
+    // exact path before we got a chance to start (fresh boot, restart after
+    // a crash); the sticky bit then blocks our own `remove_file` (EPERM),
+    // and without this check that would surface only as a confusing
+    // "Operation not permitted" with no hint that another uid is involved.
+    // `pam_linux_hello` already refuses to trust a response from an
+    // unexpected socket peer uid (see its own `unix_socket_peer_uid` check),
+    // so a squat here can only ever deny biometric auth for this account —
+    // never let a rogue listener's response be accepted — but it's worth
+    // calling out loudly since it's otherwise invisible until someone tries
+    // to log in.
+    match stale_socket_owner(&socket_path, uid) {
+        Ok(StaleSocketOwner::Absent) => {}
+        Ok(StaleSocketOwner::Ours) => {
+            if let Err(e) = fs::remove_file(&socket_path) {
+                warn!("Could not remove stale socket {}: {}", socket_path, e);
+            }
         }
+        Ok(StaleSocketOwner::OtherUid(owner_uid)) => {
+            error!(
+                "{} already exists and is owned by uid {} (we are uid {}) — refusing to \
+                 remove it. This looks like another local user squatted this path before we \
+                 could start; biometric PAM auth for this account will stay unavailable until \
+                 a root user clears it (rm {}) or the machine reboots.",
+                socket_path, owner_uid, uid, socket_path
+            );
+        }
+        Err(e) => warn!("Could not check {}: {}", socket_path, e),
     }
 
     // tokio::net::UnixListener: fully async, no EAGAIN issue
@@ -1013,6 +1059,29 @@ mod tests {
         unsafe {
             std::env::remove_var("LINUX_HELLO_SYSTEM_SOCKET_PATH");
         }
+    }
+
+    #[test]
+    fn stale_socket_owner_is_absent_for_a_nonexistent_path() {
+        assert!(matches!(
+            stale_socket_owner("/tmp/linux-hello-test-nonexistent.socket", 12345),
+            Ok(StaleSocketOwner::Absent)
+        ));
+    }
+
+    #[test]
+    fn stale_socket_owner_is_ours_when_we_own_the_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("stale.socket");
+        std::fs::write(&path, b"").unwrap();
+        let our_uid = unsafe { libc::getuid() };
+        assert!(matches!(
+            stale_socket_owner(path.to_str().unwrap(), our_uid),
+            Ok(StaleSocketOwner::Ours)
+        ));
+        // The "owned by a different uid" branch can't be exercised here
+        // without root (chown-ing a file to a foreign uid) — covered by
+        // code review instead; see the call site's comment.
     }
 
     fn unknown_user_req(timeout_ms: u64) -> PamHelperRequest {
