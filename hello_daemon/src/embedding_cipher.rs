@@ -29,24 +29,23 @@
 //! convention `secret_cache` uses, for tests to point at `swtpm` directly or
 //! at a locally-run `tpm2-abrmd`.
 //!
-//! # Policy: boot-integrity PCRs only, no liveness PCR, and narrower than
-//! # `secret_cache`'s
+//! # Policy: Secure Boot state only, no liveness PCR
 //!
 //! Unlike [`crate::secret_cache`]'s password cache, an embedding must be
 //! decryptable on **every** verify attempt — matched or not, since the
 //! plaintext is needed *to determine* whether it's a match. There is no
 //! "confirmed match" event available beforehand to gate release on the way
 //! the password cache's liveness PCR does, so inventing one would be
-//! circular. The policy here binds to [`crate::tpm_seal::EMBEDDING_PCR_SLOTS`]
-//! (Secure Boot state + bootloader/kernel, **not** `secret_cache`'s full
-//! `BOOT_PCR_SLOTS` — no PCR9/initrd), protecting exactly the threat this
-//! feature targets: offline disk theft (reading the drive on different, or
-//! no, hardware). It does not — and isn't meant to — defend against a live
-//! compromise of either principal, whose blast radius is already whatever
-//! files that principal can read today. See
-//! [`crate::tpm_seal::EMBEDDING_PCR_SLOTS`]'s own doc for why this key
-//! specifically excludes PCR9 where `secret_cache` doesn't: an unseal
-//! failure here is unrecoverable (issue #160), unlike there.
+//! circular. The policy here binds to [`crate::tpm_seal::STABLE_PCR_SLOTS`]
+//! (Secure Boot policy state only — see its own doc for why this project
+//! stopped also binding to the bootloader/kernel measurement, PCR8:
+//! confirmed on real hardware to change across a plain reboot with no
+//! actual kernel/bootloader update involved), protecting exactly the threat
+//! this feature targets: offline disk theft (reading the drive on
+//! different, or no, hardware) on a Secure-Boot-enabled machine. It does
+//! not — and isn't meant to — defend against a live compromise of either
+//! principal, whose blast radius is already whatever files that principal
+//! can read today.
 //!
 //! A `POLICY_FAIL` from the TPM (boot measurements no longer match what was
 //! sealed) is therefore treated as its own [`EmbeddingCipherError::PolicyFailure`]
@@ -75,9 +74,10 @@ use crate::tpm_seal::{self, TpmSealError};
 pub enum EmbeddingCipherError {
     #[error("TPM error: {0}")]
     Tpm(tss_esapi::Error),
-    /// The TPM's `TPM2_PolicyPCR` check failed: the boot-integrity PCRs this
-    /// key is sealed against no longer match what they were when it was
-    /// sealed (an initrd/GRUB/kernel change happened, then a reboot). Unlike
+    /// The TPM's `TPM2_PolicyPCR` check failed: PCR7 (Secure Boot policy
+    /// state) no longer matches what it was when this key was sealed —
+    /// Secure Boot was toggled, or the trusted certificate database
+    /// changed. Unlike
     /// [`EmbeddingCipherError::Tpm`]'s other cases (e.g. `tpm2-abrmd`
     /// momentarily unreachable), this is **not transient** — the exact old
     /// PCR digest can never recur, so the sealed key can never be unsealed
@@ -157,8 +157,8 @@ enum CachedKeyState {
 ///
 /// A real hardware TPM's PCR-policy unseal is not cheap — measured ~9
 /// *seconds* round-tripping through `tpm2-abrmd` on real fTPM hardware, not
-/// hypothetical. Boot-integrity PCRs 7/8/9 don't change until the next
-/// reboot, so the outcome is valid for this whole process's lifetime;
+/// hypothetical. PCR7 (Secure Boot policy state) doesn't change until the
+/// next reboot, so the outcome is valid for this whole process's lifetime;
 /// re-unsealing on every call was pure waste, not extra security — and a
 /// real, measured one, since `verify_with_storage` calls into here at least
 /// once per authentication attempt (sudo, screenlock, polkit, SDDM), so
@@ -224,8 +224,8 @@ pub fn probe(is_root: bool) -> bool {
         Ok(ctx) => ctx,
         Err(_) => return false,
     };
-    tpm_seal::pcr_selection_for(&tpm_seal::EMBEDDING_PCR_SLOTS)
-        .and_then(|sel| tpm_seal::pcr_digest(&mut ctx, &tpm_seal::EMBEDDING_PCR_SLOTS, &sel))
+    tpm_seal::pcr_selection_for(&tpm_seal::STABLE_PCR_SLOTS)
+        .and_then(|sel| tpm_seal::pcr_digest(&mut ctx, &tpm_seal::STABLE_PCR_SLOTS, &sel))
         .is_ok()
 }
 
@@ -235,9 +235,8 @@ fn create_and_seal_key(
 ) -> Result<[u8; 32], EmbeddingCipherError> {
     let mut ctx = open_context(is_root)?;
     let key_bytes = tpm_seal::random_bytes::<32>()?;
-    let selection = tpm_seal::pcr_selection_for(&tpm_seal::EMBEDDING_PCR_SLOTS)?;
-    let pcr_digest_now =
-        tpm_seal::pcr_digest(&mut ctx, &tpm_seal::EMBEDDING_PCR_SLOTS, &selection)?;
+    let selection = tpm_seal::pcr_selection_for(&tpm_seal::STABLE_PCR_SLOTS)?;
+    let pcr_digest_now = tpm_seal::pcr_digest(&mut ctx, &tpm_seal::STABLE_PCR_SLOTS, &selection)?;
     let policy_digest = tpm_seal::trial_pcr_policy_digest(&mut ctx, pcr_digest_now, selection)?;
     let sensitive = SensitiveData::try_from(key_bytes.to_vec())
         .map_err(|e| EmbeddingCipherError::Crypto(e.to_string()))?;
@@ -309,9 +308,8 @@ fn unseal_from_disk(
 ) -> Result<[u8; 32], EmbeddingCipherError> {
     let mut ctx = open_context(is_root)?;
     let (public, private) = tpm_seal::read_sealed_blob(sealed_key_path)?;
-    let selection = tpm_seal::pcr_selection_for(&tpm_seal::EMBEDDING_PCR_SLOTS)?;
-    let pcr_digest_now =
-        tpm_seal::pcr_digest(&mut ctx, &tpm_seal::EMBEDDING_PCR_SLOTS, &selection)?;
+    let selection = tpm_seal::pcr_selection_for(&tpm_seal::STABLE_PCR_SLOTS)?;
+    let pcr_digest_now = tpm_seal::pcr_digest(&mut ctx, &tpm_seal::STABLE_PCR_SLOTS, &selection)?;
     let sensitive = tpm_seal::unseal_with_pcr_policy(
         &mut ctx,
         public,
@@ -548,7 +546,7 @@ mod tests {
         let mut ctx = open_context(true).unwrap();
         let stale_key_bytes = tpm_seal::random_bytes::<32>().unwrap();
         let bogus_pcr_digest = tss_esapi::structures::Digest::try_from(vec![0xAB; 32]).unwrap();
-        let selection = tpm_seal::pcr_selection_for(&tpm_seal::EMBEDDING_PCR_SLOTS).unwrap();
+        let selection = tpm_seal::pcr_selection_for(&tpm_seal::STABLE_PCR_SLOTS).unwrap();
         let policy_digest =
             tpm_seal::trial_pcr_policy_digest(&mut ctx, bogus_pcr_digest, selection).unwrap();
         let sensitive = SensitiveData::try_from(stale_key_bytes.to_vec()).unwrap();
