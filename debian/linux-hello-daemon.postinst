@@ -15,8 +15,10 @@ chmod 700 "$STORAGE_DIR" 2>/dev/null || true
 echo "✓ Daemon service installed"
 
 # Create /run/hello-pam/ immediately (will be recreated at boot by systemd-tmpfiles)
-systemd-tmpfiles --create /usr/lib/tmpfiles.d/linux-hello.conf 2>/dev/null || \
-    mkdir -p /run/hello-pam && chmod 1777 /run/hello-pam || true
+if ! systemd-tmpfiles --create /usr/lib/tmpfiles.d/linux-hello.conf 2>/dev/null; then
+    mkdir -p /run/hello-pam 2>/dev/null || true
+    chmod 1777 /run/hello-pam 2>/dev/null || true
+fi
 echo "✓ Socket directory /run/hello-pam/ ready"
 
 # Install the KDE lock screen QML overlay via dpkg-divert.
