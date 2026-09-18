@@ -63,7 +63,9 @@ struct CameraLock {
 
 impl CameraLock {
     fn try_acquire(path: &std::path::Path) -> Result<Self, CameraError> {
-        let file = std::fs::OpenOptions::new()
+        use std::io::{Read, Write};
+
+        let mut file = std::fs::OpenOptions::new()
             .read(true)
             .write(true)
             .create(true)
@@ -76,6 +78,25 @@ impl CameraLock {
         if ret != 0 {
             let err = std::io::Error::last_os_error();
             if err.kind() == std::io::ErrorKind::WouldBlock {
+                // Best-effort diagnostic only: this file is world-writable
+                // (see the module doc above) precisely so an unprivileged
+                // per-user daemon and the root SDDM listener can both use
+                // it, which also means its content can't be trusted as
+                // proof of who holds the lock — just a hint for the log,
+                // useful for telling "another of our own processes is
+                // mid-capture" apart from "something has wedged this open
+                // indefinitely".
+                let mut holder = String::new();
+                let _ = file.read_to_string(&mut holder);
+                warn!(
+                    "Camera lock {} is held by another process ({}) — capture will report Busy",
+                    path.display(),
+                    if holder.trim().is_empty() {
+                        "unknown, no diagnostic info in the lock file".to_string()
+                    } else {
+                        holder.trim().to_string()
+                    }
+                );
                 return Err(CameraError::Busy);
             }
             return Err(CameraError::CaptureError(format!(
@@ -83,6 +104,21 @@ impl CameraLock {
                 err
             )));
         }
+
+        // Best-effort diagnostic for whoever finds this lock held next time
+        // (see above) — not security-relevant and never relied on for
+        // correctness, only for a clearer log line.
+        let _ = file.set_len(0);
+        let _ = write!(
+            file,
+            "pid={} since={}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0)
+        );
+
         Ok(Self { _file: file })
     }
 
@@ -1234,6 +1270,20 @@ mod tests {
         assert!(
             third.is_ok(),
             "expected the lock to be acquirable again after the first guard was dropped"
+        );
+    }
+
+    #[test]
+    fn test_camera_lock_records_holder_pid_for_diagnostics() {
+        let dir = tempfile::tempdir().unwrap();
+        let lock_path = dir.path().join("camera.lock");
+
+        let _guard = CameraLock::try_acquire(&lock_path).expect("acquire should succeed");
+        let content = std::fs::read_to_string(&lock_path).unwrap();
+        assert!(
+            content.starts_with(&format!("pid={} since=", std::process::id())),
+            "lock file should record our own pid for whoever finds it held next, got {:?}",
+            content
         );
     }
 
