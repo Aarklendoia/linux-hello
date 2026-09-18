@@ -29,20 +29,29 @@
 //! convention `secret_cache` uses, for tests to point at `swtpm` directly or
 //! at a locally-run `tpm2-abrmd`.
 //!
-//! # Policy: boot-integrity PCRs only, no liveness PCR
+//! # Policy: boot-integrity PCRs only, no liveness PCR, and narrower than
+//! # `secret_cache`'s
 //!
 //! Unlike [`crate::secret_cache`]'s password cache, an embedding must be
 //! decryptable on **every** verify attempt — matched or not, since the
 //! plaintext is needed *to determine* whether it's a match. There is no
 //! "confirmed match" event available beforehand to gate release on the way
 //! the password cache's liveness PCR does, so inventing one would be
-//! circular. The policy here binds only to the same boot-integrity PCRs
-//! 7/8/9 `secret_cache` also uses (see [`crate::tpm_seal::BOOT_PCR_SLOTS`]),
-//! protecting exactly the threat this feature targets: offline disk theft
-//! (reading the drive on different, or no, hardware). It does not — and
-//! isn't meant to — defend against a live compromise of either principal,
-//! whose blast radius is already whatever files that principal can read
-//! today.
+//! circular. The policy here binds to [`crate::tpm_seal::EMBEDDING_PCR_SLOTS`]
+//! (Secure Boot state + bootloader/kernel, **not** `secret_cache`'s full
+//! `BOOT_PCR_SLOTS` — no PCR9/initrd), protecting exactly the threat this
+//! feature targets: offline disk theft (reading the drive on different, or
+//! no, hardware). It does not — and isn't meant to — defend against a live
+//! compromise of either principal, whose blast radius is already whatever
+//! files that principal can read today. See
+//! [`crate::tpm_seal::EMBEDDING_PCR_SLOTS`]'s own doc for why this key
+//! specifically excludes PCR9 where `secret_cache` doesn't: an unseal
+//! failure here is unrecoverable (issue #160), unlike there.
+//!
+//! A `POLICY_FAIL` from the TPM (boot measurements no longer match what was
+//! sealed) is therefore treated as its own [`EmbeddingCipherError::PolicyFailure`]
+//! variant, distinct from a transient TPM error — see its doc for why
+//! callers must not treat the two the same way.
 //!
 //! One key protects every embedding under one (principal, storage-tree): a
 //! per-user daemon only ever has its own uid in play, so this is really one
@@ -57,6 +66,7 @@ use std::sync::{Mutex, OnceLock};
 use aes_gcm::aead::{array::Array, Aead, KeyInit, Nonce, Payload};
 use aes_gcm::Aes256Gcm;
 use thiserror::Error;
+use tracing::warn;
 use tss_esapi::{structures::SensitiveData, tcti_ldr::TctiNameConf};
 
 use crate::tpm_seal::{self, TpmSealError};
@@ -64,7 +74,23 @@ use crate::tpm_seal::{self, TpmSealError};
 #[derive(Debug, Error)]
 pub enum EmbeddingCipherError {
     #[error("TPM error: {0}")]
-    Tpm(#[from] tss_esapi::Error),
+    Tpm(tss_esapi::Error),
+    /// The TPM's `TPM2_PolicyPCR` check failed: the boot-integrity PCRs this
+    /// key is sealed against no longer match what they were when it was
+    /// sealed (an initrd/GRUB/kernel change happened, then a reboot). Unlike
+    /// [`EmbeddingCipherError::Tpm`]'s other cases (e.g. `tpm2-abrmd`
+    /// momentarily unreachable), this is **not transient** — the exact old
+    /// PCR digest can never recur, so the sealed key can never be unsealed
+    /// again, and every embedding it protects is permanently unreadable.
+    /// Callers must surface this distinctly (loudly, and pointing at
+    /// re-enrollment) rather than folding it into ordinary "couldn't read
+    /// this face, try again" handling. See
+    /// https://github.com/Aarklendoia/linux-hello/issues/160.
+    #[error(
+        "TPM policy check failed: boot measurements changed since this key was sealed; \
+         the protected embedding(s) can no longer be decrypted and must be re-enrolled"
+    )]
+    PolicyFailure,
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
     #[error("encryption error: {0}")]
@@ -73,10 +99,31 @@ pub enum EmbeddingCipherError {
     NoTpm,
 }
 
+/// `true` if `err` is a `TPM2_RC_POLICY_FAIL` response — the TPM's own
+/// signal that a `TPM2_PolicyPCR` check didn't match, as opposed to any
+/// other TSS/transport-level failure.
+fn is_policy_failure(err: &tss_esapi::Error) -> bool {
+    use tss_esapi::constants::Tss2ResponseCodeKind;
+    matches!(
+        err,
+        tss_esapi::Error::Tss2Error(rc) if rc.kind() == Some(Tss2ResponseCodeKind::PolicyFail)
+    )
+}
+
+impl From<tss_esapi::Error> for EmbeddingCipherError {
+    fn from(e: tss_esapi::Error) -> Self {
+        if is_policy_failure(&e) {
+            EmbeddingCipherError::PolicyFailure
+        } else {
+            EmbeddingCipherError::Tpm(e)
+        }
+    }
+}
+
 impl From<TpmSealError> for EmbeddingCipherError {
     fn from(e: TpmSealError) -> Self {
         match e {
-            TpmSealError::Tpm(e) => EmbeddingCipherError::Tpm(e),
+            TpmSealError::Tpm(e) => EmbeddingCipherError::from(e),
             TpmSealError::Io(e) => EmbeddingCipherError::Io(e),
             TpmSealError::Crypto(s) => EmbeddingCipherError::Crypto(s),
         }
@@ -95,12 +142,23 @@ impl From<TpmSealError> for EmbeddingCipherError {
 /// awaits while holding this.
 static CREATE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-/// In-memory cache of already-unsealed keys, keyed by sealed-key file path.
+/// A cached outcome of unsealing one `sealed_key_path` — either the key
+/// itself, or a remembered, permanent [`EmbeddingCipherError::PolicyFailure`].
+/// See [`key_cache`]'s doc for why caching the failure case matters just as
+/// much as caching the success case.
+#[derive(Clone, Copy)]
+enum CachedKeyState {
+    Key([u8; 32]),
+    PolicyFailure,
+}
+
+/// In-memory cache of already-attempted unseals, keyed by sealed-key file
+/// path.
 ///
 /// A real hardware TPM's PCR-policy unseal is not cheap — measured ~9
 /// *seconds* round-tripping through `tpm2-abrmd` on real fTPM hardware, not
 /// hypothetical. Boot-integrity PCRs 7/8/9 don't change until the next
-/// reboot, so the unsealed key is valid for this whole process's lifetime;
+/// reboot, so the outcome is valid for this whole process's lifetime;
 /// re-unsealing on every call was pure waste, not extra security — and a
 /// real, measured one, since `verify_with_storage` calls into here at least
 /// once per authentication attempt (sudo, screenlock, polkit, SDDM), so
@@ -108,11 +166,22 @@ static CREATE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 /// plaintext key resident here for the process's life is no weaker than the
 /// status quo: any process already holding it can decrypt on demand anyway,
 /// and this is about offline disk theft, not a live-process compromise (see
-/// the module doc's "Policy" section). Never evicted except by process
-/// restart — a changed PCR state would fail a fresh unseal here exactly the
-/// same as it would fail one done without this cache.
-fn key_cache() -> &'static Mutex<HashMap<PathBuf, [u8; 32]>> {
-    static CACHE: OnceLock<Mutex<HashMap<PathBuf, [u8; 32]>>> = OnceLock::new();
+/// the module doc's "Policy" section).
+///
+/// Caching [`CachedKeyState::PolicyFailure`] specifically (issue #160,
+/// confirmed the hard way on real hardware: without this, a single stale
+/// sealed key made *every* verify attempt pay a fresh, doomed ~9s TPM
+/// round-trip — twice per attempt, once from `load_face_embeddings`'s own
+/// speculative fetch and once more from `load_own_embedding_from_dir`'s
+/// opportunistic plaintext→encrypted migration attempt, stacking to ~18s of
+/// pure waste before the camera even started) rests on the exact same
+/// invariant the success case already relies on: the PCR state that caused
+/// it cannot change before the next reboot, so a `POLICY_FAIL` now will
+/// still be a `POLICY_FAIL` on the next call this process makes. Never
+/// evicted except by process restart or [`load_or_create_key`] resealing a
+/// fresh key over the stale one (which also refreshes this cache entry).
+fn key_cache() -> &'static Mutex<HashMap<PathBuf, CachedKeyState>> {
+    static CACHE: OnceLock<Mutex<HashMap<PathBuf, CachedKeyState>>> = OnceLock::new();
     CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
@@ -155,8 +224,8 @@ pub fn probe(is_root: bool) -> bool {
         Ok(ctx) => ctx,
         Err(_) => return false,
     };
-    tpm_seal::pcr_selection_for(&tpm_seal::BOOT_PCR_SLOTS)
-        .and_then(|sel| tpm_seal::pcr_digest(&mut ctx, &tpm_seal::BOOT_PCR_SLOTS, &sel))
+    tpm_seal::pcr_selection_for(&tpm_seal::EMBEDDING_PCR_SLOTS)
+        .and_then(|sel| tpm_seal::pcr_digest(&mut ctx, &tpm_seal::EMBEDDING_PCR_SLOTS, &sel))
         .is_ok()
 }
 
@@ -166,8 +235,9 @@ fn create_and_seal_key(
 ) -> Result<[u8; 32], EmbeddingCipherError> {
     let mut ctx = open_context(is_root)?;
     let key_bytes = tpm_seal::random_bytes::<32>()?;
-    let selection = tpm_seal::pcr_selection_for(&tpm_seal::BOOT_PCR_SLOTS)?;
-    let pcr_digest_now = tpm_seal::pcr_digest(&mut ctx, &tpm_seal::BOOT_PCR_SLOTS, &selection)?;
+    let selection = tpm_seal::pcr_selection_for(&tpm_seal::EMBEDDING_PCR_SLOTS)?;
+    let pcr_digest_now =
+        tpm_seal::pcr_digest(&mut ctx, &tpm_seal::EMBEDDING_PCR_SLOTS, &selection)?;
     let policy_digest = tpm_seal::trial_pcr_policy_digest(&mut ctx, pcr_digest_now, selection)?;
     let sensitive = SensitiveData::try_from(key_bytes.to_vec())
         .map_err(|e| EmbeddingCipherError::Crypto(e.to_string()))?;
@@ -177,7 +247,10 @@ fn create_and_seal_key(
     key_cache()
         .lock()
         .unwrap_or_else(|e| e.into_inner())
-        .insert(sealed_key_path.to_path_buf(), key_bytes);
+        .insert(
+            sealed_key_path.to_path_buf(),
+            CachedKeyState::Key(key_bytes),
+        );
     Ok(key_bytes)
 }
 
@@ -190,20 +263,55 @@ fn create_and_seal_key(
 /// Blocking (real TPM I/O) — callers on an async runtime must wrap this in
 /// `tokio::task::spawn_blocking`.
 pub fn load_key(sealed_key_path: &Path, is_root: bool) -> Result<[u8; 32], EmbeddingCipherError> {
-    if let Some(key) = key_cache()
+    if let Some(state) = key_cache()
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .get(sealed_key_path)
     {
-        return Ok(*key);
+        return match state {
+            CachedKeyState::Key(key) => Ok(*key),
+            CachedKeyState::PolicyFailure => Err(EmbeddingCipherError::PolicyFailure),
+        };
     }
     if !sealed_key_path.exists() {
         return Err(EmbeddingCipherError::NoTpm);
     }
+    let result = unseal_from_disk(sealed_key_path, is_root);
+    match &result {
+        Ok(key) => {
+            key_cache()
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(sealed_key_path.to_path_buf(), CachedKeyState::Key(*key));
+        }
+        // Permanent (won't change before the next reboot) — cache it so
+        // every later caller this process's lifetime fails fast instead of
+        // repeating the same doomed ~9s TPM round-trip (issue #160).
+        Err(EmbeddingCipherError::PolicyFailure) => {
+            key_cache()
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(sealed_key_path.to_path_buf(), CachedKeyState::PolicyFailure);
+        }
+        // Anything else (e.g. tpm2-abrmd momentarily unreachable) is
+        // presumed transient — deliberately not cached, so the next call
+        // gets a fresh attempt.
+        Err(_) => {}
+    }
+    result
+}
+
+/// The actual TPM round-trip `load_key` performs on a cache miss — pulled
+/// out so both `load_key` and its caching wrapper stay readable.
+fn unseal_from_disk(
+    sealed_key_path: &Path,
+    is_root: bool,
+) -> Result<[u8; 32], EmbeddingCipherError> {
     let mut ctx = open_context(is_root)?;
     let (public, private) = tpm_seal::read_sealed_blob(sealed_key_path)?;
-    let selection = tpm_seal::pcr_selection_for(&tpm_seal::BOOT_PCR_SLOTS)?;
-    let pcr_digest_now = tpm_seal::pcr_digest(&mut ctx, &tpm_seal::BOOT_PCR_SLOTS, &selection)?;
+    let selection = tpm_seal::pcr_selection_for(&tpm_seal::EMBEDDING_PCR_SLOTS)?;
+    let pcr_digest_now =
+        tpm_seal::pcr_digest(&mut ctx, &tpm_seal::EMBEDDING_PCR_SLOTS, &selection)?;
     let sensitive = tpm_seal::unseal_with_pcr_policy(
         &mut ctx,
         public,
@@ -220,17 +328,23 @@ pub fn load_key(sealed_key_path: &Path, is_root: bool) -> Result<[u8; 32], Embed
     }
     let mut key = [0u8; 32];
     key.copy_from_slice(bytes);
-    key_cache()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .insert(sealed_key_path.to_path_buf(), key);
     Ok(key)
 }
 
 /// Unseals the key at `sealed_key_path`, sealing a fresh random one first if
-/// none exists yet — the one entry point [`crate::storage`] calls from its
-/// write path. See [`CREATE_LOCK`] for why first-time creation is
-/// serialized.
+/// none exists yet, or if the existing one is permanently stale — the one
+/// entry point [`crate::storage`] calls from its write path. See
+/// [`CREATE_LOCK`] for why first-time creation is serialized.
+///
+/// A `PolicyFailure` here (issue #160: boot measurements changed since this
+/// key was sealed) is treated the same as "no key yet" rather than a hard
+/// error: every embedding the stale key protected is already unrecoverable
+/// regardless (the exact old PCR digest can never recur), so there's
+/// nothing left to lose by resealing fresh under the *current* boot state —
+/// the alternative is getting stuck writing plaintext forever, since
+/// nothing else would ever replace a sealed-but-broken file. Any other
+/// error (e.g. `tpm2-abrmd` momentarily down) is presumed transient and
+/// still propagated as-is, without touching the existing file.
 ///
 /// Blocking (real TPM I/O) — callers on an async runtime must wrap this in
 /// `tokio::task::spawn_blocking`.
@@ -238,12 +352,27 @@ pub fn load_or_create_key(
     sealed_key_path: &Path,
     is_root: bool,
 ) -> Result<[u8; 32], EmbeddingCipherError> {
-    let guard = CREATE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = CREATE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     if sealed_key_path.exists() {
-        drop(guard);
-        return load_key(sealed_key_path, is_root);
+        match load_key(sealed_key_path, is_root) {
+            Ok(key) => return Ok(key),
+            Err(EmbeddingCipherError::PolicyFailure) => {
+                warn!(
+                    "embedding_cipher: {} is permanently stale (boot measurements changed \
+                     since it was sealed) — resealing a fresh key under the current boot state",
+                    sealed_key_path.display()
+                );
+                key_cache()
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .remove(sealed_key_path);
+                std::fs::remove_file(sealed_key_path)?;
+            }
+            Err(e) => return Err(e),
+        }
     }
     create_and_seal_key(sealed_key_path, is_root)
+    // `guard` (still held) drops here, after the reseal completes.
 }
 
 /// `(user_id, face_id)` bound as AEAD associated data — a ciphertext file
@@ -319,6 +448,37 @@ pub fn decrypt_embedding(
 mod tests {
     use super::*;
 
+    /// No real TPM needed: `Tss2ResponseCode::from` is a pure response-code
+    /// decode, so a `POLICY_FAIL` response can be constructed directly and
+    /// fed through the same `From<tss_esapi::Error>` conversion the real
+    /// unseal path uses.
+    #[test]
+    fn policy_fail_response_is_classified_as_policy_failure() {
+        use tss_esapi::constants::tss::TPM2_RC_POLICY_FAIL;
+        use tss_esapi::constants::Tss2ResponseCode;
+
+        let err = tss_esapi::Error::Tss2Error(Tss2ResponseCode::from(TPM2_RC_POLICY_FAIL));
+        assert!(matches!(
+            EmbeddingCipherError::from(err),
+            EmbeddingCipherError::PolicyFailure
+        ));
+    }
+
+    /// A different TPM error (session memory exhausted, picked arbitrarily —
+    /// any non-`POLICY_FAIL` code works) must stay a generic, presumed-
+    /// transient `Tpm` error, not get misclassified as the permanent case.
+    #[test]
+    fn other_tpm_errors_are_not_classified_as_policy_failure() {
+        use tss_esapi::constants::tss::TPM2_RC_SESSION_MEMORY;
+        use tss_esapi::constants::Tss2ResponseCode;
+
+        let err = tss_esapi::Error::Tss2Error(Tss2ResponseCode::from(TPM2_RC_SESSION_MEMORY));
+        assert!(matches!(
+            EmbeddingCipherError::from(err),
+            EmbeddingCipherError::Tpm(_)
+        ));
+    }
+
     fn tpm_available_for_tests() -> bool {
         std::env::var("LINUX_HELLO_TPM_TCTI").is_ok()
     }
@@ -370,6 +530,58 @@ mod tests {
             load_key(&path, true),
             Err(EmbeddingCipherError::NoTpm)
         ));
+    }
+
+    #[test]
+    fn load_or_create_key_reseals_automatically_after_a_policy_failure() {
+        if !tpm_available_for_tests() {
+            eprintln!("skipping: set LINUX_HELLO_TPM_TCTI to run against a real/simulated TPM");
+            return;
+        }
+        let _guard = crate::secret_cache::ENV_VAR_GUARD.blocking_lock();
+        let dir = tempfile::tempdir().unwrap();
+        let key_path = dir.path().join("uid.tpm-sealed");
+
+        // Seal a key against a policy digest that live PCRs can never
+        // satisfy — simulates a key sealed under a boot state that's since
+        // changed (issue #160), without needing an actual reboot.
+        let mut ctx = open_context(true).unwrap();
+        let stale_key_bytes = tpm_seal::random_bytes::<32>().unwrap();
+        let bogus_pcr_digest = tss_esapi::structures::Digest::try_from(vec![0xAB; 32]).unwrap();
+        let selection = tpm_seal::pcr_selection_for(&tpm_seal::EMBEDDING_PCR_SLOTS).unwrap();
+        let policy_digest =
+            tpm_seal::trial_pcr_policy_digest(&mut ctx, bogus_pcr_digest, selection).unwrap();
+        let sensitive = SensitiveData::try_from(stale_key_bytes.to_vec()).unwrap();
+        let (public, private) = tpm_seal::seal_sensitive_data(
+            &mut ctx,
+            sensitive,
+            policy_digest,
+            tpm_seal::Parent::RootPersistent,
+        )
+        .unwrap();
+        tpm_seal::write_sealed_blob(&key_path, &public, &private).unwrap();
+
+        // Confirm it's genuinely broken the way a stale post-reboot key
+        // would be, and that a second attempt fails just as fast (the
+        // negative cache), not with another ~9s TPM round-trip.
+        assert!(matches!(
+            load_key(&key_path, true),
+            Err(EmbeddingCipherError::PolicyFailure)
+        ));
+        assert!(matches!(
+            load_key(&key_path, true),
+            Err(EmbeddingCipherError::PolicyFailure)
+        ));
+
+        // load_or_create_key must notice, reseal fresh under the CURRENT
+        // (real) PCR state, and hand back a working, different key — not
+        // propagate the failure or keep serving the stale one.
+        let fresh_key = load_or_create_key(&key_path, true).unwrap();
+        assert_ne!(fresh_key, stale_key_bytes);
+
+        // And the fresh key must actually be usable now.
+        let reloaded = load_key(&key_path, true).unwrap();
+        assert_eq!(reloaded, fresh_key);
     }
 
     #[test]

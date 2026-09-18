@@ -51,6 +51,18 @@ pub enum DaemonError {
     #[error("Storage failed: {0}")]
     StorageError(String),
 
+    /// Distinct from [`DaemonError::StorageError`]: the embedding key for
+    /// `user_id`/`face_id` failed with a TPM `POLICY_FAIL` (see
+    /// `embedding_cipher::EmbeddingCipherError::PolicyFailure`) — permanent,
+    /// not a transient read hiccup. Callers should log this loudly and point
+    /// at re-enrollment rather than treat it like any other storage error.
+    /// https://github.com/Aarklendoia/linux-hello/issues/160
+    #[error(
+        "embedding key for user {user_id} can no longer be decrypted (boot measurements \
+         changed since it was sealed) — face {face_id} must be re-enrolled"
+    )]
+    EmbeddingKeyPermanentlyInvalid { user_id: u32, face_id: String },
+
     #[error("D-Bus error: {0}")]
     DbusError(String),
 
@@ -603,6 +615,21 @@ pub async fn verify_with_storage(
     let stored_embeddings = storage
         .load_face_embeddings(request.user_id, faces.iter().map(|f| &f.face_id))
         .map_err(|e| DaemonError::StorageError(e.to_string()))?;
+
+    // `faces` (metadata) being non-empty doesn't guarantee any of them
+    // actually decrypted — e.g. a TPM policy failure (issue #160) can leave
+    // every embedding unreadable while the enrollment record itself still
+    // exists. Bail out here rather than running the full camera capture
+    // loop for the entire timeout window with nothing to compare a captured
+    // frame against — that can never succeed.
+    if stored_embeddings.is_empty() {
+        info!(
+            "No usable embeddings for user_id={} (enrolled but none decrypted) — skipping capture",
+            request.user_id
+        );
+        return Ok(VerifyResult::NoUsableEmbeddings);
+    }
+
     let stored_embeddings = Arc::new(stored_embeddings);
 
     // Camera stays engaged (no on/off blink) and keeps trying for the whole
@@ -1041,6 +1068,65 @@ mod tests {
             .unwrap();
 
         assert!(matches!(result, VerifyResult::NoFaceDetected));
+    }
+
+    #[tokio::test]
+    async fn test_verify_returns_no_usable_embeddings_fast_when_enrolled_but_embedding_file_is_missing(
+    ) {
+        // Reproduces issue #160's fast-path without needing a real TPM:
+        // .meta.json bookkeeping exists (the account IS enrolled) but the
+        // embedding file itself is gone — the same "enrolled, nothing
+        // decrypts" shape a TPM policy failure produces. verify_with_storage
+        // must skip the camera capture loop entirely rather than run it for
+        // the full timeout with nothing to compare a frame against.
+        let storage_dir = tempfile::TempDir::new().unwrap();
+        let (_cam_dir, camera) = test_camera(
+            FakeDetector::always_detects(default_face_region(640, 480)),
+            FakeExtractor::with_vector(vec![1.0, 0.0, 0.0], 0.9),
+        );
+        let daemon =
+            FaceAuthDaemon::new_for_test(test_config(storage_dir.path().to_path_buf()), camera)
+                .unwrap();
+        let uid = my_uid();
+
+        let response_json = daemon
+            .register_face(RegisterFaceRequest {
+                user_id: uid,
+                context: "test".to_string(),
+                timeout_ms: 1000,
+                num_samples: 1,
+            })
+            .await
+            .unwrap();
+        let response: dbus_interface::RegisterFaceResponse =
+            serde_json::from_str(&response_json).unwrap();
+
+        let user_dir = storage_dir.path().join("users").join(uid.to_string());
+        let enc = user_dir.join(format!("{}.embedding.enc", response.face_id));
+        let json = user_dir.join(format!("{}.embedding.json", response.face_id));
+        assert!(
+            enc.exists() || json.exists(),
+            "registration should have written an embedding file"
+        );
+        let _ = std::fs::remove_file(&enc);
+        let _ = std::fs::remove_file(&json);
+
+        let start = std::time::Instant::now();
+        let result = daemon
+            .verify(VerifyRequest {
+                user_id: uid,
+                context: "test".to_string(),
+                timeout_ms: 5000, // deliberately long — must NOT actually wait this long
+            })
+            .await
+            .unwrap();
+
+        assert!(matches!(result, VerifyResult::NoUsableEmbeddings));
+        assert!(
+            start.elapsed() < std::time::Duration::from_millis(500),
+            "must skip the camera capture loop, not run it for the full timeout: elapsed={:?}",
+            start.elapsed()
+        );
     }
 
     /// Chains score_frame -> matcher::match_with_liveness -> record_frame_result

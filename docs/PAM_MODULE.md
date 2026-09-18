@@ -208,7 +208,21 @@ Known limitations (accepted, not solved):
   This narrows the gap but isn't a perfect constant-time guarantee — a
   successful match can still return faster than a full failed capture
   attempt, which isn't itself sensitive information (a success only ever
-  tells the caller they *are* the enrolled user).
+  tells the caller they *are* the enrolled user). One deliberate further
+  exception: `VerifyResult::NoUsableEmbeddings` (the account is enrolled,
+  but a TPM policy failure or similar left nothing to compare against — see
+  [issue #160](https://github.com/Aarklendoia/linux-hello/issues/160)) skips
+  both the camera capture loop *and* the floor, returning near-instantly
+  instead of making the user wait out the full `timeout_ms` for an attempt
+  that provably cannot succeed. This does narrow the floor's guarantee
+  slightly (an outside observer could in principle tell "enrolled with a
+  currently-broken key" apart from "enrolled, camera genuinely tried") — the
+  same enrollment-status leak the floor otherwise closes, just conditioned
+  on one extra, non-attacker-actionable state. Judged an acceptable trade:
+  that state only ever makes an account *less* attractive to attack (face
+  auth cannot succeed there right now), never more, and it's a genuinely
+  annoying wait to impose on a user who has usually already typed their
+  password by the time the camera gives up.
 - Raw `/etc/passwd` parsing (no `getent`/NSS) won't resolve
   `systemd-homed`-only accounts, same as the automatic timer's limitation
   above.
@@ -400,12 +414,23 @@ re-run `cache-password`.
   the normal KWallet prompt until reboot — a safe degradation, not a hard
   failure, but a real one worth knowing about if auto-unlock seems to stop
   working after the first login of a session.
-- Face embeddings themselves are **not** encrypted at rest yet (still plain
-  JSON, protected only by Unix permissions) — a separate, harder problem
-  since embeddings are read by both the per-user `hello-daemon`
-  (unprivileged) and root `hello-daemon-system`, and a root-only TPM-sealed
-  key would break the per-user daemon's own enroll/verify/sudo/list
-  operations. Tracked separately from this feature.
+- Face embeddings are encrypted at rest with their own, separate TPM-sealed
+  key per principal (see `hello_daemon::embedding_cipher`'s module docs,
+  [issue #152](https://github.com/Aarklendoia/linux-hello/issues/152)) — a
+  different key and a narrower PCR policy than this section's password
+  cache, since an embedding-key unseal failure has no cheap recovery (a
+  password can just be re-typed and re-cached; an unreadable embedding must
+  be re-enrolled in person). **Known fragility**: that key is sealed to
+  boot-integrity PCRs, so an initrd/GRUB/kernel change that lands across a
+  reboot permanently invalidates every enrolled face with no recovery but
+  re-enrollment — tracked in
+  [issue #160](https://github.com/Aarklendoia/linux-hello/issues/160).
+  `linux-hello-pam-autoconfigure` (root's periodic timer) logs a best-effort
+  warning when `/var/run/reboot-required` appears while a face is enrolled,
+  and a `POLICY_FAIL` unseal now logs loudly with the re-enroll command
+  rather than silently dropping the face — it doesn't prevent the breakage,
+  just makes it discoverable instead of a silent "face login stopped
+  working".
 
 ## PAM Configuration
 

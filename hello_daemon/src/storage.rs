@@ -21,7 +21,7 @@ use crate::{embedding_cipher, DaemonError, FaceRecord};
 use hello_face_core::Embedding;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 
 /// Restrict a directory to owner-only access (`0700`).
 ///
@@ -33,6 +33,28 @@ use tracing::{debug, info, warn};
 fn harden_dir(path: &Path) -> Result<(), DaemonError> {
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))
         .map_err(|e| DaemonError::StorageError(format!("chmod 700 on {}: {}", path.display(), e)))
+}
+
+/// Maps an [`embedding_cipher::EmbeddingCipherError`] to the right
+/// `DaemonError` variant — a `PolicyFailure` becomes the dedicated
+/// [`DaemonError::EmbeddingKeyPermanentlyInvalid`] (permanent, needs
+/// re-enrollment) rather than being folded into the generic
+/// [`DaemonError::StorageError`] every other, transient failure here uses.
+/// See https://github.com/Aarklendoia/linux-hello/issues/160.
+fn embedding_key_error(
+    user_id: u32,
+    face_id: &str,
+    e: embedding_cipher::EmbeddingCipherError,
+) -> DaemonError {
+    match e {
+        embedding_cipher::EmbeddingCipherError::PolicyFailure => {
+            DaemonError::EmbeddingKeyPermanentlyInvalid {
+                user_id,
+                face_id: face_id.to_string(),
+            }
+        }
+        e => DaemonError::StorageError(format!("embedding key: {}", e)),
+    }
 }
 
 /// Which independently-sealed copy of embedding data a [`FaceStorage`]
@@ -335,6 +357,11 @@ impl FaceStorage {
                 Ok(embedding) => {
                     out.insert(face_id.to_string(), embedding);
                 }
+                Err(e @ DaemonError::EmbeddingKeyPermanentlyInvalid { .. }) => error!(
+                    "load_face_embeddings: {} — re-enroll with `linux-hello enroll {}` \
+                     to restore face login for this user",
+                    e, user_id
+                ),
                 Err(e) => warn!(
                     "load_face_embeddings: skipping user_id={} face_id={}: {}",
                     user_id, face_id, e
@@ -357,9 +384,7 @@ impl FaceStorage {
                 let key = match cached_key {
                     Some(k) => *k,
                     None => embedding_cipher::load_key(&root_embedding_key_path(uid), true)
-                        .map_err(|e| {
-                            DaemonError::StorageError(format!("root embedding key: {}", e))
-                        })?,
+                        .map_err(|e| embedding_key_error(uid, face_id, e))?,
                 };
                 let path = face_path(&root_embeddings_dir(uid), face_id, ".embedding.enc")?;
                 let ciphertext = std::fs::read(&path).map_err(|e| {
@@ -398,9 +423,8 @@ impl FaceStorage {
                 Some(k) => *k,
                 None => {
                     let key_path = self.own_embedding_key_path()?;
-                    embedding_cipher::load_key(&key_path, is_root).map_err(|e| {
-                        DaemonError::StorageError(format!("embedding key unavailable: {}", e))
-                    })?
+                    embedding_cipher::load_key(&key_path, is_root)
+                        .map_err(|e| embedding_key_error(user_id, face_id, e))?
                 }
             };
             let embedding =
@@ -704,6 +728,32 @@ fn migrate_plaintext_embedding(
 mod tests {
     use super::*;
     use tempfile::TempDir;
+
+    #[test]
+    fn embedding_key_error_maps_policy_failure_to_its_own_daemon_error_variant() {
+        let err = embedding_key_error(
+            1000,
+            "face_1000_1",
+            embedding_cipher::EmbeddingCipherError::PolicyFailure,
+        );
+        match err {
+            DaemonError::EmbeddingKeyPermanentlyInvalid { user_id, face_id } => {
+                assert_eq!(user_id, 1000);
+                assert_eq!(face_id, "face_1000_1");
+            }
+            other => panic!("expected EmbeddingKeyPermanentlyInvalid, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn embedding_key_error_maps_other_errors_to_generic_storage_error() {
+        let err = embedding_key_error(
+            1000,
+            "face_1000_1",
+            embedding_cipher::EmbeddingCipherError::NoTpm,
+        );
+        assert!(matches!(err, DaemonError::StorageError(_)));
+    }
 
     #[test]
     fn test_storage_init() {
