@@ -208,7 +208,21 @@ Known limitations (accepted, not solved):
   This narrows the gap but isn't a perfect constant-time guarantee — a
   successful match can still return faster than a full failed capture
   attempt, which isn't itself sensitive information (a success only ever
-  tells the caller they *are* the enrolled user).
+  tells the caller they *are* the enrolled user). One deliberate further
+  exception: `VerifyResult::NoUsableEmbeddings` (the account is enrolled,
+  but a TPM policy failure or similar left nothing to compare against — see
+  [issue #160](https://github.com/Aarklendoia/linux-hello/issues/160)) skips
+  both the camera capture loop *and* the floor, returning near-instantly
+  instead of making the user wait out the full `timeout_ms` for an attempt
+  that provably cannot succeed. This does narrow the floor's guarantee
+  slightly (an outside observer could in principle tell "enrolled with a
+  currently-broken key" apart from "enrolled, camera genuinely tried") — the
+  same enrollment-status leak the floor otherwise closes, just conditioned
+  on one extra, non-attacker-actionable state. Judged an acceptable trade:
+  that state only ever makes an account *less* attractive to attack (face
+  auth cannot succeed there right now), never more, and it's a genuinely
+  annoying wait to impose on a user who has usually already typed their
+  password by the time the camera gives up.
 - Raw `/etc/passwd` parsing (no `getent`/NSS) won't resolve
   `systemd-homed`-only accounts, same as the automatic timer's limitation
   above.

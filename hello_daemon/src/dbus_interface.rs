@@ -84,6 +84,15 @@ pub enum VerifyResult {
     /// No enrolled models
     NoEnrollment,
 
+    /// Face(s) are enrolled (`FaceRecord`s exist), but none of their
+    /// embeddings could be loaded right now (e.g. a TPM key policy failure —
+    /// see https://github.com/Aarklendoia/linux-hello/issues/160). Distinct
+    /// from [`VerifyResult::NoEnrollment`]: unlike that case, there genuinely
+    /// is no way this attempt could succeed, so callers skip the camera
+    /// capture loop entirely instead of running it for the full timeout with
+    /// nothing to compare against.
+    NoUsableEmbeddings,
+
     /// User cancelled
     Cancelled,
 
@@ -109,6 +118,7 @@ impl fmt::Display for VerifyResult {
                 write!(f, "Not recognized: {:.2} < {:.2}", best_score, threshold)
             }
             VerifyResult::NoEnrollment => write!(f, "No enrollment"),
+            VerifyResult::NoUsableEmbeddings => write!(f, "No usable face data"),
             VerifyResult::Cancelled => write!(f, "Cancelled"),
             VerifyResult::Error { message } => write!(f, "Error: {}", message),
         }

@@ -159,6 +159,9 @@ fn verify_outcome_to_response(
             similarity_score,
             cached_authtok: None,
         },
+        Ok(Ok(VerifyResult::NoUsableEmbeddings)) => PamHelperResponse::Failure {
+            reason: "No usable face data".to_string(),
+        },
         Ok(Ok(_)) => PamHelperResponse::Failure {
             reason: "Face not recognized".to_string(),
         },
@@ -169,6 +172,27 @@ fn verify_outcome_to_response(
             reason: "Timeout".to_string(),
         },
     }
+}
+
+/// Whether [`respond_with_floor`] should pad this outcome up to the caller's
+/// `timeout_ms` — `false` only for [`VerifyResult::NoUsableEmbeddings`].
+///
+/// Every other non-`Success` outcome keeps the existing floor (see
+/// `respond_with_floor`'s own doc: it closes a timing side-channel that lets
+/// someone at the greeter infer *whether an account has face login enabled
+/// at all*). `NoUsableEmbeddings` doesn't fit that threat: the account is
+/// already, unambiguously enrolled (its `.meta.json` exists) — a fast
+/// response here doesn't reveal enrollment status, only that this
+/// particular attempt had nothing to compare against (a TPM hiccup or the
+/// issue #160 fragility), which is not attacker-actionable information (it
+/// only makes a spoofing attempt *less* promising, never more). Skipping the
+/// floor here is what actually shortens the wait a user sees after typing
+/// their password — the floor logic alone would otherwise sleep out the
+/// difference regardless of how fast `verify_with_storage` itself returned.
+fn should_skip_floor(
+    result: &Result<Result<VerifyResult, crate::DaemonError>, tokio::time::error::Elapsed>,
+) -> bool {
+    matches!(result, Ok(Ok(VerifyResult::NoUsableEmbeddings)))
 }
 
 /// Process an incoming PAM connection
@@ -361,7 +385,11 @@ pub async fn start_system_pam_helper(
 }
 
 /// Resolve the `PamHelperResponse` for a system-listener request: unknown
-/// user, no enrollment, or an actual camera capture + match attempt.
+/// user, no enrollment, or an actual camera capture + match attempt. The
+/// returned `bool` is whether [`respond_with_floor`] should still pad this
+/// response up to `req.timeout_ms` — `true` for every branch except a
+/// [`VerifyResult::NoUsableEmbeddings`] outcome (see
+/// [`should_skip_floor`]'s doc for why that one's exempt).
 ///
 /// Split out from [`handle_system_pam_request`] so the branch that fires
 /// near-instantly (no home dir, no enrollment) can be exercised directly in
@@ -370,23 +398,29 @@ async fn compute_verify_response(
     camera: &crate::camera::CameraManager,
     matcher: Arc<crate::matcher::FaceMatcher>,
     req: &PamHelperRequest,
-) -> PamHelperResponse {
+) -> (PamHelperResponse, bool) {
     match resolve_home_dir(req.user_id) {
         None => {
             debug!(
                 "PAM system helper: no home directory for uid={}",
                 req.user_id
             );
-            PamHelperResponse::Failure {
-                reason: "Unknown user".to_string(),
-            }
+            (
+                PamHelperResponse::Failure {
+                    reason: "Unknown user".to_string(),
+                },
+                true,
+            )
         }
         Some(home) => {
             let base_path = home.join(".local/share/linux-hello");
             match FaceStorage::open_read_only_for_system_verify(&base_path, req.user_id) {
-                Ok(None) => PamHelperResponse::Failure {
-                    reason: "No enrollment".to_string(),
-                },
+                Ok(None) => (
+                    PamHelperResponse::Failure {
+                        reason: "No enrollment".to_string(),
+                    },
+                    true,
+                ),
                 Ok(Some(storage)) => {
                     let verify_req = VerifyRequest {
                         user_id: req.user_id,
@@ -399,6 +433,8 @@ async fn compute_verify_response(
                         verify_with_storage(&storage, camera, matcher, &verify_req),
                     )
                     .await;
+
+                    let apply_floor = !should_skip_floor(&result);
 
                     // Only ever attempt to release a cached session password for
                     // the SDDM login-screen context (the only context that runs
@@ -438,18 +474,22 @@ async fn compute_verify_response(
                             }
                         }
                     }
-                    response
+                    (response, apply_floor)
                 }
-                Err(e) => PamHelperResponse::Failure {
-                    reason: e.to_string(),
-                },
+                Err(e) => (
+                    PamHelperResponse::Failure {
+                        reason: e.to_string(),
+                    },
+                    true,
+                ),
             }
         }
     }
 }
 
 /// Pad a non-`Success` response so it never returns before `req.timeout_ms`
-/// has elapsed since `start`.
+/// has elapsed since `start` — unless `apply_floor` is `false` (see
+/// [`should_skip_floor`]).
 ///
 /// Mitigates the timing side-channel documented in
 /// docs/PAM_MODULE.md#pam-configuration: at the SDDM greeter, "unknown
@@ -466,8 +506,9 @@ async fn respond_with_floor(
     start: std::time::Instant,
     req: &PamHelperRequest,
     response: PamHelperResponse,
+    apply_floor: bool,
 ) -> PamHelperResponse {
-    if !matches!(response, PamHelperResponse::Success { .. }) {
+    if apply_floor && !matches!(response, PamHelperResponse::Success { .. }) {
         let floor = std::time::Duration::from_millis(req.timeout_ms);
         let elapsed = start.elapsed();
         if elapsed < floor {
@@ -513,8 +554,8 @@ async fn handle_system_pam_request(
     debug!("PAM system helper received: {}", request_json);
     let req: PamHelperRequest = serde_json::from_str(&request_json)?;
 
-    let response = compute_verify_response(&camera, matcher, &req).await;
-    let response = respond_with_floor(start, &req, response).await;
+    let (response, apply_floor) = compute_verify_response(&camera, matcher, &req).await;
+    let response = respond_with_floor(start, &req, response, apply_floor).await;
 
     let response_json = serde_json::to_string(&response)?;
     stream.write_all(response_json.as_bytes()).await?;
@@ -991,12 +1032,13 @@ mod tests {
         let matcher = Arc::new(crate::matcher::FaceMatcher::new());
         let req = unknown_user_req(5000);
 
-        let response = compute_verify_response(&camera, matcher, &req).await;
+        let (response, apply_floor) = compute_verify_response(&camera, matcher, &req).await;
 
         assert!(matches!(
             response,
             PamHelperResponse::Failure { reason } if reason == "Unknown user"
         ));
+        assert!(apply_floor, "the existing unknown-user floor must be kept");
     }
 
     /// Regression test for the timing side-channel described in
@@ -1011,8 +1053,8 @@ mod tests {
         let req = unknown_user_req(150);
 
         let start = std::time::Instant::now();
-        let response = compute_verify_response(&camera, matcher, &req).await;
-        let response = respond_with_floor(start, &req, response).await;
+        let (response, apply_floor) = compute_verify_response(&camera, matcher, &req).await;
+        let response = respond_with_floor(start, &req, response, apply_floor).await;
 
         assert!(matches!(response, PamHelperResponse::Failure { .. }));
         assert!(
@@ -1035,6 +1077,7 @@ mod tests {
                 similarity_score: 0.9,
                 cached_authtok: None,
             },
+            true,
         )
         .await;
 
@@ -1060,6 +1103,7 @@ mod tests {
             PamHelperResponse::Failure {
                 reason: "Timeout".to_string(),
             },
+            true,
         )
         .await;
 
@@ -1067,6 +1111,31 @@ mod tests {
             before.elapsed() < std::time::Duration::from_millis(100),
             "must not add extra delay once the floor has already elapsed"
         );
+    }
+
+    #[tokio::test]
+    async fn should_skip_floor_is_true_only_for_no_usable_embeddings() {
+        // The only way to construct a real `Elapsed` is to let a timeout
+        // actually fire.
+        let elapsed_err = tokio::time::timeout(std::time::Duration::from_millis(1), async {
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        })
+        .await
+        .unwrap_err();
+
+        assert!(should_skip_floor(&Ok(Ok(VerifyResult::NoUsableEmbeddings))));
+
+        assert!(!should_skip_floor(&Ok(Ok(VerifyResult::NoEnrollment))));
+        assert!(!should_skip_floor(&Ok(Ok(VerifyResult::NoFaceDetected))));
+        assert!(!should_skip_floor(&Ok(Ok(VerifyResult::Success {
+            face_id: "f".to_string(),
+            similarity_score: 0.9,
+            used_ir_liveness: true,
+        }))));
+        assert!(!should_skip_floor(&Ok(Err(
+            crate::DaemonError::StorageError("x".to_string())
+        ))));
+        assert!(!should_skip_floor(&Err(elapsed_err)));
     }
 
     fn my_uid() -> u32 {
