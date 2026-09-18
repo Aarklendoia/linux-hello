@@ -178,6 +178,24 @@ override_dh_install:
 	mkdir -p $(CURDIR)/debian/linux-hello-gui/usr/share/icons/hicolor/scalable/apps
 	cp $(CURDIR)/linux_hello_config/qml/icons/app-icon.svg $(CURDIR)/debian/linux-hello-gui/usr/share/icons/hicolor/scalable/apps/linux-hello.svg
 
+override_dh_installsystemd:
+	# hello-daemon-system.service (the root-owned, always-on SDDM listener)
+	# must stay opt-in forever — only install-pam.sh --enable-sddm ever
+	# enables/starts it, never a plain package install (see
+	# debian/libpam-linux-hello.postinst's own comment on this, including
+	# why it deliberately never contains a literal #DEBHELPER# token).
+	# Until now that safety depended entirely on that token staying absent;
+	# dh_installsystemd would otherwise happily generate enable+start logic
+	# for it like any other unit. Scoping --no-enable --no-start to just
+	# this one unit makes the exclusion explicit at the build-tool level,
+	# so it survives even if a future edit adds a real token back — the
+	# same risk class as #158, just inverted. The package's other two
+	# units (which should auto-enable/start normally) and every other
+	# package's units are unaffected.
+	dh_installsystemd -plibpam-linux-hello --no-enable --no-start --name=hello-daemon-system
+	dh_installsystemd -plibpam-linux-hello linux-hello-pam-autoconfigure.service linux-hello-pam-autoconfigure.timer
+	dh_installsystemd --remaining-packages
+
 override_dh_missing:
 	dh_missing --list-missing
 
