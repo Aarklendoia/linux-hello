@@ -132,10 +132,20 @@ async fn main() -> anyhow::Result<()> {
         info!("✓ Screenlock control server active");
     }
 
-    // Unlike the other three above, a failed MJPEG bind aborts startup
-    // entirely (matches this function's original, pre-parallelization
-    // behavior: `start_mjpeg_server().await?`).
-    mjpeg_result?;
+    if let Err(e) = mjpeg_result {
+        warn!(
+            "MJPEG preview server not started: {} (camera preview in the GUI unavailable — \
+             this is a fixed, non-isolated loopback port, so two concurrent per-user daemons \
+             on the same machine, or a local port squat, would otherwise take down the whole \
+             daemon over a GUI convenience feature)",
+            e
+        );
+    } else {
+        info!(
+            "✓ MJPEG preview server: http://127.0.0.1:{}",
+            hello_daemon::preview::MJPEG_PORT
+        );
+    }
 
     // Register on D-Bus
     info!("Registering on D-Bus...");
