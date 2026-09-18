@@ -141,7 +141,10 @@ async fn main() -> anyhow::Result<()> {
             e
         );
     } else {
-        info!("✓ MJPEG preview server: http://127.0.0.1:{}", hello_daemon::preview::MJPEG_PORT);
+        info!(
+            "✓ MJPEG preview server: http://127.0.0.1:{}",
+            hello_daemon::preview::MJPEG_PORT
+        );
     }
 
     // Register on D-Bus
