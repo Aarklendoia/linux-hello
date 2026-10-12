@@ -19,6 +19,13 @@ on:
 permissions:
   contents: write
 
+# A new push to a PR supersedes its running build (over an hour of runner
+# time otherwise wasted). Tag builds are never cancelled: each tag is its own
+# group.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   build-arch:
     runs-on: ubuntu-latest
