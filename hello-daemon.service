@@ -2,6 +2,10 @@
 Description=Linux Hello Face Authentication Daemon
 Documentation=file:///usr/share/doc/linux-hello/README.md
 After=dbus.service
+# Stop retrying if the daemon crashes 5 times in 60s (avoids an infinite loop).
+# The PAM module falls back to the password, so security is still ensured.
+StartLimitIntervalSec=60s
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -9,10 +13,6 @@ ExecStart=/usr/bin/hello-daemon
 Environment=ORT_DYLIB_PATH=/usr/lib/x86_64-linux-gnu/libonnxruntime.so.1.23
 Restart=on-failure
 RestartSec=2s
-# Stop retrying if the daemon crashes 5 times in 60s (avoids an infinite loop).
-# The PAM module falls back to the password, so security is still ensured.
-StartLimitIntervalSec=60s
-StartLimitBurst=5
 
 # Security settings
 ProtectSystem=strict
