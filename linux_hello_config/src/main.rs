@@ -100,7 +100,8 @@ fn main() {
     // isn't readable from QML, but qml6 forwards anything after `--` into
     // Qt.application.arguments, which is. Must stay the last argument, since
     // the QML side reads it by position (the last element).
-    let mut cmd = Command::new("qml6");
+    let qml_runtime = find_qml_runtime().unwrap_or_else(|| PathBuf::from("qml6"));
+    let mut cmd = Command::new(&qml_runtime);
     cmd.arg("-name")
         .arg("linux-hello")
         .arg(&qml_path)
@@ -139,10 +140,48 @@ fn main() {
             let _ = child.wait();
         }
         Err(e) => {
-            eprintln!("❌ Error while launching: {}", e);
+            eprintln!("❌ Error while launching {}: {}", qml_runtime.display(), e);
             std::process::exit(1);
         }
     }
+}
+
+/// Qt's QML runtime: `qml6` on most distributions, `qml-qt6` on Fedora
+/// (in qt6-qtdeclarative-devel), else `qml` in Qt's own bin directory
+/// (#196). Same lookup as kio-protondrive's wizard.
+fn find_qml_runtime() -> Option<PathBuf> {
+    choose_qml_runtime(which_path, || {
+        let output = Command::new("qtpaths6")
+            .args(["--query", "QT_INSTALL_BINS"])
+            .output()
+            .ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        Some(String::from_utf8(output.stdout).ok()?.trim().to_string())
+    })
+}
+
+/// [`find_qml_runtime`]'s lookup order, with `$PATH` and `qtpaths6` passed
+/// in so tests don't have to touch the process-wide environment.
+fn choose_qml_runtime(
+    on_path: impl Fn(&str) -> Option<PathBuf>,
+    qt_bins: impl FnOnce() -> Option<String>,
+) -> Option<PathBuf> {
+    ["qml6", "qml-qt6"]
+        .into_iter()
+        .find_map(on_path)
+        .or_else(|| {
+            let qml = PathBuf::from(qt_bins()?).join("qml");
+            qml.is_file().then_some(qml)
+        })
+}
+
+/// First `$PATH` entry holding a file named `bin`, like `which`.
+fn which_path(bin: &str) -> Option<PathBuf> {
+    env::split_paths(&env::var_os("PATH")?)
+        .map(|dir| dir.join(bin))
+        .find(|candidate| candidate.is_file())
 }
 
 /// Overrides the `_KDE_NET_WM_DESKTOP_FILE` X property on our just-launched
@@ -1004,6 +1043,39 @@ fn handle_ctrl_connection(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn qml_runtime_prefers_qml6_then_qml_qt6() {
+        let both = |bin: &str| Some(PathBuf::from("/usr/bin").join(bin));
+        assert_eq!(
+            choose_qml_runtime(both, || None),
+            Some(PathBuf::from("/usr/bin/qml6"))
+        );
+
+        let fedora = |bin: &str| (bin == "qml-qt6").then(|| PathBuf::from("/usr/bin/qml-qt6"));
+        assert_eq!(
+            choose_qml_runtime(fedora, || panic!("qtpaths6 shouldn't be needed")),
+            Some(PathBuf::from("/usr/bin/qml-qt6"))
+        );
+    }
+
+    #[test]
+    fn qml_runtime_falls_back_to_qts_bin_directory() {
+        let dir = std::env::temp_dir().join(format!(
+            "linux-hello-qml-runtime-test-{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("qml"), b"").unwrap();
+        let bins = dir.to_string_lossy().into_owned();
+
+        assert_eq!(
+            choose_qml_runtime(|_| None, || Some(bins)),
+            Some(dir.join("qml"))
+        );
+        assert_eq!(choose_qml_runtime(|_| None, || None), None);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 
     #[test]
     fn run_command_returns_stdout_on_success() {
