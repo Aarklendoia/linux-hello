@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.5](https://github.com/Aarklendoia/linux-hello/compare/v1.8.4...v1.8.5) (2026-10-12)
+
+
+### Bug Fixes
+
+* **build:** re-run hello_face_core's build.rs when the models are missing ([#189](https://github.com/Aarklendoia/linux-hello/issues/189)) ([e8502dd](https://github.com/Aarklendoia/linux-hello/commit/e8502dd8f9a00233d269fa72ca57f8c1cbf9272b))
+
 ## [1.8.4](https://github.com/Aarklendoia/linux-hello/compare/v1.8.3...v1.8.4) (2026-10-12)
 
 
