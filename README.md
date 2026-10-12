@@ -102,6 +102,16 @@ Also available via a [Launchpad PPA](https://launchpad.net/~aarklendoia-edtech/+
 
 See [docs/DEBIAN_PACKAGE.md](docs/DEBIAN_PACKAGE.md) for build instructions and package details.
 
+## Installing on Arch Linux
+
+Each [GitHub release](https://github.com/Aarklendoia/linux-hello/releases) carries Arch packages built from [packaging/aur/PKGBUILD](packaging/aur/PKGBUILD), with the same split as the Debian ones (`linux-hello-pam` instead of `libpam-linux-hello`):
+
+```bash
+sudo pacman -U linux-hello-*.pkg.tar.zst
+```
+
+Unlike on Debian/Ubuntu, **PAM isn't configured automatically** and the GUI's login-screen toggle is unavailable. Follow [Manual setup on other distributions](docs/PAM_MODULE.md#manual-setup-on-other-distributions) after enrolling a face. The KDE lock-screen status indicator isn't available either (Plasma on Arch has no QML file to replace, see #111), but unlocking the screen with your face still works.
+
 ## Building from source
 
 Requires Rust ≥ 1.93 — check with `rustc --version`; if your distro's package is older (Ubuntu's `rustc` package can lag), install a current toolchain with [rustup](https://rustup.rs/) instead.

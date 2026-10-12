@@ -1,0 +1,16 @@
+# Nothing is enabled here: PAM setup is manual on Arch (see the PKGBUILD's
+# header comment), so this only tells the user how.
+post_install() {
+  cat <<'EOF'
+==> linux-hello-pam: PAM is NOT configured automatically on Arch.
+    Enroll a face first (linux_hello_config, or `linux-hello enroll`), then
+    add this line to /etc/pam.d/sudo, BEFORE its first `auth` line:
+
+      auth  sufficient  pam_linux_hello.so context=sudo confirm
+
+    Keep a root shell open while editing PAM files, and test with
+    `sudo -k; sudo true` before closing it.
+    polkit and the SDDM login screen: see "Manual setup on other
+    distributions" in /usr/share/doc/linux-hello/PAM_MODULE.md
+EOF
+}

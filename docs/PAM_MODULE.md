@@ -92,6 +92,55 @@ marker and re-enables automatic activation. `install-pam.sh --status` shows
 both the current PAM configuration state and whether automatic activation is
 enabled or opted out.
 
+## Manual setup on other distributions
+
+Automatic activation, `install-pam.sh` and the GUI's login-screen toggle only
+ship in the Debian/Ubuntu packages: they rely on Debian's `@include
+common-auth` PAM layout and on `dpkg-divert`. The Arch packages ship the
+module without them, so PAM is set up by hand there — after enrolling at
+least one face (GUI, or `linux-hello enroll`). The module falls back to the
+password for any user with no enrolled face, so these lines are safe on
+multi-user machines.
+
+**Keep a root shell open while editing `/etc/pam.d/`**, and test a fresh
+authentication before closing it: a broken PAM file can lock you out of
+`sudo`.
+
+**sudo** (and optionally `su`, `su-l`): add this line to `/etc/pam.d/sudo`,
+before its first `auth` line, then test with `sudo -k; sudo true`:
+
+```text
+auth       sufficient   pam_linux_hello.so context=sudo confirm
+```
+
+**polkit**: same in `/etc/pam.d/polkit-1` (skip it if the file doesn't
+exist), without `confirm` — polkit already shows its own dialog:
+
+```text
+auth       sufficient   pam_linux_hello.so context=polkit
+```
+
+**SDDM login screen** (opt-in, see [SDDM (Login Screen)](#sddm-login-screen)
+for what it starts): add this block to `/etc/pam.d/sddm`, before its first
+`auth` line, then run `sudo systemctl enable --now hello-daemon-system.service`:
+
+```text
+auth       [success=ok default=3]   pam_linux_hello.so context=sddm
+auth       optional                  pam_kwallet5.so use_first_pass
+auth       optional                  pam_gnome_keyring.so use_first_pass
+auth       sufficient                pam_permit.so
+```
+
+`default=3` skips exactly the three lines below it, so keep the block
+together and use plain `optional`, not `-auth`. On a face match, the keyring
+lines unlock KWallet/GNOME Keyring and `pam_permit.so` ends the auth phase.
+Otherwise the existing password stack runs unchanged. The greeter status
+indicator isn't installed (no `dpkg-divert`); its QML is
+[qml/sddm/Login.qml](../qml/sddm/Login.qml) in this repository.
+
+**Removing**: delete the lines you added, and
+`sudo systemctl disable --now hello-daemon-system.service` if you enabled it.
+
 ## SDDM (Login Screen)
 
 Unlike sudo/screenlock, the login screen has no active session yet for the
