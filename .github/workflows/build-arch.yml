@@ -1,0 +1,98 @@
+name: Build Arch Packages
+
+# Builds packaging/aur/PKGBUILD in an Arch container and attaches the
+# resulting packages to the GitHub release on tags (same approach as
+# kio-protondrive's build-arch.yml). On PRs it only runs when the PKGBUILD or
+# this workflow changes — release-please's PR included, since it bumps
+# pkgver= — and builds the PR's own tree (see "Build packages").
+on:
+  push:
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'packaging/aur/**'
+      - '.github/workflows/build-arch.yml'
+  workflow_dispatch:
+
+# The release step needs to create/update the GitHub release.
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+
+    steps:
+      - name: Install base tooling
+        # git for actions/checkout; sudo so `makepkg -s` can install the
+        # makedepends as the unprivileged builder below.
+        run: pacman -Syu --noconfirm --needed base-devel git namcap sudo
+
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Build packages
+        # makepkg refuses to run as root, which is what the container runs
+        # as. Runs check() too (cargo test).
+        #
+        # Builds the checked-out tree, not the vX.Y.Z tarball the PKGBUILD
+        # names: an archive of it is put where makepkg looks first, under
+        # that tarball's name, so it's used instead of downloaded. On
+        # release-please's PR the tag doesn't exist yet (404), and on other
+        # PRs this tests the PR's own code. On a tag push it's the same tree
+        # the tarball is made from.
+        run: |
+          useradd -m builder
+          echo 'builder ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/builder
+          cp -r packaging/aur /home/builder/work
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          pkgver="$(bash -c 'source packaging/aur/PKGBUILD && echo "$pkgver"')"
+          git archive --format=tar.gz --prefix="linux-hello-$pkgver/" \
+            -o "/home/builder/work/linux-hello-$pkgver.tar.gz" HEAD
+          chown -R builder:builder /home/builder/work
+          su builder -c 'cd /home/builder/work && makepkg -s --noconfirm'
+          cp /home/builder/work/*.pkg.tar.zst .
+
+      - name: Install and smoke-test the packages
+        # Installing catches dependency mistakes the build can't (a split
+        # package's depends are never installed by makepkg -s). The GUI
+        # check confirms qml6 and the QML the package installs are where
+        # linux_hello_config looks for them.
+        run: |
+          pacman -U --noconfirm $(ls linux-hello-*.pkg.tar.zst | grep -v -- '-debug-')
+          test -x /usr/lib/security/pam_linux_hello.so
+          test -f /usr/share/linux-hello/qml-modules/Linux/Hello/main.qml
+          command -v qml6
+          linux-hello --help > /dev/null
+
+      - name: Run namcap checks
+        # Informational, like build-debian.yml's lintian step.
+        run: |
+          namcap packaging/aur/PKGBUILD || true
+          namcap ./*.pkg.tar.zst || true
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: arch-packages
+          path: '*.pkg.tar.zst'
+          retention-days: 30
+
+      - name: Attach to release (on tag)
+        # The -debug package (symbols only) is left out on purpose.
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v3
+        with:
+          files: |
+            linux-hello-[0-9]*.pkg.tar.zst
+            linux-hello-daemon-*.pkg.tar.zst
+            linux-hello-models-*.pkg.tar.zst
+            linux-hello-pam-*.pkg.tar.zst
+            linux-hello-tools-*.pkg.tar.zst
+            linux-hello-gui-*.pkg.tar.zst
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
