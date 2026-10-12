@@ -50,7 +50,20 @@ jobs:
         # release-please's PR the tag doesn't exist yet (404), and on other
         # PRs this tests the PR's own code. On a tag push it's the same tree
         # the tarball is made from.
+        #
+        # PR builds validate the packaging, not the shipped binaries, so they
+        # skip what only matters for those: the release profile's fat LTO
+        # (~20 of the ~30 minutes, in the final links) and check() (the Tests
+        # workflow already runs the whole suite on every PR; the step below
+        # still installs and smoke-tests the packages). Tag builds — the ones
+        # attached to the release — keep both.
         run: |
+          makepkg_env=""
+          makepkg_flags=""
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            makepkg_env="CARGO_PROFILE_RELEASE_LTO=off CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16"
+            makepkg_flags="--nocheck"
+          fi
           useradd -m builder
           echo 'builder ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/builder
           cp -r packaging/aur /home/builder/work
@@ -59,7 +72,7 @@ jobs:
           git archive --format=tar.gz --prefix="linux-hello-$pkgver/" \
             -o "/home/builder/work/linux-hello-$pkgver.tar.gz" HEAD
           chown -R builder:builder /home/builder/work
-          su builder -c 'cd /home/builder/work && makepkg -s --noconfirm'
+          su builder -c "cd /home/builder/work && env $makepkg_env makepkg -s --noconfirm $makepkg_flags"
           cp /home/builder/work/*.pkg.tar.zst .
 
       - name: Install and smoke-test the packages
