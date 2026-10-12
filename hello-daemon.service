@@ -5,6 +5,12 @@ After=dbus.service
 
 [Service]
 Type=simple
+# A fresh user (nothing enrolled yet) has no ~/.local/share/linux-hello, and
+# ReadWritePaths= below fails the whole unit with 226/NAMESPACE when a listed
+# path doesn't exist — so the daemon never got to create it itself, and the
+# GUI couldn't enroll a first face. "+" runs this outside the sandbox
+# (ProtectHome=read-only would otherwise forbid the mkdir).
+ExecStartPre=+/usr/bin/mkdir -p -m 0700 %h/.local/share/linux-hello
 ExecStart=/usr/bin/hello-daemon
 Environment=ORT_DYLIB_PATH=/usr/lib/x86_64-linux-gnu/libonnxruntime.so.1.23
 Restart=on-failure
@@ -23,7 +29,7 @@ ProtectSystem=strict
 # ReadWritePaths grant work.
 ProtectHome=read-only
 NoNewPrivileges=true
-ReadWritePaths=/home/%u/.local/share/linux-hello %t /run/lock /run/hello-pam
+ReadWritePaths=%h/.local/share/linux-hello %t /run/lock /run/hello-pam
 
 # Additional sandboxing (see issue #179 for how each of these was checked
 # against this daemon's actual needs — camera capture, ONNX inference,
