@@ -143,6 +143,7 @@ fn main() {
         println!("cargo:warning=⚠ LINUX_HELLO_NO_MODEL_DOWNLOAD set, download skipped");
         println!("cargo:rustc-env=LINUX_HELLO_MODELS_DIR=/tmp/linux-hello-models-ci");
         println!("cargo:rerun-if-changed=build.rs");
+        println!("cargo:rerun-if-env-changed=LINUX_HELLO_NO_MODEL_DOWNLOAD");
         return;
     }
 
@@ -185,6 +186,16 @@ fn main() {
     // Expose the models path as a compile-time environment variable
     println!("cargo:rustc-env=LINUX_HELLO_MODELS_DIR={}", dir.display());
 
-    // Re-run if the models change
+    // Re-run if the models change or go missing. The models live outside
+    // target/, so a target/ restored from a CI cache (or a dev deleting
+    // ~/.local/share/linux-hello/models) would otherwise leave this script
+    // marked fresh while the files it produced are gone — cargo always
+    // re-runs a build script whose rerun-if-changed path doesn't exist
+    // (issue #188).
     println!("cargo:rerun-if-changed=build.rs");
+    for (filename, _) in MODELS {
+        println!("cargo:rerun-if-changed={}", dir.join(filename).display());
+    }
+    println!("cargo:rerun-if-env-changed=XDG_DATA_HOME");
+    println!("cargo:rerun-if-env-changed=LINUX_HELLO_NO_MODEL_DOWNLOAD");
 }
