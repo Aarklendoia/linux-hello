@@ -3,7 +3,9 @@
 post_install() {
   cat <<'EOF'
 ==> linux-hello-pam: PAM is NOT configured automatically on Arch.
-    Enroll a face first (linux_hello_config, or `linux-hello enroll`), then
+    Start the daemon for your user first:
+      systemctl --user enable --now hello-daemon.service
+    Then enroll a face (linux_hello_config, or `linux-hello enroll`) and
     add this line to /etc/pam.d/sudo, BEFORE its first `auth` line:
 
       auth  sufficient  pam_linux_hello.so context=sudo confirm

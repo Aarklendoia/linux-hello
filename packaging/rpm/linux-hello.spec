@@ -1,0 +1,258 @@
+#
+# spec file for linux-hello
+#
+# One spec for openSUSE Tumbleweed and Fedora (45+), built by
+# .github/workflows/publish-obs.yml and published through the Open Build
+# Service (#192). Same package split as debian/ and packaging/aur/.
+#
+# Builds are offline (OBS requires it): Source1 holds the vendored crates,
+# the cargo config pointing at them, Cargo.lock and the pinned ONNX models,
+# produced by packaging/rpm/make-sources.sh through the same
+# debian/scripts/prepare-offline-build.sh the PPA uses. Both sources have
+# fixed names: the OBS package's _service fetches them from the latest
+# GitHub release.
+#
+# Fedora 44 isn't supported: its onnxruntime 1.22 is older than the API
+# level `ort` is built for (23), and aborts inside onnxruntime when built
+# for 22 instead (see #192).
+#
+# PAM is not configured automatically, like on Arch: install-pam.sh,
+# pam-lib.sh and the autoconfigure timer assume Debian's `@include
+# common-auth` and dpkg-divert (#194). See docs/PAM_MODULE.md, "Manual setup
+# on other distributions".
+
+# The release profile has no debug info, so there'd be nothing to put in the
+# debuginfo/debugsource packages (Fedora fails the build on an empty one).
+%global debug_package %{nil}
+
+%if 0%{?suse_version}
+%global ort_pkg libonnxruntime1
+%global abrmd_pkg tpm2.0-abrmd
+%global dbus_pkg dbus-1
+%else
+%global ort_pkg onnxruntime
+%global abrmd_pkg tpm2-abrmd
+%global dbus_pkg dbus
+%endif
+
+Name:           linux-hello
+# x-release-please-start-version
+Version:        1.8.5
+# x-release-please-end
+Release:        0%{?dist}
+Summary:        Face authentication for Linux (metapackage)
+License:        GPL-3.0-or-later
+URL:            https://github.com/Aarklendoia/linux-hello
+Source0:        %{name}-source.tar.gz
+Source1:        %{name}-vendor.tar.xz
+
+BuildRequires:  cargo
+BuildRequires:  clang-devel
+BuildRequires:  gcc
+BuildRequires:  pam-devel
+BuildRequires:  rust >= 1.93
+BuildRequires:  systemd-rpm-macros
+BuildRequires:  pkgconfig(tss2-esys)
+BuildRequires:  pkgconfig(tss2-mu)
+BuildRequires:  pkgconfig(tss2-sys)
+BuildRequires:  pkgconfig(tss2-tctildr)
+# %%check loads the face detector through onnxruntime.
+BuildRequires:  %{ort_pkg}
+
+Requires:       %{name}-daemon = %{version}-%{release}
+Requires:       %{name}-pam = %{version}-%{release}
+Requires:       %{name}-tools = %{version}-%{release}
+
+%description
+Linux Hello provides facial recognition authentication (sudo, polkit,
+screen unlock, and optionally the SDDM login screen), with IR liveness
+detection and TPM-sealed face data. This metapackage installs the daemon,
+the PAM module and the command-line tools; the GUI is in linux-hello-gui.
+
+%package daemon
+Summary:        Face authentication for Linux - daemon
+# onnxruntime is loaded at runtime (dlopen), so it isn't picked up
+# automatically like the libraries the binaries link against.
+Requires:       %{ort_pkg}
+Requires:       %{name}-models = %{version}-%{release}
+Requires:       %{dbus_pkg}
+Requires:       polkit
+Requires:       systemd
+Recommends:     %{abrmd_pkg}
+
+%description daemon
+The per-user hello-daemon: camera capture, face detection and matching,
+the D-Bus API the CLI and GUI use, and screen unlock. Start it for your user
+with: systemctl --user enable --now hello-daemon.service
+
+%package models
+Summary:        ONNX models for Linux Hello face authentication
+BuildArch:      noarch
+
+%description models
+The SCRFD-500M face detector and ArcFace MobileNetV3 embedding models
+(InsightFace buffalo_sc pack).
+
+%package pam
+Summary:        PAM module for Linux Hello
+Requires:       %{ort_pkg}
+Requires:       %{name}-daemon = %{version}-%{release}
+Requires:       %{name}-tools = %{version}-%{release}
+Requires:       pam
+
+%description pam
+pam_linux_hello.so and hello-daemon-system, the root listener used for the
+SDDM login screen. PAM isn't configured automatically: see
+/usr/share/doc/linux-hello-daemon/PAM_MODULE.md, "Manual setup on other
+distributions".
+
+%package tools
+Summary:        Command-line tools for Linux Hello
+Requires:       %{name}-daemon = %{version}-%{release}
+
+%description tools
+The linux-hello CLI: enroll, verify, list and delete faces.
+
+%package gui
+Summary:        Configuration GUI for Linux Hello
+Requires:       %{name}-daemon = %{version}-%{release}
+Requires:       hicolor-icon-theme
+Requires:       polkit
+# The UI runs in Qt's own QML runtime (qml6, or qml-qt6 on Fedora, where
+# only the -devel package ships it), with the org.kde.desktop style.
+%if 0%{?suse_version}
+Requires:       kf6-kirigami-imports
+Requires:       qt6-declarative-tools
+%else
+Requires:       kf6-kirigami
+Requires:       qt6-qtdeclarative-devel
+%endif
+Requires:       kf6-qqc2-desktop-style
+
+%description gui
+Qt/Kirigami settings application: enroll and manage faces, camera preview,
+password caching for KWallet auto-unlock.
+
+%prep
+%autosetup -p1 -a1 -n %{name}-%{version}
+
+%build
+export CARGO_HOME="$PWD/.cargo-home"
+export CARGO_NET_OFFLINE=true
+# hello_face_core's build.rs finds the pre-fetched models here instead of
+# downloading them.
+export XDG_DATA_HOME="$PWD/debian/offline-models"
+# One final artifact per cargo call: the dependencies compile in parallel,
+# but the fat-LTO final links (5+ GB each) run one at a time — see the
+# PKGBUILD's build() for the numbers.
+for target in '--bin hello-daemon' '--bin hello-daemon-system' \
+              '--bin linux-hello' '--bin linux_hello_config' \
+              '--package pam_linux_hello --lib'; do
+  cargo build --release --offline $target
+done
+
+%install
+install -Dm755 target/release/hello-daemon %{buildroot}%{_bindir}/hello-daemon
+install -Dm755 target/release/hello-daemon-system %{buildroot}%{_bindir}/hello-daemon-system
+install -Dm755 target/release/linux-hello %{buildroot}%{_bindir}/linux-hello
+install -Dm755 target/release/linux_hello_config %{buildroot}%{_bindir}/linux_hello_config
+install -Dm755 target/release/libpam_linux_hello.so %{buildroot}%{_libdir}/security/pam_linux_hello.so
+
+# The units point ORT_DYLIB_PATH at Debian's multiarch path: use this
+# distro's soname symlink instead.
+install -Dm644 hello-daemon.service %{buildroot}%{_userunitdir}/hello-daemon.service
+install -Dm644 hello-daemon-system.service %{buildroot}%{_unitdir}/hello-daemon-system.service
+sed -i 's|^Environment=ORT_DYLIB_PATH=.*|Environment=ORT_DYLIB_PATH=%{_libdir}/libonnxruntime.so.1|' \
+  %{buildroot}%{_userunitdir}/hello-daemon.service \
+  %{buildroot}%{_unitdir}/hello-daemon-system.service
+
+install -Dm644 debian/polkit/com.linuxhello.manage-faces.policy \
+  %{buildroot}%{_datadir}/polkit-1/actions/com.linuxhello.manage-faces.policy
+# Lets an ordinary user's hello-daemon reach tpm2-abrmd (#152).
+install -Dm644 debian/dbus/linux-hello-tabrmd.conf \
+  %{buildroot}%{_datadir}/dbus-1/system.d/linux-hello-tabrmd.conf
+# Same entries as debian/rules (see it for the rationale).
+install -d %{buildroot}%{_tmpfilesdir}
+printf 'd /run/hello-pam 1777 root root -\nf /run/lock/linux-hello-camera.lock 0666 root root -\nf /run/lock/linux-hello-pam.lock 0600 root root -\nd /var/lib/linux-hello/secrets 0700 root root -\n' \
+  > %{buildroot}%{_tmpfilesdir}/linux-hello.conf
+install -Dm644 linux-hello.config.toml.example \
+  %{buildroot}%{_sysconfdir}/linux-hello/config.toml.example
+
+install -Dm644 debian/offline-models/linux-hello/models/det_500m.onnx \
+  %{buildroot}%{_datadir}/linux-hello/models/det_500m.onnx
+install -Dm644 debian/offline-models/linux-hello/models/w600k_mbf.onnx \
+  %{buildroot}%{_datadir}/linux-hello/models/w600k_mbf.onnx
+
+install -Dm644 linux-hello.desktop %{buildroot}%{_datadir}/applications/linux-hello.desktop
+install -Dm644 linux-hello.metainfo.xml %{buildroot}%{_datadir}/metainfo/linux-hello.metainfo.xml
+install -Dm644 linux_hello_config/qml/icons/app-icon.svg \
+  %{buildroot}%{_datadir}/icons/hicolor/scalable/apps/linux-hello.svg
+# Distro-neutral location linux_hello_config's find_qml_path() checks.
+install -d %{buildroot}%{_datadir}/linux-hello/qml-modules/Linux/Hello
+cp -r linux_hello_config/qml/* %{buildroot}%{_datadir}/linux-hello/qml-modules/Linux/Hello/
+
+%check
+export CARGO_HOME="$PWD/.cargo-home"
+export CARGO_NET_OFFLINE=true
+export XDG_DATA_HOME="$PWD/debian/offline-models"
+export ORT_DYLIB_PATH=%{_libdir}/libonnxruntime.so.1
+# The workspace's no-LTO `ci` profile, in its own target/ci/: tests don't
+# need the shipped binaries' fat LTO.
+cargo test --offline --workspace --profile ci
+
+%post daemon
+%tmpfiles_create linux-hello.conf
+%systemd_user_post hello-daemon.service
+
+%preun daemon
+%systemd_user_preun hello-daemon.service
+
+%post pam
+%systemd_post hello-daemon-system.service
+
+%preun pam
+%systemd_preun hello-daemon-system.service
+
+%postun pam
+%systemd_postun_with_restart hello-daemon-system.service
+
+%files
+%license LICENSE
+%doc README.md
+
+%files daemon
+%license LICENSE
+%doc README.md docs/QUICKSTART.md docs/INTEGRATION_GUIDE.md docs/PAM_MODULE.md
+%{_bindir}/hello-daemon
+%{_userunitdir}/hello-daemon.service
+%{_datadir}/polkit-1/actions/com.linuxhello.manage-faces.policy
+%{_datadir}/dbus-1/system.d/linux-hello-tabrmd.conf
+%{_tmpfilesdir}/linux-hello.conf
+%dir %{_sysconfdir}/linux-hello
+%config(noreplace) %{_sysconfdir}/linux-hello/config.toml.example
+
+%files models
+%license LICENSE
+%dir %{_datadir}/linux-hello
+%{_datadir}/linux-hello/models/
+
+%files pam
+%license LICENSE
+%{_libdir}/security/pam_linux_hello.so
+%{_bindir}/hello-daemon-system
+%{_unitdir}/hello-daemon-system.service
+
+%files tools
+%license LICENSE
+%{_bindir}/linux-hello
+
+%files gui
+%license LICENSE
+%{_bindir}/linux_hello_config
+%{_datadir}/applications/linux-hello.desktop
+%{_datadir}/metainfo/linux-hello.metainfo.xml
+%{_datadir}/icons/hicolor/scalable/apps/linux-hello.svg
+%dir %{_datadir}/linux-hello
+%{_datadir}/linux-hello/qml-modules/
+
+%changelog
