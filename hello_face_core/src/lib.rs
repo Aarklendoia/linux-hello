@@ -267,7 +267,9 @@ enum OrtDylibPath {
 /// package; the unversioned `libonnxruntime.so` candidates are the
 /// version-agnostic fallback other distros need — e.g. Arch's `onnxruntime-cpu`
 /// package ships `libonnxruntime.so.1.27.1` with a `libonnxruntime.so` symlink,
-/// which the `.1.23`-only candidates would never match.
+/// which the `.1.23`-only candidates would never match. Fedora and openSUSE
+/// instead ship `/usr/lib64/libonnxruntime.so.1` (the unversioned `.so` only
+/// comes with their `-devel` packages), hence the `lib64` candidates (#198).
 #[cfg(feature = "tract")]
 fn resolve_ort_dylib_path(current: Option<&str>, exists: impl Fn(&str) -> bool) -> OrtDylibPath {
     if current.is_some_and(&exists) {
@@ -280,6 +282,8 @@ fn resolve_ort_dylib_path(current: Option<&str>, exists: impl Fn(&str) -> bool) 
         "/usr/lib/x86_64-linux-gnu/libonnxruntime.so",
         "/usr/lib/aarch64-linux-gnu/libonnxruntime.so",
         "/usr/lib/libonnxruntime.so",
+        "/usr/lib64/libonnxruntime.so.1",
+        "/usr/lib64/libonnxruntime.so",
     ];
     match CANDIDATES.iter().find(|c| exists(c)) {
         Some(c) => OrtDylibPath::Fallback(c.to_string()),
@@ -484,6 +488,18 @@ mod tests {
         assert_eq!(
             result,
             OrtDylibPath::Fallback("/usr/lib/aarch64-linux-gnu/libonnxruntime.so.1.23".to_string())
+        );
+    }
+
+    #[cfg(feature = "tract")]
+    #[test]
+    fn test_resolve_ort_dylib_path_finds_the_lib64_runtime_on_fedora_and_opensuse() {
+        // Fedora's onnxruntime and openSUSE's libonnxruntime1 only ship the
+        // soname symlink in /usr/lib64 — no unversioned .so without -devel.
+        let result = resolve_ort_dylib_path(None, |p| p == "/usr/lib64/libonnxruntime.so.1");
+        assert_eq!(
+            result,
+            OrtDylibPath::Fallback("/usr/lib64/libonnxruntime.so.1".to_string())
         );
     }
 
