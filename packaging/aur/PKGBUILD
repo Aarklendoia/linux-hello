@@ -71,12 +71,19 @@ build() {
   # single codegen unit) for runtime performance. That makes the *final
   # link* of each binary pulling in hello_face_core (tract/onnx) do a
   # whole-dependency-graph LTO merge, which is extremely memory-hungry —
-  # observed: individual link jobs alone using 5.6+ GB RSS, and even two of
-  # them running concurrently (--jobs 2) was enough to exhaust 16GB and get
-  # SIGKILL'd by the OOM killer. Serializing entirely (--jobs 1) is the only
-  # reliable way to keep peak memory bounded regardless of how many cores
-  # the build machine has.
-  cargo build --release --workspace --offline --jobs 1
+  # observed: individual link jobs alone using 5.6+ GB RSS, and two of them
+  # running concurrently was enough to exhaust 16GB and get SIGKILL'd by the
+  # OOM killer. Only those final links need serializing, not the ~550
+  # dependency crates (`--jobs 1` used to serialize everything: 26 min), so
+  # build one final artifact per cargo invocation: the first compiles the
+  # dependencies in parallel, and each does exactly one LTO link.
+  local target
+  for target in '--bin hello-daemon' '--bin hello-daemon-system' \
+                '--bin linux-hello' '--bin linux_hello_config' \
+                '--package pam_linux_hello --lib'; do
+    # shellcheck disable=SC2086 # $target is deliberately word-split
+    cargo build --release --offline $target
+  done
 }
 
 check() {
@@ -86,9 +93,12 @@ check() {
   # without it, ort's own lookup can hang indefinitely instead of failing
   # fast (see hello_face_core::ensure_ort_dylib_path's doc comment).
   export ORT_DYLIB_PATH=/usr/lib/libonnxruntime.so
-  # See build()'s comment: same memory-per-job constraint applies to test
-  # binaries (also built with the release profile).
-  cargo test --release --workspace --offline --jobs 1
+  # The workspace's `ci` profile (no LTO, 16 codegen units — what the Tests
+  # workflow runs) instead of `--release`: tests don't need the shipped
+  # binaries' fat LTO, which made this step rebuild and LTO-link every test
+  # binary one at a time (40 min). It builds into target/ci/, so it can't
+  # touch the target/release/ binaries package() installs.
+  cargo test --profile ci --workspace --offline
 }
 
 package_linux-hello() {
