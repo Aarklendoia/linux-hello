@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.8.4](https://github.com/Aarklendoia/linux-hello/compare/v1.8.3...v1.8.4) (2026-10-12)
+
+
+### Bug Fixes
+
+* **daemon:** create the data dir before starting so a new user's daemon can start ([#185](https://github.com/Aarklendoia/linux-hello/issues/185)) ([79e6d80](https://github.com/Aarklendoia/linux-hello/commit/79e6d808d80abb57675efd97abe7c36c2c7aaaa3)), closes [#183](https://github.com/Aarklendoia/linux-hello/issues/183)
+* **daemon:** move StartLimit* keys to [Unit] so systemd applies them ([#186](https://github.com/Aarklendoia/linux-hello/issues/186)) ([8d352b9](https://github.com/Aarklendoia/linux-hello/commit/8d352b9cbed1ad5a17b169fb726484da8b4a266f)), closes [#184](https://github.com/Aarklendoia/linux-hello/issues/184)
+
 ## [1.8.3](https://github.com/Aarklendoia/linux-hello/compare/v1.8.2...v1.8.3) (2026-09-18)
 
 
