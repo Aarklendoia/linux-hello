@@ -32,35 +32,38 @@ if [ -f "$LINUX_HELLO_QML" ] && [ -f "$PLASMA_QML" ]; then
     echo "✓ Lock screen QML overlay installed"
 fi
 
-# Enable and start the daemon for the user who ran the installation
-TARGET_USER="${SUDO_USER}"
-if [ -z "$TARGET_USER" ]; then
-    # If there's no SUDO_USER, we may be running directly as root
-    # Try to find the main user
-    TARGET_USER=$(who | head -1 | awk '{print $1}')
+# Enable the per-user daemon for *every* user, not just the one who ran the
+# install: `systemctl --global enable` links it into
+# /etc/systemd/user/default.target.wants/, so each user's systemd --user
+# instance starts it on their next login. This used to be a per-user
+# `systemctl --user enable` run only for $SUDO_USER (or the first `who`
+# entry), which left every other account on the machine without a daemon
+# and unable to enroll a face. (No #DEBHELPER# token here, and
+# dh_installsystemduser isn't part of the compat-13 sequence, so nothing
+# else does this for us.)
+if systemctl --global enable hello-daemon.service 2>/dev/null; then
+    echo "✓ Daemon enabled for all users"
+else
+    echo "! Could not enable hello-daemon.service globally — each user can run: systemctl --user enable --now hello-daemon.service"
 fi
 
-if [ -n "$TARGET_USER" ] && [ "$TARGET_USER" != "root" ]; then
-    TARGET_UID=$(id -u "$TARGET_USER" 2>/dev/null || true)
-    RUNTIME_DIR="/run/user/${TARGET_UID}"
-    # `sudo -u` alone doesn't propagate the target user's XDG_RUNTIME_DIR/
-    # DBUS_SESSION_BUS_ADDRESS, so `systemctl --user` can't find their session
-    # bus and fails silently; set XDG_RUNTIME_DIR explicitly so it can locate
-    # /run/user/<uid>/bus. If there's no active session for the user yet (e.g.
-    # install ran outside any login session), skip and let them enable it
-    # manually instead of failing the whole postinst.
-    if [ -n "$TARGET_UID" ] && [ -d "$RUNTIME_DIR" ]; then
-        echo "Enabling daemon for user: $TARGET_USER"
-        if sudo -u "$TARGET_USER" XDG_RUNTIME_DIR="$RUNTIME_DIR" \
-            systemctl --user enable --now hello-daemon.service 2>/dev/null; then
-            echo "✓ Daemon enabled and started"
-        else
-            echo "! Could not enable hello-daemon.service automatically — run 'systemctl --user enable --now hello-daemon.service' as $TARGET_USER"
-        fi
+# Global enablement only takes effect at the next login; also start it right
+# away in every user session already open. `runuser` alone doesn't propagate
+# the target user's XDG_RUNTIME_DIR, so `systemctl --user` couldn't find
+# their bus — set it explicitly. A failure for one user must not fail the
+# whole postinst.
+for RUNTIME_DIR in /run/user/*; do
+    [ -S "$RUNTIME_DIR/bus" ] || continue
+    TARGET_UID=$(basename "$RUNTIME_DIR")
+    [ "$TARGET_UID" -ge 1000 ] 2>/dev/null || continue
+    TARGET_USER=$(id -nu "$TARGET_UID" 2>/dev/null) || continue
+    if runuser -u "$TARGET_USER" -- env XDG_RUNTIME_DIR="$RUNTIME_DIR" \
+        sh -c 'systemctl --user daemon-reload && systemctl --user restart hello-daemon.service' 2>/dev/null; then
+        echo "✓ Daemon started for user: $TARGET_USER"
     else
-        echo "! No active session found for $TARGET_USER — enable the daemon manually with: systemctl --user enable --now hello-daemon.service"
+        echo "! Could not start hello-daemon.service for $TARGET_USER — it will start at their next login"
     fi
-fi
+done
 
 # PAM configuration is not done here. If libpam-linux-hello is installed,
 # its linux-hello-pam-autoconfigure.timer automatically configures sudo and

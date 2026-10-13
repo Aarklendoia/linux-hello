@@ -21,8 +21,13 @@ echo "===================="
 # removal (including a same-version --reinstall's "remove" step, see above):
 # their target files are gone either way, and postinst puts both back
 # immediately on the following install, so there's no user-visible gap.
-systemctl --user stop hello-daemon.service 2>/dev/null || true
-systemctl --user disable hello-daemon.service 2>/dev/null || true
+systemctl --global disable hello-daemon.service 2>/dev/null || true
+for RUNTIME_DIR in /run/user/*; do
+    [ -S "$RUNTIME_DIR/bus" ] || continue
+    TARGET_USER=$(id -nu "$(basename "$RUNTIME_DIR")" 2>/dev/null) || continue
+    runuser -u "$TARGET_USER" -- env XDG_RUNTIME_DIR="$RUNTIME_DIR" \
+        systemctl --user stop hello-daemon.service 2>/dev/null || true
+done
 
 PLASMA_QML="/usr/share/plasma/shells/org.kde.plasma.desktop/contents/lockscreen/MainBlock.qml"
 if dpkg-divert --list "$PLASMA_QML" 2>/dev/null | grep -q linux-hello; then
