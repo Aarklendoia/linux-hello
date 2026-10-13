@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.9.0](https://github.com/Aarklendoia/linux-hello/compare/v1.8.5...v1.9.0) (2026-10-13)
+
+
+### Features
+
+* **packaging:** build Arch packages in CI and attach them to releases ([#195](https://github.com/Aarklendoia/linux-hello/issues/195)) ([6463657](https://github.com/Aarklendoia/linux-hello/commit/646365726834fa07a4dd1d8aec8fbb73dd213e91))
+
+
+### Bug Fixes
+
+* **core:** find onnxruntime in /usr/lib64 on Fedora and openSUSE ([#200](https://github.com/Aarklendoia/linux-hello/issues/200)) ([f856fc2](https://github.com/Aarklendoia/linux-hello/commit/f856fc296f82141069ec733793634f48d1803f37))
+* **core:** port to ort 2.0.0-rc.14 ([#205](https://github.com/Aarklendoia/linux-hello/issues/205)) ([359667f](https://github.com/Aarklendoia/linux-hello/commit/359667f8733f06e0fef18ea08683d07e51bb5a8e))
+* **gui:** find Qt's QML runtime instead of hardcoding qml6 ([#197](https://github.com/Aarklendoia/linux-hello/issues/197)) ([7e61f45](https://github.com/Aarklendoia/linux-hello/commit/7e61f458c8e0871299c2c92c7bf066686613fc5f))
+
 ## [1.8.5](https://github.com/Aarklendoia/linux-hello/compare/v1.8.4...v1.8.5) (2026-10-12)
 
 
