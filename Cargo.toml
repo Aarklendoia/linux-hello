@@ -79,7 +79,7 @@ tract-core = "0.23"
 
 # ONNX Runtime via dynamic linking (libonnxruntime.so.1.23)
 # api-23 matches the ONNX Runtime 1.23.x installed on the system
-ort = { version = "2.0.0-rc.12", features = [
+ort = { version = "=2.0.0-rc.14", features = [
     "load-dynamic",
     "ndarray",
     "tracing",
