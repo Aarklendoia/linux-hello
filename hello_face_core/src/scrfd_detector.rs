@@ -5,6 +5,29 @@
 
 use crate::{FaceDetector, FaceError, FaceRegion};
 use std::path::Path;
+#[cfg(feature = "tract")]
+use std::sync::OnceLock;
+
+/// The process-wide ONNX Runtime environment, built on first use.
+///
+/// Since ort 2.0.0-rc.14, `Session::builder` takes an explicit
+/// `&Environment`, and ort refuses to build a second environment in the same
+/// process — even after the first has been dropped. Detectors can be loaded
+/// more than once per process, so build it once here and keep it alive for
+/// the process lifetime. The error is kept as a string so a failed init is
+/// reported on every later `load()`, not just the first.
+#[cfg(feature = "tract")]
+fn ort_environment() -> Result<&'static ort::environment::Environment, FaceError> {
+    static ENV: OnceLock<Result<ort::environment::Environment, String>> = OnceLock::new();
+    ENV.get_or_init(|| {
+        ort::init()
+            .with_name("linux-hello")
+            .build()
+            .map_err(|e| e.to_string())
+    })
+    .as_ref()
+    .map_err(|e| FaceError::ModelLoadError(format!("ort environment: {}", e)))
+}
 
 /// SCRFD-500M detector based on ONNX Runtime
 #[cfg(feature = "tract")]
@@ -25,7 +48,7 @@ pub struct ScrfdDetector {
 #[cfg(feature = "tract")]
 impl ScrfdDetector {
     pub fn load(model_path: &Path) -> Result<Self, FaceError> {
-        let session = ort::session::Session::builder()
+        let session = ort::session::Session::builder(ort_environment()?)
             .map_err(|e| FaceError::ModelLoadError(format!("ort builder: {}", e)))?
             .with_intra_threads(1)
             .map_err(|e| FaceError::ModelLoadError(format!("ort threads: {}", e)))?
