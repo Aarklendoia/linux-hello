@@ -281,6 +281,26 @@ Known limitations (accepted, not solved):
   shipping its own `Login.qml` in the `SessionManagementScreen` style); a
   custom/non-Breeze theme falls back to no visual feedback, same as before.
 
+### Admin prompts from another user's session
+
+The same listener also serves `context=polkit` when the account being
+authenticated isn't the one at the active seat — for example, starting
+updates in Discover from your partner's session, then picking your own
+admin account in the polkit dialog. Your per-user `hello-daemon` can't
+help there: it isn't running if you aren't logged in, and if your session
+is open in the background, logind only grants the camera to the active
+session's user. `pam_linux_hello` compares the target's UID with
+`ACTIVE_UID=` in `/run/systemd/seats/seat0` and, when they differ, asks
+`hello-daemon-system` instead. It only verifies your face against your own
+enrollments, and never releases a cached password (that stays
+`context=sddm`-only).
+
+This needs `hello-daemon-system.service` running, i.e. the login-screen
+opt-in above; without it, those prompts fall back to the password, as
+before. `su`/`sudo` are not routed this way (`su` usually targets root,
+which has no enrollment, so every `su` would wait out `timeout_ms` before
+the password prompt), nor is root as a polkit target.
+
 ## Password caching / KWallet auto-unlock
 
 `pam_kwallet5`/`pam_gnome_keyring` don't read `PAM_AUTHTOK` generically at
