@@ -871,10 +871,16 @@ fn unix_socket_peer_uid(stream: &UnixStream) -> std::io::Result<u32> {
 /// `hello-daemon-system` (started at boot, root, verify-only; see
 /// `hello_daemon::pam_helper::start_system_pam_helper` and
 /// docs/PAM_MODULE.md). Same request/response wire format either way.
+///
+/// `context=polkit` also uses that system socket when the user being
+/// authenticated isn't the one at the active seat — e.g. an admin approving
+/// Discover's updates from their partner's session (see
+/// [`uses_system_socket`]).
 fn call_pam_helper_sync(req: &PamHelperRequest) -> Result<PamHelperResponse, String> {
     use std::io::{Read, Write};
 
-    let socket_path = if req.context == "sddm" {
+    let system = uses_system_socket(&req.context, req.user_id, active_seat_uid());
+    let socket_path = if system {
         "/run/hello-pam/system.socket".to_string()
     } else {
         format!("/run/hello-pam/{}.socket", req.user_id)
@@ -899,16 +905,12 @@ fn call_pam_helper_sync(req: &PamHelperRequest) -> Result<PamHelperResponse, Str
     // the path. Without this check, this module would unconditionally
     // trust whatever `PamHelperResponse` such a rogue listener sends back —
     // including a fabricated `Success` — for every context. The legitimate
-    // peer is always a specific, known uid: root for the pre-login
-    // `context=sddm` system socket (`hello_daemon_system` runs as root),
+    // peer is always a specific, known uid: root for the system socket
+    // (`hello_daemon_system` runs as root — see `uses_system_socket`),
     // or the exact target user for the per-user socket (`hello-daemon` is
     // a systemd `--user` unit — it runs as the account it serves, never as
     // anyone else, so no other uid, root included, is ever legitimate here).
-    let expected_peer_uid = if req.context == "sddm" {
-        0
-    } else {
-        req.user_id
-    };
+    let expected_peer_uid = if system { 0 } else { req.user_id };
     match unix_socket_peer_uid(&stream) {
         Ok(uid) if uid == expected_peer_uid => {}
         Ok(uid) => {
@@ -956,6 +958,44 @@ fn call_pam_helper_sync(req: &PamHelperRequest) -> Result<PamHelperResponse, Str
             String::from_utf8_lossy(&response)
         )
     })
+}
+
+/// Whether to ask `hello-daemon-system` (root, `/run/hello-pam/system.socket`)
+/// rather than the target user's own per-user `hello-daemon`.
+///
+/// Always for `context=sddm`: nobody is logged in yet. And for
+/// `context=polkit` when the target isn't the user at the active seat: a
+/// polkit dialog in someone else's session asks for an admin's identity,
+/// and that admin's per-user daemon either isn't running at all (not logged
+/// in) or can't open the camera (logind only grants it to the active
+/// session's user) — the root system daemon can do both. Deliberately not
+/// extended to `su`/`sudo`: `su` usually targets root, which has no
+/// enrollment, and the system daemon pads such failures up to `timeout_ms`
+/// (its timing side-channel floor), so every `su` would stall before the
+/// password prompt instead of falling through immediately. Root as a polkit
+/// target is excluded for the same reason. With no known active seat user
+/// (`None`: headless, SSH), nothing changes.
+fn uses_system_socket(context: &str, user_id: u32, active_uid: Option<u32>) -> bool {
+    match context {
+        "sddm" => true,
+        "polkit" => user_id != 0 && active_uid.is_some_and(|uid| uid != user_id),
+        _ => false,
+    }
+}
+
+/// UID of the user owning seat0's active session, from logind's own state
+/// file (`ACTIVE_UID=`, absent when no session is active). Read directly
+/// rather than over D-Bus: polkit's agent helper runs sandboxed, and this
+/// is a plain file under `/run`.
+fn active_seat_uid() -> Option<u32> {
+    parse_active_uid(&std::fs::read_to_string("/run/systemd/seats/seat0").ok()?)
+}
+
+fn parse_active_uid(seat_file: &str) -> Option<u32> {
+    seat_file
+        .lines()
+        .find_map(|l| l.strip_prefix("ACTIVE_UID="))
+        .and_then(|v| v.trim().parse().ok())
 }
 
 /// Request to seal (or refresh) a user's cached session password — the
@@ -1110,6 +1150,34 @@ fn log_pam(message: &str) {
 mod tests {
     use super::*;
     use std::ffi::CString;
+
+    #[test]
+    fn sddm_always_uses_the_system_socket() {
+        assert!(uses_system_socket("sddm", 1000, None));
+        assert!(uses_system_socket("sddm", 1000, Some(1000)));
+    }
+
+    #[test]
+    fn polkit_uses_the_system_socket_only_for_another_seat_user() {
+        assert!(uses_system_socket("polkit", 1000, Some(1001)));
+        assert!(!uses_system_socket("polkit", 1000, Some(1000)));
+        assert!(!uses_system_socket("polkit", 1000, None));
+        assert!(!uses_system_socket("polkit", 0, Some(1000)));
+    }
+
+    #[test]
+    fn other_contexts_never_use_the_system_socket() {
+        assert!(!uses_system_socket("sudo", 0, Some(1000)));
+        assert!(!uses_system_socket("sudo", 1000, Some(1001)));
+        assert!(!uses_system_socket("screenlock", 1000, Some(1001)));
+    }
+
+    #[test]
+    fn parse_active_uid_reads_logind_seat_state() {
+        let seat = "# This is private data. Do not parse.\nIS_SEAT0=1\nACTIVE=7\nACTIVE_UID=1000\nSESSIONS=7 3\n";
+        assert_eq!(parse_active_uid(seat), Some(1000));
+        assert_eq!(parse_active_uid("IS_SEAT0=1\nCAN_GRAPHICAL=1\n"), None);
+    }
 
     #[test]
     fn unix_socket_peer_uid_reports_our_own_uid_for_a_local_connection() {

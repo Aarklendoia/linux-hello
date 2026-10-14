@@ -1,9 +1,10 @@
-//! Linux Hello - system-wide listener for SDDM (login screen) authentication
+//! Linux Hello - system-wide listener for SDDM (login screen) authentication,
+//! and for polkit prompts answered from another user's session
 //!
 //! Started at boot as root, before any user logs in. Deliberately minimal:
 //! no D-Bus, no MJPEG preview server, no screenlock watcher, no
 //! `FaceAuthDaemon` — just three socket listeners: the Verify-only one
-//! `pam_linux_hello` connects to for `context=sddm` (see
+//! `pam_linux_hello` connects to for `context=sddm` and cross-session `context=polkit` (see
 //! `hello_daemon::pam_helper::start_system_pam_helper`), the password-cache
 //! one used by `linux-hello cache-password` (see
 //! `hello_daemon::pam_helper::start_cache_helper` and `secret_cache`'s
