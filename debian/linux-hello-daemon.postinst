@@ -38,9 +38,12 @@ fi
 # instance starts it on their next login. This used to be a per-user
 # `systemctl --user enable` run only for $SUDO_USER (or the first `who`
 # entry), which left every other account on the machine without a daemon
-# and unable to enroll a face. (No #DEBHELPER# token here, and
-# dh_installsystemduser isn't part of the compat-13 sequence, so nothing
-# else does this for us.)
+# and unable to enroll a face. This script deliberately has no debhelper
+# substitution marker, so dh_installsystemduser's generated enable snippet
+# is discarded and nothing else does this for us. Never write that marker
+# literally anywhere in this file, comments included: debhelper substitutes
+# it wherever it appears, and 1.9.0 shipped broken (exit 127 in postinst)
+# because a comment here named it.
 if systemctl --global enable hello-daemon.service 2>/dev/null; then
     echo "✓ Daemon enabled for all users"
 else
