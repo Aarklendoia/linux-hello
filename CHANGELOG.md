@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.10.0](https://github.com/Aarklendoia/linux-hello/compare/v1.9.0...v1.10.0) (2026-10-14)
+
+
+### Features
+
+* **pam:** route cross-session polkit prompts to hello-daemon-system ([#208](https://github.com/Aarklendoia/linux-hello/issues/208)) ([df64918](https://github.com/Aarklendoia/linux-hello/commit/df64918f1d9c0b3fffb1e2ec2a341b17f8a4fb7a))
+
+
+### Bug Fixes
+
+* **deb:** drop literal debhelper marker from postinst comment ([#206](https://github.com/Aarklendoia/linux-hello/issues/206)) ([7b9bd69](https://github.com/Aarklendoia/linux-hello/commit/7b9bd69844381d014f07180f457ba7411afba128))
+
 ## [1.9.0](https://github.com/Aarklendoia/linux-hello/compare/v1.8.5...v1.9.0) (2026-10-13)
 
 
