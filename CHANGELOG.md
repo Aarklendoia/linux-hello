@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.11.0](https://github.com/Aarklendoia/linux-hello/compare/v1.10.0...v1.11.0) (2026-10-15)
+
+
+### Features
+
+* **packaging:** build RPMs for openSUSE Tumbleweed and Fedora 45 ([#202](https://github.com/Aarklendoia/linux-hello/issues/202)) ([5fb73f1](https://github.com/Aarklendoia/linux-hello/commit/5fb73f1e62c19ad28f026eedea871b2c54f8fdaa))
+* **packaging:** Gentoo overlay, built in CI and published on release ([#212](https://github.com/Aarklendoia/linux-hello/issues/212)) ([7ed4a27](https://github.com/Aarklendoia/linux-hello/commit/7ed4a279b96c68313c3778658088bab21992b8a5))
+
 ## [1.10.0](https://github.com/Aarklendoia/linux-hello/compare/v1.9.0...v1.10.0) (2026-10-14)
 
 
