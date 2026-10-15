@@ -114,7 +114,10 @@ auth       sufficient   pam_linux_hello.so context=sudo confirm
 ```
 
 **polkit**: same in `/etc/pam.d/polkit-1` (skip it if the file doesn't
-exist), without `confirm` — polkit already shows its own dialog:
+exist), without `confirm` — polkit already shows its own dialog. Prompts for
+another account than the one at the active seat also need
+`hello-daemon-system` running (see the SDDM block below, and
+[Admin prompts from another user's session](#admin-prompts-from-another-users-session)):
 
 ```text
 auth       sufficient   pam_linux_hello.so context=polkit

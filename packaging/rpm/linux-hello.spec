@@ -37,7 +37,7 @@
 
 Name:           linux-hello
 # x-release-please-start-version
-Version:        1.8.5
+Version:        1.10.0
 # x-release-please-end
 Release:        0%{?dist}
 Summary:        Face authentication for Linux (metapackage)
@@ -82,8 +82,8 @@ Recommends:     %{abrmd_pkg}
 
 %description daemon
 The per-user hello-daemon: camera capture, face detection and matching,
-the D-Bus API the CLI and GUI use, and screen unlock. Start it for your user
-with: systemctl --user enable --now hello-daemon.service
+the D-Bus API the CLI and GUI use, and screen unlock. Enabled for every
+user through a systemd user preset, and started in open sessions on install.
 
 %package models
 Summary:        ONNX models for Linux Hello face authentication
@@ -137,6 +137,12 @@ password caching for KWallet auto-unlock.
 %autosetup -p1 -a1 -n %{name}-%{version}
 
 %build
+# Fedora's %%build exports RUSTFLAGS with -Ccodegen-units=1 -Cdebuginfo=2 for
+# every crate: that overrides the workspace profile (and the PR builds'
+# no-LTO settings), slows the whole build down, and puts full debug info into
+# the fat-LTO links, which already need 5+ GB each. Let the workspace profile
+# decide, as on Debian, Arch and openSUSE.
+unset RUSTFLAGS
 export CARGO_HOME="$PWD/.cargo-home"
 export CARGO_NET_OFFLINE=true
 # hello_face_core's build.rs finds the pre-fetched models here instead of
@@ -175,6 +181,10 @@ install -Dm644 debian/dbus/linux-hello-tabrmd.conf \
 install -d %{buildroot}%{_tmpfilesdir}
 printf 'd /run/hello-pam 1777 root root -\nf /run/lock/linux-hello-camera.lock 0666 root root -\nf /run/lock/linux-hello-pam.lock 0600 root root -\nd /var/lib/linux-hello/secrets 0700 root root -\n' \
   > %{buildroot}%{_tmpfilesdir}/linux-hello.conf
+# Enables the per-user daemon for every account, not just the installer's,
+# like the Debian package does since #203: %%systemd_user_post applies it.
+install -d %{buildroot}%{_userpresetdir}
+echo 'enable hello-daemon.service' > %{buildroot}%{_userpresetdir}/80-linux-hello.preset
 install -Dm644 linux-hello.config.toml.example \
   %{buildroot}%{_sysconfdir}/linux-hello/config.toml.example
 
@@ -192,6 +202,7 @@ install -d %{buildroot}%{_datadir}/linux-hello/qml-modules/Linux/Hello
 cp -r linux_hello_config/qml/* %{buildroot}%{_datadir}/linux-hello/qml-modules/Linux/Hello/
 
 %check
+unset RUSTFLAGS
 export CARGO_HOME="$PWD/.cargo-home"
 export CARGO_NET_OFFLINE=true
 export XDG_DATA_HOME="$PWD/debian/offline-models"
@@ -200,12 +211,40 @@ export ORT_DYLIB_PATH=%{_libdir}/libonnxruntime.so.1
 # need the shipped binaries' fat LTO.
 cargo test --offline --workspace --profile ci
 
+%if 0%{?suse_version}
+%pre daemon
+# openSUSE's systemd-update-helper only applies the preset (in %%post) to
+# units marked here first; Fedora's applies it without this, and doesn't
+# define the macro.
+%systemd_user_pre hello-daemon.service
+%endif
+
 %post daemon
 %tmpfiles_create linux-hello.conf
 %systemd_user_post hello-daemon.service
+# The preset only takes effect at each user's next login: also (re)start the
+# daemon in every user session already open, as debian/linux-hello-daemon.postinst
+# does. A failure for one user must not fail the install.
+for runtime_dir in /run/user/*; do
+  [ -S "$runtime_dir/bus" ] || continue
+  uid=$(basename "$runtime_dir")
+  [ "$uid" -ge 1000 ] 2>/dev/null || continue
+  user=$(id -nu "$uid" 2>/dev/null) || continue
+  runuser -u "$user" -- env XDG_RUNTIME_DIR="$runtime_dir" \
+    sh -c 'systemctl --user daemon-reload && systemctl --user restart hello-daemon.service' \
+    >/dev/null 2>&1 || :
+done
 
 %preun daemon
 %systemd_user_preun hello-daemon.service
+if [ $1 -eq 0 ]; then
+  for runtime_dir in /run/user/*; do
+    [ -S "$runtime_dir/bus" ] || continue
+    user=$(id -nu "$(basename "$runtime_dir")" 2>/dev/null) || continue
+    runuser -u "$user" -- env XDG_RUNTIME_DIR="$runtime_dir" \
+      systemctl --user stop hello-daemon.service >/dev/null 2>&1 || :
+  done
+fi
 
 %post pam
 %systemd_post hello-daemon-system.service
@@ -228,6 +267,7 @@ cargo test --offline --workspace --profile ci
 %{_datadir}/polkit-1/actions/com.linuxhello.manage-faces.policy
 %{_datadir}/dbus-1/system.d/linux-hello-tabrmd.conf
 %{_tmpfilesdir}/linux-hello.conf
+%{_userpresetdir}/80-linux-hello.preset
 %dir %{_sysconfdir}/linux-hello
 %config(noreplace) %{_sysconfdir}/linux-hello/config.toml.example
 

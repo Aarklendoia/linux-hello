@@ -123,7 +123,7 @@ sudo zypper install ./linux-hello*.tumbleweed.x86_64.rpm ./linux-hello-models-*.
 
 Same caveats as Arch: PAM is configured by hand (see above) and there's no lock-screen status indicator.
 
-**On Arch, Fedora and openSUSE, start the daemon for your user** once installed (the Debian package does it for the installing user):
+The Debian and RPM packages enable the per-user daemon for every account. **On Arch, start it yourself** once installed (Arch packages don't enable services):
 
 ```bash
 systemctl --user enable --now hello-daemon.service
