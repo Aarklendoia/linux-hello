@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE pkgmetadata SYSTEM "https://www.gentoo.org/dtd/metadata.dtd">
+<pkgmetadata>
+	<maintainer type="person">
+		<email>aarklendoia@proton.me</email>
+		<name>Aarklendoia</name>
+	</maintainer>
+	<use>
+		<flag name="gui">Install the Qt/Kirigami settings application (enroll and manage faces, camera preview)</flag>
+		<flag name="pam">Install the PAM module and hello-daemon-system, the root listener for the SDDM login screen</flag>
+	</use>
+	<upstream>
+		<remote-id type="github">Aarklendoia/linux-hello</remote-id>
+		<bugs-to>https://github.com/Aarklendoia/linux-hello/issues</bugs-to>
+	</upstream>
+</pkgmetadata>

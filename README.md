@@ -123,7 +123,27 @@ sudo zypper install ./linux-hello*.tumbleweed.x86_64.rpm ./linux-hello-models-*.
 
 Same caveats as Arch: PAM is configured by hand (see above) and there's no lock-screen status indicator.
 
-The Debian and RPM packages enable the per-user daemon for every account. **On Arch, start it yourself** once installed (Arch packages don't enable services):
+## Installing on Gentoo
+
+`sys-auth/linux-hello` is in the [Aarklendoia overlay](https://github.com/Aarklendoia/gentoo-overlay), built from [packaging/gentoo/](packaging/gentoo/). It needs `sci-libs/onnxruntime`, which only the community [GURU](https://wiki.gentoo.org/wiki/Project:GURU) overlay packages (built from source, so the first install takes a while):
+
+```bash
+sudo eselect repository enable guru
+sudo eselect repository add aarklendoia git https://github.com/Aarklendoia/gentoo-overlay.git
+sudo emaint sync -r guru -r aarklendoia
+printf '%s\n' 'sys-auth/linux-hello ~amd64' 'sci-libs/onnxruntime ~amd64' 'sci-ml/onnx ~amd64' 'dev-cpp/safeint ~amd64' \
+  | sudo tee /etc/portage/package.accept_keywords/linux-hello
+echo 'sci-ml/onnx disableStaticReg' | sudo tee /etc/portage/package.use/onnxruntime
+# The bundled face models' license (non-commercial research only, see below):
+echo 'sys-auth/linux-hello InsightFace-research' | sudo tee /etc/portage/package.license/linux-hello
+sudo emerge --ask sys-auth/linux-hello
+```
+
+USE flags: `gui` (the settings app) and `pam` (the PAM module and the SDDM listener), both on by default. It needs systemd. Same caveats as Arch: PAM is configured by hand and there's no lock-screen status indicator.
+
+The bundled face models are InsightFace's, licensed for non-commercial research only ([#211](https://github.com/Aarklendoia/linux-hello/issues/211)), so the ebuild declares that license and restricts redistribution (`RESTRICT="bindist mirror"`).
+
+The Debian and RPM packages enable the per-user daemon for every account. **On Arch and Gentoo, start it yourself** once installed (packages there don't enable services):
 
 ```bash
 systemctl --user enable --now hello-daemon.service

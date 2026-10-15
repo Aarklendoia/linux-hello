@@ -1,0 +1,14 @@
+InsightFace pre-trained models (buffalo_sc pack: det_500m.onnx, w600k_mbf.onnx)
+https://github.com/deepinsight/insightface
+
+From InsightFace's README (License section):
+
+  The code of InsightFace is released under the MIT License. There is no
+  limitation for both academic and commercial usage.
+
+  The training data containing the annotation (and the models trained with
+  these data) are available for non-commercial research purposes only.
+
+  Both manual-downloading models from our github repo and auto-downloading
+  models with our python-library follow the above license policy (which is
+  for non-commercial research purposes only).
