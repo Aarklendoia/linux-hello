@@ -1,0 +1,214 @@
+name: Build Gentoo Overlay
+
+# Generates the Gentoo overlay (packaging/gentoo/make-overlay.sh), builds its
+# ebuild with emerge, and on tags attaches the overlay to the GitHub release
+# and pushes the ebuild to Aarklendoia/gentoo-overlay (#193), the same way as
+# kio-protondrive's build-gentoo.yml. On PRs it only runs when the Gentoo
+# packaging or this workflow changes.
+on:
+  push:
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'packaging/gentoo/**'
+      - '.github/workflows/build-gentoo.yml'
+  workflow_dispatch:
+
+# contents: write for the release step, packages for the CI image.
+permissions:
+  contents: write
+  packages: write
+
+# A new push to a PR supersedes its running build; tag builds are never
+# cancelled (each tag is its own group).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  image:
+    # The build job runs in an image with the dependencies and tooling
+    # preinstalled (packaging/gentoo/ci/Dockerfile), sci-libs/onnxruntime
+    # included, which ::guru only has as source: building it is most of the
+    # image's build time. Its tag is the month plus the Dockerfile's hash,
+    # so it's built and pushed here by the first run of each month or after
+    # the Dockerfile changes, and pulled by every other run.
+    runs-on: ubuntu-latest
+    outputs:
+      image: ${{ steps.image.outputs.ref }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Name the image
+        id: image
+        run: |
+          owner="$(echo "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
+          tag="$(date -u +%Y-%m)-$(sha256sum packaging/gentoo/ci/Dockerfile | cut -c1-12)"
+          echo "ref=ghcr.io/$owner/linux-hello-gentoo-ci:$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push the image if missing
+        env:
+          REF: ${{ steps.image.outputs.ref }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          if docker manifest inspect "$REF" > /dev/null 2>&1; then
+            echo "$REF already exists"
+          else
+            docker build -t "$REF" \
+              --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
+              packaging/gentoo/ci
+            docker push "$REF"
+          fi
+
+  gentoo:
+    needs: image
+    runs-on: ubuntu-latest
+    container:
+      image: ${{ needs.image.outputs.image }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+      # Lets Portage's network-sandbox (a network namespace) work, so the
+      # build really runs offline.
+      options: --privileged
+
+    steps:
+      - name: Set up Portage
+        # MAKEOPTS: without it, Portage builds (cargo included) on one core.
+        # PR builds validate the packaging, not the shipped binaries: no fat
+        # LTO and no src_test (the Tests workflow already runs the suite on
+        # every PR), same as build-arch.yml. Tag builds keep both.
+        #
+        # The models' license (#211) isn't accepted by default: users accept it
+        # explicitly (see the README), and so does this build.
+        run: |
+          echo "MAKEOPTS=\"-j$(nproc)\"" >> /etc/portage/make.conf
+          echo 'sys-auth/linux-hello InsightFace-research' > /etc/portage/package.license
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            printf '%s\n' 'CARGO_PROFILE_RELEASE_LTO=off' 'CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16' \
+              > /etc/portage/env/fast.conf
+            echo 'sys-auth/linux-hello fast.conf' > /etc/portage/package.env
+          fi
+
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Generate overlay
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          # Keeps the crates and models it downloads where the Manifest step
+          # looks.
+          CRATE_DISTDIR="$(portageq distdir)" \
+            packaging/gentoo/make-overlay.sh /var/db/repos/linux-hello
+          cat > /etc/portage/repos.conf/linux-hello.conf <<EOF
+          [linux-hello]
+          location = /var/db/repos/linux-hello
+          EOF
+
+      - name: Generate Manifest
+        # Off a tag, the vX.Y.Z tarball the ebuild names doesn't exist yet
+        # (release-please's PR) or isn't this code: put an archive of the
+        # checked-out tree in DISTDIR under that name instead, the same way
+        # build-arch.yml does. Only the tag's Manifest is published.
+        run: |
+          ebuild_file="$(echo /var/db/repos/linux-hello/sys-auth/linux-hello/*.ebuild)"
+          p="$(basename "$ebuild_file" .ebuild)"
+          if [ "${GITHUB_REF#refs/tags/}" = "$GITHUB_REF" ]; then
+            distdir="$(portageq distdir)"
+            mkdir -p "$distdir"
+            git archive --format=tar.gz --prefix="$p/" -o "$distdir/$p.tar.gz" HEAD
+          fi
+          ebuild "$ebuild_file" manifest
+
+      - name: Run pkgcheck
+        run: pkgcheck scan --exit error /var/db/repos/linux-hello
+
+      - name: Build
+        run: emerge --quiet-build --getbinpkg --usepkg --verbose sys-auth/linux-hello
+
+      - name: Smoke-test the installed package
+        # The unit's ORT_DYLIB_PATH must point at a real file, and the GUI is
+        # started offscreen to catch a missing QML runtime or module.
+        run: |
+          test -e "$(sed -n 's/^Environment=ORT_DYLIB_PATH=//p' /usr/lib/systemd/user/hello-daemon.service)"
+          test -f "/lib64/security/pam_linux_hello.so" || test -f "/usr/lib64/security/pam_linux_hello.so"
+          linux-hello --help > /dev/null
+          timeout 15 linux_hello_config > gui.log 2>&1 || true
+          if grep -E "Error while launching|is not installed|is not a type|module .* not found" gui.log; then
+            exit 1
+          fi
+
+      - name: Pack overlay
+        # metadata/md5-cache is emerge's cache from the build above, not part
+        # of the overlay.
+        run: |
+          version="$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -1)"
+          tar -czf "linux-hello-gentoo-overlay-$version.tar.gz" \
+            --exclude=linux-hello/metadata/md5-cache \
+            -C /var/db/repos linux-hello
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: gentoo-overlay
+          path: 'linux-hello-gentoo-overlay-*.tar.gz'
+          retention-days: 30
+
+      - name: Attach to release (on tag)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v3
+        with:
+          files: linux-hello-gentoo-overlay-*.tar.gz
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish to the git overlay (on tag)
+        # Aarklendoia/gentoo-overlay is what Gentoo users sync from, shared
+        # with kio-protondrive. GENTOO_OVERLAY_DEPLOY_KEY is a deploy key with
+        # write access to that repository only; GitHub's SSH host keys come
+        # from its meta API over HTTPS. The package directory is replaced as a
+        # whole, so the overlay carries the latest release only. The models'
+        # license file goes into the overlay's licenses/. The overlay keeps
+        # masters = gentoo: users enable ::guru themselves for
+        # sci-libs/onnxruntime, so kio-protondrive's users don't need it.
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          DEPLOY_KEY: ${{ secrets.GENTOO_OVERLAY_DEPLOY_KEY }}
+        run: |
+          if [ -z "$DEPLOY_KEY" ]; then
+            echo "::warning::GENTOO_OVERLAY_DEPLOY_KEY isn't set: the overlay wasn't updated"
+            exit 0
+          fi
+          key="$RUNNER_TEMP/overlay_key"
+          printf '%s\n' "$DEPLOY_KEY" > "$key"
+          chmod 600 "$key"
+          curl -fsSL https://api.github.com/meta \
+            | python3 -c 'import json, sys; print("\n".join("github.com " + k for k in json.load(sys.stdin)["ssh_keys"]))' \
+            > "$RUNNER_TEMP/known_hosts"
+          export GIT_SSH_COMMAND="ssh -i $key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$RUNNER_TEMP/known_hosts"
+
+          overlay="$RUNNER_TEMP/gentoo-overlay"
+          git clone --depth 1 git@github.com:Aarklendoia/gentoo-overlay.git "$overlay"
+          dst="$overlay/sys-auth/linux-hello"
+          rm -rf "$dst"
+          mkdir -p "$dst" "$overlay/licenses"
+          src=/var/db/repos/linux-hello/sys-auth/linux-hello
+          cp "$src"/*.ebuild "$src/metadata.xml" "$src/Manifest" "$dst/"
+          cp /var/db/repos/linux-hello/licenses/* "$overlay/licenses/"
+
+          cd "$overlay"
+          git add -A sys-auth/linux-hello licenses
+          if git diff --cached --quiet; then
+            echo "Overlay already up to date"
+            exit 0
+          fi
+          git -c user.name="github-actions[bot]" \
+            -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -m "sys-auth/linux-hello: ${GITHUB_REF_NAME#v}" \
+            -m "From $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$GITHUB_REF_NAME"
+          git push origin HEAD:main

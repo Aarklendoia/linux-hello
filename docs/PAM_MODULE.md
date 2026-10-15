@@ -96,8 +96,8 @@ enabled or opted out.
 
 Automatic activation, `install-pam.sh` and the GUI's login-screen toggle only
 ship in the Debian/Ubuntu packages: they rely on Debian's `@include
-common-auth` PAM layout and on `dpkg-divert`. The Arch and RPM (Fedora,
-openSUSE) packages ship the module without them, so PAM is set up by hand there — after enrolling at
+common-auth` PAM layout and on `dpkg-divert`. The Arch, RPM (Fedora,
+openSUSE) and Gentoo packages ship the module without them, so PAM is set up by hand there — after enrolling at
 least one face (GUI, or `linux-hello enroll`). The module falls back to the
 password for any user with no enrolled face, so these lines are safe on
 multi-user machines.
