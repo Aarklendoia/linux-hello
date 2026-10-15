@@ -2,8 +2,14 @@ name: Publish to Launchpad PPA
 
 # Automatically uploads a source package to ppa:aarklendoia-edtech/linux-hello
 # on every vX.Y.Z release tag (same trigger as build-debian.yml's GitHub
-# Release build). See docs/LAUNCHPAD.md for the full manual process this
-# automates, and for how the ~ppa1~<series>1 versioning scheme works.
+# Release build), once per supported Ubuntu series (#213). See
+# docs/LAUNCHPAD.md for the full manual process this automates, and for how
+# the ~ppa1~<series>1 versioning scheme works.
+#
+# The supported series, and the cargo version each one packages (rmadison -u
+# ubuntu cargo), are listed in the "plan" job: dependencies are vendored with
+# that version, since Launchpad builds with the series' own cargo. Adding a
+# series is one entry there.
 #
 # Signs with a CI-only GPG key (fingerprint below), registered as an
 # additional OpenPGP key on the aarklendoia-edtech Launchpad account —
@@ -18,25 +24,53 @@ on:
   workflow_dispatch:
     inputs:
       series:
-        description: 'Target Ubuntu series codename'
+        description: "Target Ubuntu series codename, or 'all' for every supported series"
         required: true
-        default: 'resolute'
-      rust_toolchain:
-        description: "That series' packaged cargo/rustc version (rmadison -u ubuntu cargo)"
-        required: true
-        default: '1.93.1'
+        default: 'all'
 
 env:
   PPA: 'ppa:aarklendoia-edtech/linux-hello'
   GPG_KEY_ID: '78E5E953B5D26A386600270F28CCA4654276F229'
   DEBFULLNAME: 'Linux Hello CI'
   DEBEMAIL: 'aarklendoia+ci@proton.me'
-  SERIES: ${{ github.event.inputs.series || 'resolute' }}
-  RUST_TOOLCHAIN: ${{ github.event.inputs.rust_toolchain || '1.93.1' }}
 
 jobs:
-  publish-ppa:
+  plan:
     runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - name: Pick the series to publish
+        id: plan
+        env:
+          REQUESTED: ${{ github.event.inputs.series || 'all' }}
+        run: |
+          # series:cargo version packaged by that series.
+          supported='resolute:1.93.1 stonking:1.97.1'
+          entries=""
+          for pair in $supported; do
+            series="${pair%%:*}" rust="${pair#*:}"
+            if [ "$REQUESTED" = all ] || [ "$REQUESTED" = "$series" ]; then
+              entries="$entries{\"series\":\"$series\",\"rust\":\"$rust\"},"
+            fi
+          done
+          if [ -z "$entries" ]; then
+            echo "::error::Unsupported series '$REQUESTED' (supported: $supported)"
+            exit 1
+          fi
+          echo "matrix={\"include\":[${entries%,}]}" >> "$GITHUB_OUTPUT"
+
+  publish-ppa:
+    needs: plan
+    runs-on: ubuntu-latest
+    strategy:
+      # One series failing (e.g. a Launchpad rejection) mustn't block the
+      # others' uploads.
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    env:
+      SERIES: ${{ matrix.series }}
+      RUST_TOOLCHAIN: ${{ matrix.rust }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
