@@ -26,7 +26,7 @@ Requirements: a Debian- or Ubuntu-based Linux distribution, a webcam, and a term
 
 1. **Install** the `linux-hello` package — it pulls in everything needed (the daemon, the ONNX models, PAM integration, and the CLI):
 
-   - **Ubuntu 26.04 LTS (resolute)**, via the [Launchpad PPA](https://launchpad.net/~aarklendoia-edtech/+archive/ubuntu/linux-hello) (simplest — `apt` handles updates too):
+   - **Ubuntu 26.04 LTS (resolute) and 26.10 (stonking)**, Kubuntu included, via the [Launchpad PPA](https://launchpad.net/~aarklendoia-edtech/+archive/ubuntu/linux-hello) (simplest — `apt` handles updates too):
 
      ```bash
      sudo add-apt-repository ppa:aarklendoia-edtech/linux-hello
@@ -98,7 +98,7 @@ sudo apt install ./linux-hello_*.deb ./linux-hello-daemon_*.deb ./linux-hello-to
 sudo apt install ./*.deb
 ```
 
-Also available via a [Launchpad PPA](https://launchpad.net/~aarklendoia-edtech/+archive/ubuntu/linux-hello) for Ubuntu 26.04 LTS — see [Quick start](#quick-start-for-everyday-users) above.
+Also available via a [Launchpad PPA](https://launchpad.net/~aarklendoia-edtech/+archive/ubuntu/linux-hello) for Ubuntu 26.04 LTS and 26.10 — see [Quick start](#quick-start-for-everyday-users) above.
 
 See [docs/DEBIAN_PACKAGE.md](docs/DEBIAN_PACKAGE.md) for build instructions and package details.
 

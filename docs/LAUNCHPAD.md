@@ -221,7 +221,10 @@ build farm), the CI job's own vendoring step (`prepare-offline-build.sh`)
 is fast — no local `rustup`-juggling needed, it just installs the target
 series' exact toolchain via `dtolnay/rust-toolchain` fresh each run.
 
-To support an additional series, add a `workflow_dispatch` test run first
-(pass the series codename and its `rmadison -u ubuntu cargo` version) to
-confirm it builds, before considering whether to extend the tag-triggered
-default beyond `resolute`.
+Every release tag uploads once per supported series (`resolute`, `stonking`
+since #213), each vendored with that series' packaged cargo. The list lives
+in `publish-ppa.yml`'s `plan` job as `series:cargo-version` pairs. To support
+an additional series, add its pair there (`rmadison -u ubuntu cargo` gives
+the version). A `workflow_dispatch` run with `series` set to one codename,
+or `all`, publishes the current version for just that series, e.g. to fill
+in a newly released series without waiting for the next tag.
