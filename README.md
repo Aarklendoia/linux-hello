@@ -112,6 +112,23 @@ sudo pacman -U linux-hello-*.pkg.tar.zst
 
 Unlike on Debian/Ubuntu, **PAM isn't configured automatically** and the GUI's login-screen toggle is unavailable. Follow [Manual setup on other distributions](docs/PAM_MODULE.md#manual-setup-on-other-distributions) after enrolling a face. The KDE lock-screen status indicator isn't available either (Plasma on Arch has no QML file to replace, see #111), but unlocking the screen with your face still works.
 
+## Installing on Fedora and openSUSE
+
+Each release also carries RPMs for **openSUSE Tumbleweed** (`*.tumbleweed.x86_64.rpm`) and **Fedora 45+** (`*.fc45.x86_64.rpm`), built from [packaging/rpm/linux-hello.spec](packaging/rpm/linux-hello.spec). Fedora 44 isn't supported: its onnxruntime (1.22) is too old.
+
+```bash
+sudo dnf install ./linux-hello*.fc45.x86_64.rpm ./linux-hello-models-*.noarch.rpm             # Fedora
+sudo zypper install ./linux-hello*.tumbleweed.x86_64.rpm ./linux-hello-models-*.noarch.rpm  # openSUSE
+```
+
+Same caveats as Arch: PAM is configured by hand (see above) and there's no lock-screen status indicator.
+
+The Debian and RPM packages enable the per-user daemon for every account. **On Arch, start it yourself** once installed (Arch packages don't enable services):
+
+```bash
+systemctl --user enable --now hello-daemon.service
+```
+
 ## Building from source
 
 Requires Rust ≥ 1.93 — check with `rustc --version`; if your distro's package is older (Ubuntu's `rustc` package can lag), install a current toolchain with [rustup](https://rustup.rs/) instead.

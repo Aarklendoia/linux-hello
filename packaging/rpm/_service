@@ -1,0 +1,16 @@
+<!--
+  The OBS package's sources (#192): the spec and the two tarballs
+  packaging/rpm/make-sources.sh writes, which .github/workflows/publish-obs.yml
+  attaches to each GitHub release before triggering this service.
+-->
+<services>
+  <service name="download_url">
+    <param name="url">https://github.com/Aarklendoia/linux-hello/releases/latest/download/linux-hello.spec</param>
+  </service>
+  <service name="download_url">
+    <param name="url">https://github.com/Aarklendoia/linux-hello/releases/latest/download/linux-hello-source.tar.gz</param>
+  </service>
+  <service name="download_url">
+    <param name="url">https://github.com/Aarklendoia/linux-hello/releases/latest/download/linux-hello-vendor.tar.xz</param>
+  </service>
+</services>

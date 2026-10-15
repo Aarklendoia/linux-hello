@@ -1,0 +1,180 @@
+name: Build RPM Packages
+
+# Builds packaging/rpm/linux-hello.spec for openSUSE Tumbleweed and Fedora 45
+# (#192), the same way as kio-protondrive's publish-obs.yml. On tags the RPMs
+# are attached to the GitHub release, and the spec is published through the
+# Open Build Service: the spec and its two sources
+# (packaging/rpm/make-sources.sh) are attached to the release, then OBS is
+# told to run the package's _service (packaging/rpm/_service), which fetches
+# them from the latest release and rebuilds. On PRs it only runs when the RPM
+# packaging or this workflow changes — release-please's PR included, since it
+# bumps the spec's Version.
+on:
+  push:
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'packaging/rpm/**'
+      - '.github/workflows/publish-obs.yml'
+  workflow_dispatch:
+
+# The publish job creates/updates the GitHub release.
+permissions:
+  contents: write
+
+# A new push to a PR supersedes its running build; tag builds are never
+# cancelled (each tag is its own group).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  sources:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Write the sources
+        run: |
+          packaging/rpm/make-sources.sh obs
+          cp packaging/rpm/linux-hello.spec obs/
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: rpm-sources
+          path: obs/
+          retention-days: 30
+
+  rpm:
+    needs: sources
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Tumbleweed has no %dist: give its RPMs one, so the release can
+          # hold both distributions' files side by side.
+          - { name: tumbleweed, image: 'opensuse/tumbleweed', dist: '.tumbleweed' }
+          - { name: fedora45, image: 'fedora:45', dist: '' }
+    runs-on: ubuntu-latest
+    container: ${{ matrix.image }}
+
+    steps:
+      - name: Download sources
+        uses: actions/download-artifact@v7
+        with:
+          name: rpm-sources
+          path: obs
+
+      - name: Install build dependencies
+        shell: bash
+        run: |
+          if command -v zypper > /dev/null; then
+            zypper -n ref
+            zypper -n in rpm-build
+            mapfile -t deps < <(rpmspec -q --buildrequires obs/linux-hello.spec | sed 's/ .*//' | sort -u)
+            zypper -n in "${deps[@]}"
+          else
+            dnf -y install rpm-build 'dnf-command(builddep)'
+            dnf -y builddep obs/linux-hello.spec
+          fi
+
+      - name: Build
+        # PR builds validate the packaging, not the shipped binaries: no fat
+        # LTO and no %check (the Tests workflow already runs the suite on
+        # every PR), same as build-arch.yml. Tag builds keep both.
+        shell: bash
+        run: |
+          top="$PWD/rpmbuild"
+          mkdir -p "$top/SOURCES"
+          cp obs/*.tar.* "$top/SOURCES/"
+          defines=(--define "_topdir $top")
+          if [ -n "${{ matrix.dist }}" ]; then
+            defines+=(--define "dist ${{ matrix.dist }}")
+          fi
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            export CARGO_PROFILE_RELEASE_LTO=off CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16
+            defines+=(--nocheck)
+          fi
+          rpmbuild "${defines[@]}" -ba obs/linux-hello.spec
+
+      - name: Install and smoke-test the packages
+        # Installing catches dependency mistakes rpmbuild can't. The unit's
+        # ORT_DYLIB_PATH must point at a real file, and the GUI is started
+        # offscreen to catch missing QML modules.
+        shell: bash
+        run: |
+          mapfile -t rpms < <(find rpmbuild/RPMS -name 'linux-hello*.rpm')
+          if command -v zypper > /dev/null; then
+            zypper -n --no-gpg-checks in "${rpms[@]}"
+          else
+            dnf -y install "${rpms[@]}"
+          fi
+          test -f /usr/lib64/security/pam_linux_hello.so
+          test -e "$(sed -n 's/^Environment=ORT_DYLIB_PATH=//p' /usr/lib/systemd/user/hello-daemon.service)"
+          linux-hello --help > /dev/null
+          timeout 15 linux_hello_config > gui.log 2>&1 || true
+          if grep -E "Error while launching|is not installed|is not a type|module .* not found" gui.log; then
+            exit 1
+          fi
+
+      - name: Upload RPMs
+        uses: actions/upload-artifact@v7
+        with:
+          name: rpms-${{ matrix.name }}
+          path: rpmbuild/RPMS/*/linux-hello*.rpm
+          retention-days: 30
+
+  publish:
+    # Only for tags, and only once both RPM builds passed.
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: rpm
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download sources
+        uses: actions/download-artifact@v7
+        with:
+          name: rpm-sources
+          path: obs
+
+      - name: Download RPMs
+        uses: actions/download-artifact@v7
+        with:
+          pattern: rpms-*
+          path: rpms
+          merge-multiple: true
+
+      - name: Attach to release
+        uses: softprops/action-gh-release@v3
+        with:
+          files: |
+            obs/linux-hello.spec
+            obs/linux-hello-source.tar.gz
+            obs/linux-hello-vendor.tar.xz
+            rpms/**/*.rpm
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Trigger the OBS build
+        # OBS_TOKEN: an OBS token for the linux-hello package with the "Run
+        # services" operation only. OBS_PROJECT: the OBS project holding that
+        # package (a repository variable, e.g. home:<user>:linux-hello).
+        env:
+          OBS_TOKEN: ${{ secrets.OBS_TOKEN }}
+          OBS_PROJECT: ${{ vars.OBS_PROJECT }}
+        run: |
+          if [ -z "$OBS_TOKEN" ] || [ -z "$OBS_PROJECT" ]; then
+            echo "::warning::OBS_TOKEN or OBS_PROJECT isn't set: OBS wasn't triggered"
+            exit 0
+          fi
+          curl -fsS -X POST -G -H "Authorization: Token $OBS_TOKEN" \
+            --data-urlencode "project=$OBS_PROJECT" \
+            --data-urlencode "package=linux-hello" \
+            https://api.opensuse.org/trigger/runservice
