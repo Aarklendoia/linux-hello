@@ -101,6 +101,12 @@ override_dh_auto_install:
 	cp $(CURDIR)/pam-lib.sh $(CURDIR)/debian/tmp/usr/lib/linux-hello/
 	cp $(CURDIR)/install-pam.sh $(CURDIR)/debian/tmp/usr/bin/
 	chmod 0755 $(CURDIR)/debian/tmp/usr/bin/install-pam.sh
+	# pam-auth-update profile: the one line in common-auth through which
+	# sudo/su/polkit (and SDDM, if opted in) reach pam_linux_hello.so, instead
+	# of editing those services' own /etc/pam.d files (#215). Registered by
+	# libpam-linux-hello.postinst, enabled by linux-hello-pam-autoconfigure.
+	mkdir -p $(CURDIR)/debian/tmp/usr/share/pam-configs
+	cp $(CURDIR)/debian/pam-configs/linux-hello $(CURDIR)/debian/tmp/usr/share/pam-configs/
 
 	# Polkit action so the GUI's SDDM toggle (pkexec install-pam.sh --enable-sddm
 	# / --disable-sddm) shows a branded prompt instead of the generic pkexec one.

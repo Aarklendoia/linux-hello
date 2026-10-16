@@ -2,9 +2,10 @@
 # Linux Hello — automatic PAM activation for sudo.
 #
 # Run unattended, as root, by linux-hello-pam-autoconfigure.timer (systemd).
-# As soon as any local user has enrolled at least one face, this configures
-# pam_linux_hello.so for sudo/su/polkit — never for sddm (a separate, opt-in
-# path via install-pam.sh, since it starts an always-on root listener — see
+# As soon as any local user has enrolled at least one face, this enables the
+# linux-hello pam-auth-update profile, which wires pam_linux_hello.so in for
+# sudo/su/polkit — never for sddm (a separate, opt-in path via
+# install-pam.sh, since it starts an always-on root listener — see
 # docs/PAM_MODULE.md). Screenlock unlocking doesn't use PAM at all; see the
 # note near the bottom of this script.
 #
@@ -19,7 +20,12 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
-if [[ -f /usr/lib/linux-hello/pam-lib.sh ]]; then
+# LH_PAM_LIB overrides it for testing a checkout on a machine where the
+# package is also installed.
+if [[ -n "${LH_PAM_LIB:-}" ]]; then
+    # shellcheck source=pam-lib.sh
+    source "$LH_PAM_LIB"
+elif [[ -f /usr/lib/linux-hello/pam-lib.sh ]]; then
     # shellcheck source=pam-lib.sh
     source /usr/lib/linux-hello/pam-lib.sh
 else
@@ -108,8 +114,21 @@ if lh_pam_autoconfig_disabled; then
     exit 0
 fi
 
-if lh_all_configured; then
-    log "already fully configured, nothing to do"
+if lh_has_legacy_config; then
+    # Normally already done by libpam-linux-hello's postinst; retried here in
+    # case it failed there (locally modified common-auth).
+    log "configuration from an earlier version found, migrating to the pam-auth-update profile"
+    if lh_migrate_legacy_config; then
+        log "migration done"
+    else
+        log "migration failed, the earlier per-service configuration was left in place"
+        exit 1
+    fi
+    exit 0
+fi
+
+if lh_profile_enabled; then
+    log "already configured, nothing to do"
     exit 0
 fi
 
@@ -124,41 +143,20 @@ if [[ "$has_enrollment" -eq 0 ]]; then
 fi
 
 # ── Configure ─────────────────────────────────────────────────────────────────
-log "enrolled face(s) found, activating PAM for sudo/screenlock"
-
-lh_configure_service "sudo"   "sudo" "@include common-auth" "confirm" || true
-lh_configure_service "sudo-i" "sudo" "@include common-auth" "confirm" || true
-lh_configure_service "su"     "sudo" "@include common-auth" "confirm" || true
-lh_configure_service "su-l"   "sudo" "@include common-auth" "confirm" || true
-
-# No `nullok` on the pam_unix.so fallback line: nullok makes pam_unix.so
-# treat an empty password hash as authenticated on an empty input, which
-# would silently defeat the "password is always the real fallback"
-# guarantee this whole script is built around for any account that ends up
-# with one (e.g. `passwd -d`, or a misconfigured account). Stock
-# Debian/Ubuntu common-auth doesn't use nullok either — don't reintroduce it
-# here.
-POLKIT_FILE="$PAM_DIR/polkit-1"
-if [[ ! -f "$POLKIT_FILE" ]]; then
-    cat > "$POLKIT_FILE" << 'EOF'
-#%PAM-1.0
-# Linux Hello - Authentication for polkit dialogs (pkexec, graphical elevation)
-# auth sufficient = if biometrics OK → access granted; otherwise → password fallback
-
-auth       sufficient   pam_linux_hello.so context=polkit
-auth       required     pam_unix.so
-@include common-account
-EOF
-    log "service polkit-1: created with linux-hello + password fallback"
-else
-    lh_configure_service "polkit-1" "polkit" "^auth" || true
-fi
-
+# One line in common-auth, through the pam-auth-update profile: the module
+# then handles sudo/sudo-i/su/su-l (with confirmation) and polkit-1, and
+# ignores every other service (see pam_linux_hello's
+# auto_context_for_service). Nothing is written to those services' own
+# /etc/pam.d files (#215). SDDM stays off until install-pam.sh
+# --enable-sddm creates its marker.
+#
 # Screenlock unlocking doesn't go through PAM at all: hello-daemon's own
 # watcher polls org.freedesktop.ScreenSaver and unlocks via `loginctl
-# unlock-session` on a face match (see hello_daemon/src/screenlock.rs),
-# so there's no PAM service to configure here.
-
-# sddm is intentionally never touched here — see header comment.
-
-log "done"
+# unlock-session` on a face match (see hello_daemon/src/screenlock.rs).
+log "enrolled face(s) found, enabling the linux-hello PAM profile (sudo, su, polkit)"
+if lh_profile_enable; then
+    log "done"
+else
+    log "could not enable the PAM profile, see the message above"
+    exit 1
+fi

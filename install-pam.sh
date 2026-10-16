@@ -3,22 +3,29 @@
 # Run with sudo
 #
 # Usage:
-#   sudo ./install-pam.sh                 # configure sudo/su/polkit (idempotent; SDDM NOT touched)
+#   sudo ./install-pam.sh                 # enable for sudo/su/polkit (idempotent; SDDM NOT touched)
 #   sudo ./install-pam.sh --enable-sddm   # additionally opt in to SDDM login-screen support
 #   sudo ./install-pam.sh --disable-sddm  # turn SDDM support back off (sudo/su/polkit untouched)
-#   sudo ./install-pam.sh --remove        # disable everything, restore backups
+#   sudo ./install-pam.sh --remove        # disable everything
 #   sudo ./install-pam.sh --status        # show current status
 #
-# SECURITY: This script always uses "auth sufficient" — the password
-# remains ALWAYS available as a fallback. You cannot be locked out.
+# How it's wired (Debian/Ubuntu): a pam-auth-update profile
+# (/usr/share/pam-configs/linux-hello) adds one line to common-auth,
+# `[success=end default=ignore] pam_linux_hello.so auto`; the module picks the
+# context from the PAM service and ignores every service it doesn't handle.
+# No other package's /etc/pam.d file is edited (#215) — see pam-lib.sh.
+#
+# SECURITY: `default=ignore` means any failure (no match, no camera, daemon
+# down, declined confirmation) falls through to the password, which remains
+# ALWAYS available. You cannot be locked out.
 # In case of problems: sudo ./install-pam.sh --remove
 #
 # NOTE: since libpam-linux-hello ships linux-hello-pam-autoconfigure (a
-# systemd timer that automatically configures sudo once any user has
+# systemd timer that automatically enables the profile once any user has
 # enrolled a face — screenlock unlocking doesn't use PAM, see
 # hello_daemon/src/screenlock.rs), running the bare form of this script is
 # normally only needed for development or to explicitly opt back in after
-# running --remove. SDDM is never touched by the default flow or by the
+# running --remove. SDDM is never turned on by the default flow or by the
 # automatic timer — it starts a root-owned, always-on, pre-authentication-
 # reachable listener (hello-daemon-system.service), which is enough of a
 # change to a machine's attack surface that it must always be an explicit,
@@ -33,7 +40,12 @@ SOURCE_SO="$SCRIPT_DIR/target/release/libpam_linux_hello.so"
 # Packaged location first (installed by libpam-linux-hello), falling back to
 # a source checkout — same dual-lookup convention linux-hello-pam-autoconfigure
 # already uses, so this script works both installed and from a dev checkout.
-if [[ -f /usr/lib/linux-hello/pam-lib.sh ]]; then
+# LH_PAM_LIB overrides it for testing a checkout on a machine where the
+# package is also installed.
+if [[ -n "${LH_PAM_LIB:-}" ]]; then
+    # shellcheck source=pam-lib.sh
+    source "$LH_PAM_LIB"
+elif [[ -f /usr/lib/linux-hello/pam-lib.sh ]]; then
     # shellcheck source=pam-lib.sh
     source /usr/lib/linux-hello/pam-lib.sh
 else
@@ -41,6 +53,10 @@ else
     source "$SCRIPT_DIR/pam-lib.sh"
 fi
 PAM_MODULE="$(lh_module_path)"
+
+# pam-auth-update profile: packaged in /usr/share/pam-configs by
+# libpam-linux-hello; from a dev checkout, registered by the default mode.
+PROFILE_SOURCE="$SCRIPT_DIR/debian/pam-configs/linux-hello"
 
 # Packaged location first (usr/share/linux-hello/sddm/Login.qml via
 # libpam-linux-hello), falling back to a source checkout — same convention
@@ -69,8 +85,8 @@ fi
 
 # ── Locking ──────────────────────────────────────────────────────────────────
 # Guards against racing with linux-hello-pam-autoconfigure's unattended timer,
-# which edits the same /etc/pam.d/* files. Interactive, so wait briefly for
-# the lock rather than failing outright.
+# which enables the same pam-auth-update profile. Interactive, so wait
+# briefly for the lock rather than failing outright.
 lh_acquire_lock_fd
 if ! flock -w 15 9; then
     err "Could not acquire the PAM configuration lock after 15s (another linux-hello PAM operation in progress?)"
@@ -90,23 +106,22 @@ if [[ "${1:-}" == "--status" ]]; then
     if lh_pam_autoconfig_disabled; then
         warn "Automatic activation: disabled (opt-out marker present at $LH_OPTOUT_MARKER)"
     else
-        ok "Automatic activation: enabled (linux-hello-pam-autoconfigure.timer will configure sudo once a face is enrolled)"
+        ok "Automatic activation: enabled (linux-hello-pam-autoconfigure.timer enables the profile once a face is enrolled)"
     fi
-    for svc in sudo sudo-i su su-l sddm polkit-1; do
-        f="$PAM_DIR/$svc"
-        if [[ -f "$f" ]]; then
-            # sddm's own line references a substack (linux-hello-sddm-auth)
-            # rather than pam_linux_hello.so directly — see
-            # pam-lib.sh's lh_sddm_write_substack for why.
-            if grep -qE "pam_linux_hello|linux-hello-sddm-auth" "$f" 2>/dev/null; then
-                ok "$svc: linux-hello enabled"
-            else
-                warn "$svc: linux-hello NOT configured"
-            fi
-        else
-            echo "   $svc: file missing (normal for polkit-1)"
-        fi
-    done
+    if lh_profile_enabled; then
+        ok "PAM profile $LH_PROFILE_NAME: enabled — sudo, sudo-i, su, su-l, polkit-1"
+        grep "pam_linux_hello" "$PAM_DIR/common-auth" | sed 's/^/     /'
+    else
+        warn "PAM profile $LH_PROFILE_NAME: NOT enabled in $PAM_DIR/common-auth"
+    fi
+    if lh_sddm_enabled; then
+        ok "sddm: opted in ($LH_SDDM_MARKER)"
+    else
+        echo "   sddm: not opted in (sudo $0 --enable-sddm)"
+    fi
+    if lh_has_legacy_config; then
+        warn "Configuration from an earlier version still present in per-service files — run 'sudo $0' to migrate it"
+    fi
     echo "   screenlock: handled by hello-daemon's own watcher (loginctl unlock-session), not PAM"
     if [[ -f "$PAM_DIR/linux-hello-cache-password" ]]; then
         ok "linux-hello-cache-password: present (cache-password verification helper)"
@@ -123,7 +138,7 @@ if [[ "${1:-}" == "--status" ]]; then
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════
-# MODE --remove  (disable + restore backups)
+# MODE --remove  (disable everything)
 # ═══════════════════════════════════════════════════════════════════════════
 if [[ "${1:-}" == "--remove" ]]; then
     echo "=== Disabling Linux Hello PAM ==="
@@ -133,30 +148,18 @@ if [[ "${1:-}" == "--remove" ]]; then
     lh_pam_autoconfig_set_disabled
     ok "Automatic activation disabled ($LH_OPTOUT_MARKER)"
 
-    for svc in sudo sudo-i su su-l polkit-1; do
-        f="$PAM_DIR/$svc"
-        # Look for the most recent backup for this service
-        latest_bak=$(find "$PAM_DIR" -maxdepth 1 -name "$svc.pre-linuxhello-*" -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2- || true)
-        if [[ -n "$latest_bak" ]]; then
-            cp "$latest_bak" "$f"
-            ok "Restored: $svc ← $latest_bak"
-        elif [[ -f "$f" ]]; then
-            # No backup: remove the linux-hello lines via sed
-            sed -i "/$LH_MARKER_START/,/$LH_MARKER_END/d" "$f"
-            sed -i '/pam_linux_hello/d' "$f"
-            ok "Cleaned: $svc (linux-hello lines removed)"
-        fi
-    done
-    # polkit-1: if it was created by this script, remove it
-    if grep -q "linux-hello" "$PAM_DIR/polkit-1" 2>/dev/null; then
-        rm -f "$PAM_DIR/polkit-1"
-        ok "Removed: polkit-1 (created by this script)"
+    lh_sddm_disable
+    if ! lh_profile_disable; then
+        err "The PAM profile is still enabled — see the message above"
+        exit 1
     fi
+    # Machines never migrated from the per-service layout.
+    lh_strip_legacy_config
+    lh_remove_legacy_backups
     if [[ -f "$PAM_DIR/linux-hello-cache-password" ]]; then
-        rm -f "$PAM_DIR/linux-hello-cache-password"
+        rm -f "${PAM_DIR:?}/linux-hello-cache-password"
         ok "Removed: linux-hello-cache-password"
     fi
-    lh_sddm_disable
     echo ""
     ok "Linux Hello disabled. The password takes back control."
     exit 0
@@ -166,8 +169,9 @@ fi
 # MODE --enable-sddm / --disable-sddm
 # ═══════════════════════════════════════════════════════════════════════════
 # Explicit opt-in/opt-out for SDDM login-screen support, separate from the
-# default install/--remove flows — see the header comment for why. Leaves
-# sudo/su/polkit entirely untouched either way.
+# default install/--remove flows — see the header comment for why.
+# --enable-sddm also enables the shared profile if it isn't yet (SDDM reaches
+# the module through common-auth too); --disable-sddm leaves it alone.
 if [[ "${1:-}" == "--enable-sddm" ]]; then
     echo "=== Enabling Linux Hello for the SDDM login screen ==="
     if [[ ! -f "$PAM_MODULE" ]]; then
@@ -175,7 +179,10 @@ if [[ "${1:-}" == "--enable-sddm" ]]; then
         echo "Run 'sudo $0' first (or install libpam-linux-hello)."
         exit 1
     fi
-    lh_sddm_enable "$SDDM_QML_SOURCE"
+    if ! lh_sddm_enable "$SDDM_QML_SOURCE"; then
+        err "SDDM login screen: not enabled"
+        exit 1
+    fi
     lh_pam_autoconfig_clear_disabled
     ok "SDDM login screen: linux-hello enabled"
     exit 0
@@ -189,13 +196,13 @@ if [[ "${1:-}" == "--disable-sddm" ]]; then
 fi
 
 # ═══════════════════════════════════════════════════════════════════════════
-# MODE install (default) — sudo/su/polkit only. SDDM is never touched here;
-# use --enable-sddm/--disable-sddm explicitly.
+# MODE install (default) — sudo/su/polkit only. SDDM is never turned on
+# here; use --enable-sddm/--disable-sddm explicitly.
 # ═══════════════════════════════════════════════════════════════════════════
 echo "=== Linux Hello PAM Module Installation ==="
 echo ""
-echo "SECURITY: auth sufficient is used everywhere."
-echo "The password remains ALWAYS available as a fallback."
+echo "SECURITY: every failure falls through to the password, which remains"
+echo "ALWAYS available as a fallback."
 echo "In case of problems: sudo $0 --remove"
 echo ""
 
@@ -217,50 +224,33 @@ else
     exit 1
 fi
 
-# ── 2. sudo and sudo-i ───────────────────────────────────────────────────────
-# sudo uses @include common-auth → insert BEFORE it so biometrics run first
-lh_configure_service "sudo"   "sudo"   "@include common-auth" "confirm"
-lh_configure_service "sudo-i" "sudo"   "@include common-auth" "confirm"
-
-# ── 3. su and su-l ───────────────────────────────────────────────────────────
-lh_configure_service "su"     "sudo"   "@include common-auth" "confirm"
-lh_configure_service "su-l"   "sudo"   "@include common-auth" "confirm"
-
-# ── 4. SDDM (login screen) — NOT done here, see header comment ──────────────
-# Run 'sudo install-pam.sh --enable-sddm' explicitly (or use the GUI's
-# home-screen toggle) to opt in.
-
-# ── 5. polkit-1 ("Authentication required" graphical dialogs) ─────────────────
-# No `nullok` on the pam_unix.so fallback line: nullok makes pam_unix.so
-# treat an empty password hash as authenticated on an empty input, which
-# would silently defeat the "password is always the real fallback"
-# guarantee this whole script is built around for any account that ends up
-# with one (e.g. `passwd -d`, or a misconfigured account). Stock
-# Debian/Ubuntu common-auth doesn't use nullok either — don't reintroduce it
-# here.
-POLKIT_FILE="$PAM_DIR/polkit-1"
-if [[ ! -f "$POLKIT_FILE" ]]; then
-    cat > "$POLKIT_FILE" << 'EOF'
-#%PAM-1.0
-# Linux Hello - Authentication for polkit dialogs (pkexec, graphical elevation)
-# auth sufficient = if biometrics OK → access granted; otherwise → password fallback
-
-auth       sufficient   pam_linux_hello.so context=polkit
-auth       required     pam_unix.so
-@include common-account
-EOF
-    ok "Service polkit-1: created with linux-hello + password fallback"
-else
-    lh_configure_service "polkit-1" "polkit" "^auth"
+# ── 2. pam-auth-update profile (sudo, sudo-i, su, su-l, polkit-1) ──────────
+# From a dev checkout with no packaged profile, register the checkout's.
+if [[ ! -f "$LH_PAM_CONFIGS_DIR/$LH_PROFILE_NAME" && -f "$PROFILE_SOURCE" ]]; then
+    mkdir -p "$LH_PAM_CONFIGS_DIR"
+    cp "$PROFILE_SOURCE" "$LH_PAM_CONFIGS_DIR/$LH_PROFILE_NAME"
+    ok "PAM profile registered: $LH_PAM_CONFIGS_DIR/$LH_PROFILE_NAME"
 fi
+if lh_has_legacy_config; then
+    if ! lh_migrate_legacy_config; then
+        err "Could not migrate the earlier per-service configuration — see the message above"
+        exit 1
+    fi
+    ok "Earlier per-service configuration migrated to the profile"
+elif ! lh_profile_enable; then
+    err "PAM profile not enabled — see the message above"
+    exit 1
+fi
+lh_remove_legacy_backups
 
-# ── 6. linux-hello-cache-password (verification helper, not a login path) ───
+# ── 3. linux-hello-cache-password (verification helper, not a login path) ───
 # Used only by `linux-hello cache-password` (CLI and settings GUI) to verify
 # a typed password is genuinely this account's current one, via a real PAM
 # auth call — see linux_hello_cli/src/cache_password.rs. Not `@include`d by
 # anything else and never consulted during an actual login; safe to always
 # install alongside the base module (unlike SDDM, this adds no new
-# pre-authentication-reachable surface).
+# pre-authentication-reachable surface). A linux-hello file, not another
+# package's conffile.
 CACHE_PW_FILE="$PAM_DIR/linux-hello-cache-password"
 if [[ ! -f "$CACHE_PW_FILE" ]]; then
     cat > "$CACHE_PW_FILE" << 'EOF'
@@ -288,24 +278,12 @@ lh_pam_autoconfig_clear_disabled
 # ── Summary ──────────────────────────────────────────────────────────────────
 echo ""
 echo "=== Configuration summary ==="
-for svc in sudo sudo-i su su-l sddm polkit-1; do
-    f="$PAM_DIR/$svc"
-    if [[ -f "$f" ]]; then
-        # sddm's own line references a substack (linux-hello-sddm-auth)
-        # rather than pam_linux_hello.so directly — see
-        # pam-lib.sh's lh_sddm_write_substack for why.
-        if grep -qE "pam_linux_hello|linux-hello-sddm-auth" "$f"; then
-            ok "$svc: linux-hello active"
-            grep -E "pam_linux_hello|linux-hello-sddm-auth" "$f" | sed 's/^/     /'
-        else
-            warn "$svc: not configured"
-        fi
-    fi
-done
-echo "   screenlock: handled by hello-daemon's own watcher (loginctl unlock-session), not PAM"
-if [[ -f "$PAM_DIR/linux-hello-cache-password" ]]; then
-    ok "linux-hello-cache-password: active"
+ok "common-auth: linux-hello active for sudo, sudo-i, su, su-l, polkit-1"
+grep "pam_linux_hello" "$PAM_DIR/common-auth" | sed 's/^/     /'
+if lh_sddm_enabled; then
+    ok "sddm: opted in ($LH_SDDM_MARKER)"
 fi
+echo "   screenlock: handled by hello-daemon's own watcher (loginctl unlock-session), not PAM"
 
 echo ""
 echo "=== Quick test ==="

@@ -36,37 +36,31 @@ if dpkg-divert --list "$PLASMA_QML" 2>/dev/null | grep -q linux-hello; then
     echo "✓ Original lock screen QML restored"
 fi
 
-# Restoring /etc/pam.d/* is different: unlike the daemon/divert above, these
-# aren't linux-hello's own files, and a same-version --reinstall must not
-# revert them (that used to silently regress a working biometric sudo/
-# screenlock setup to password-only for up to ~5 minutes, until the next
-# autoconfigure timer run put it back). Only do this on a real purge
-# (`apt purge`/`apt remove --purge`), which dpkg calls as a second,
-# separate step after "remove" — never for --reinstall of the same version.
+# /etc/pam.d/*: since #215 nothing linux-hello does writes to other
+# packages' PAM files (libpam-linux-hello's prerm takes its pam-auth-update
+# profile out of common-auth). A machine purged without ever being migrated
+# may still carry lines from an earlier version, so on purge remove those —
+# in place, never by restoring an old backup, which would roll the distro's
+# conffile back past any update made since. Only on a real purge, never on
+# --reinstall of the same version.
 if [ "$1" = "purge" ]; then
-    # Restore PAM configuration from the most recent backup (automatic,
-    # non-interactive). Covers every service linux-hello-pam-autoconfigure /
-    # install-pam.sh may have configured — previously this only handled
-    # sudo, leaving su/su-l/polkit-1 configured with a reference to a
-    # now-removed pam_linux_hello.so if set up too. Screenlock unlocking
-    # doesn't use PAM (see hello_daemon/src/screenlock.rs), so there's no
-    # kde-screenlocker/kde file to restore here.
-    for svc in sudo sudo-i su su-l; do
-        if compgen -G "/etc/pam.d/${svc}.pre-linuxhello-*" > /dev/null; then
-            latest=$(find /etc/pam.d -maxdepth 1 -name "${svc}.pre-linuxhello-*" -type f -printf '%T@ %p\n' 2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)
-            if [ -n "$latest" ] && [ -f "$latest" ]; then
-                cp "$latest" "/etc/pam.d/$svc"
-                echo "✓ Restored /etc/pam.d/$svc"
-            fi
+    for svc in sudo sudo-i su su-l sddm; do
+        f="/etc/pam.d/$svc"
+        if [ -f "$f" ] && grep -qE "pam_linux_hello|linux-hello-sddm-auth" "$f" 2>/dev/null; then
+            sed -i -e '/^# >>> linux-hello-start$/,/^# <<< linux-hello-end$/d' \
+                   -e '/pam_linux_hello/d' -e '/linux-hello-sddm-auth/d' "$f"
+            echo "✓ Removed linux-hello lines from $f"
         fi
     done
 
-    # polkit-1 is created from scratch (not backed up) if it didn't already
-    # exist — remove it only if it's ours.
-    if [ -f /etc/pam.d/polkit-1 ] && grep -q "linux-hello" /etc/pam.d/polkit-1 2>/dev/null; then
+    # Created from scratch by earlier versions when the distro shipped no
+    # /etc/pam.d/polkit-1 — remove it only if it's ours.
+    if grep -qF "# Linux Hello - Authentication for polkit dialogs" /etc/pam.d/polkit-1 2>/dev/null; then
         rm -f /etc/pam.d/polkit-1
         echo "✓ Removed /etc/pam.d/polkit-1 (created by linux-hello)"
     fi
+    rm -f /etc/pam.d/linux-hello-sddm-auth
+    find /etc/pam.d -maxdepth 1 -type f -name "*.pre-linuxhello-*" -delete 2>/dev/null || true
 fi
 
 echo ""

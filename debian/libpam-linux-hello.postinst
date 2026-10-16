@@ -1,12 +1,33 @@
 #!/bin/bash
 # Post-installation for libpam-linux-hello
 #
-# Enables the timer that automatically configures PAM (sudo, screenlock) for
-# biometric auth once any local user has enrolled a face. Never touches
-# /etc/pam.d/* directly here — that's linux-hello-pam-autoconfigure's job,
-# and it respects any existing opt-out marker on its own.
+# Registers the linux-hello pam-auth-update profile (Default: no, so this
+# doesn't enable face auth by itself) and enables the timer that enables it
+# once any local user has enrolled a face — linux-hello-pam-autoconfigure's
+# job, which respects any existing opt-out marker on its own.
+#
+# Also migrates a machine configured by an earlier version, which inserted
+# lines into other packages' conffiles (/etc/pam.d/sudo, su, sddm, ...) and
+# so made every distro update to them a dpkg conffile prompt (#215): the
+# profile is enabled first, and only then are those lines removed, so face
+# auth never has a gap. If common-auth is locally modified, pam-auth-update
+# won't touch it and the old lines are left in place (the timer retries).
 
 set -e
+
+if [ "$1" = "configure" ]; then
+    pam-auth-update --package
+
+    if [ -f /usr/lib/linux-hello/pam-lib.sh ]; then
+        . /usr/lib/linux-hello/pam-lib.sh
+        lh_acquire_lock_fd
+        flock -w 15 9 || true
+        if ! lh_migrate_legacy_config; then
+            echo "⚠ linux-hello: could not migrate the earlier per-service PAM configuration (see above); it was left in place" >&2
+        fi
+        exec 9>&-
+    fi
+fi
 
 systemctl daemon-reload 2>/dev/null || true
 systemctl enable --now linux-hello-pam-autoconfigure.timer 2>/dev/null || true

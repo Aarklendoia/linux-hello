@@ -49,21 +49,20 @@ POST-INSTALLATION SETUP
    Fall back to password if needed.
 
 5. PAM CONFIGURATION
-   The installation script modified these files:
-   
-   - /etc/pam.d/sudo          (if you selected sudo option)
-   - /etc/pam.d/kde           (if you selected screenlock option)
-   
-   Backups are saved as:
-   - /etc/pam.d/sudo.pre-linuxhello-TIMESTAMP
-   - /etc/pam.d/kde.pre-linuxhello-TIMESTAMP
+   Face authentication is wired in through a pam-auth-update profile,
+   /usr/share/pam-configs/linux-hello. It is off by default; the
+   linux-hello-pam-autoconfigure timer enables it once a face is enrolled.
+   That adds one line to /etc/pam.d/common-auth, which covers sudo, su and
+   polkit (and the SDDM login screen, if opted in with
+   "sudo install-pam.sh --enable-sddm"). No other PAM file is modified.
 
-6. UNINSTALLATION & RESTORATION
-   If you need to remove Linux Hello:
-   
-     sudo apt remove linux-hello
-   
-   The uninstaller will offer to restore PAM files from backups.
+   Check the state with: sudo install-pam.sh --status
+
+6. UNINSTALLATION
+   Removing libpam-linux-hello takes the profile out of common-auth.
+   To turn face authentication off without uninstalling:
+
+     sudo install-pam.sh --remove
 
 TROUBLESHOOTING
 ===============
@@ -80,7 +79,8 @@ FACE REGISTRATION FAILS
   - Log out and back in, then try again
 
 PAM AUTHENTICATION NOT WORKING
-  - Check PAM config: cat /etc/pam.d/sudo
+  - Check PAM config: sudo install-pam.sh --status
+    (or: grep pam_linux_hello /etc/pam.d/common-auth)
   - Verify daemon is running: systemctl --user is-active hello-daemon
   - Check logs: journalctl --user -u hello-daemon -n 20
   - Try fallback: Use your password instead
@@ -106,21 +106,13 @@ PAM Configuration Examples:
 MANUAL PAM CONFIGURATION
 ========================
 
-If you chose "None" during installation, configure PAM manually:
+To enable or disable the profile by hand:
 
-FOR SUDO:
-  1. Backup: sudo cp /etc/pam.d/sudo /etc/pam.d/sudo.backup
-  2. Edit: sudo nano /etc/pam.d/sudo
-  3. Add after the auth line:
-     auth sufficient pam_linux_hello.so uid=%u
-  4. Example final file: see /usr/share/doc/linux-hello/sudo-linux-hello.pam
+  sudo pam-auth-update --enable linux-hello
+  sudo pam-auth-update --disable linux-hello
 
-FOR KDE SCREENLOCK:
-  1. Backup: sudo cp /etc/pam.d/kde /etc/pam.d/kde.backup
-  2. Edit: sudo nano /etc/pam.d/kde
-  3. Add after the auth line:
-     auth sufficient pam_linux_hello.so uid=%u
-  4. Example: see /usr/share/doc/linux-hello/kde-screenlock-linux-hello.pam
+If /etc/pam.d/common-auth was edited by hand, pam-auth-update won't touch
+it: run "sudo pam-auth-update" and tick "Linux Hello face authentication".
 
 SECURITY NOTES
 ==============
@@ -129,9 +121,9 @@ SECURITY NOTES
    If face recognition fails for any reason, you can always use your password.
    The system is designed to never lock you out.
 
-2. BACKUP YOUR PAM FILES
-   Always keep backups of your original PAM files before modifications.
-   Pre-installation backups are automatically created.
+2. PAM FILES
+   Only /etc/pam.d/common-auth is changed, and only through
+   pam-auth-update.
 
 3. CAMERA PERMISSIONS
    Your user must be in the 'video' group to access the camera.
