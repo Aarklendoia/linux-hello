@@ -18,6 +18,13 @@ QtObject {
     property bool sddmAvailable: false
     property bool sddmBusy: false
     property string sddmError: ""
+    // Face models (#211): not shipped, installed from the home screen after
+    // the user has read InsightFace's terms. `modelsInstalled` starts true
+    // so the notice doesn't flash before the first /models-status answer.
+    property bool modelsInstalled: true
+    property bool modelsAvailable: false
+    property bool modelsBusy: false
+    property string modelsError: ""
     // Whether a session password is already cached, whether the feature is
     // even usable right now (hello-daemon-system reachable — only true once
     // SDDM face-login is enabled, since that's the only process with TPM
@@ -137,6 +144,7 @@ QtObject {
         });
         controller.uidNameCache = cache;
         checkDaemonStatus();
+        checkModelsStatus();
         checkSddmStatus();
         checkPasswordCacheStatus();
         loadFaces();
@@ -188,6 +196,61 @@ QtObject {
             } else {
                 controller.daemonActive = false;
             }
+        };
+        xhr.send();
+    }
+
+    // Face-model status — a plain file check on the backend.
+    function checkModelsStatus() {
+        if (ctrlPort === "0")
+            return;
+        var xhr = new XMLHttpRequest();
+        openAuthedRequest(xhr, "/models-status");
+        xhr.onreadystatechange = function () {
+            if (xhr.readyState !== XMLHttpRequest.DONE)
+                return;
+            if (xhr.status === 200) {
+                try {
+                    var resp = JSON.parse(xhr.responseText);
+                    controller.modelsInstalled = !!resp.installed;
+                    controller.modelsAvailable = !!resp.available;
+                } catch (e) {
+                    controller.modelsAvailable = false;
+                }
+            }
+        };
+        xhr.send();
+    }
+
+    // Downloads the face models through a pkexec prompt on the backend
+    // (`linux-hello models install --accept-license`). Only called from the
+    // home screen's notice, after it has shown InsightFace's terms. Errors
+    // follow toggleSddm's conventions: free-form backend text, or a
+    // "models-error:..." code Home.qml translates; a dismissed polkit
+    // dialog is a silent no-op.
+    function installModels() {
+        if (ctrlPort === "0" || modelsBusy)
+            return;
+        controller.modelsBusy = true;
+        controller.modelsError = "";
+        var xhr = new XMLHttpRequest();
+        openAuthedRequest(xhr, "/models-install");
+        xhr.onreadystatechange = function () {
+            if (xhr.readyState !== XMLHttpRequest.DONE)
+                return;
+            controller.modelsBusy = false;
+            if (xhr.status === 200) {
+                try {
+                    var resp = JSON.parse(xhr.responseText);
+                    if (!resp.ok && resp.error !== "models-error:cancelled")
+                        controller.modelsError = resp.error || "models-error:unknown";
+                } catch (e) {
+                    controller.modelsError = "models-error:invalid-response";
+                }
+            } else {
+                controller.modelsError = "models-error:http:" + xhr.status;
+            }
+            controller.checkModelsStatus();
         };
         xhr.send();
     }
@@ -593,6 +656,7 @@ QtObject {
 
     function navigateToHomeImpl() {
         checkDaemonStatus();
+        checkModelsStatus();
         checkSddmStatus();
         checkPasswordCacheStatus();
         loadFaces();

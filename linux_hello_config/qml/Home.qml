@@ -49,6 +49,14 @@ Kirigami.ScrollablePage {
         return code;
     }
 
+    // Same for AppController.modelsError; the generic texts are shared with
+    // the SDDM toggle's.
+    function modelsErrorText(code) {
+        if (code.indexOf("models-error:") === 0)
+            return sddmErrorText("sddm-error:" + code.substring("models-error:".length));
+        return code;
+    }
+
     ColumnLayout {
         // Width-only, not anchors.fill: a ScrollablePage's direct child must
         // size its own height from its content (the sum of its children) so
@@ -162,6 +170,107 @@ Kirigami.ScrollablePage {
             }
         }
 
+        // Face models notice (#211): Linux Hello doesn't ship them, since
+        // InsightFace's terms only allow non-commercial research use. Shown
+        // until they're installed, with those terms spelled out before the
+        // button that downloads them (pkexec linux-hello models install
+        // --accept-license — accepting here is what that flag stands for).
+        Rectangle {
+            visible: !AppController.modelsInstalled
+            Layout.fillWidth: true
+            implicitHeight: modelsColumn.implicitHeight + Kirigami.Units.largeSpacing * 2
+            radius: Kirigami.Units.smallSpacing * 1.4
+            color: Qt.rgba(Kirigami.Theme.neutralTextColor.r, Kirigami.Theme.neutralTextColor.g, Kirigami.Theme.neutralTextColor.b, 0.08)
+            border.width: 1
+            border.color: Qt.rgba(Kirigami.Theme.neutralTextColor.r, Kirigami.Theme.neutralTextColor.g, Kirigami.Theme.neutralTextColor.b, 0.4)
+
+            ColumnLayout {
+                id: modelsColumn
+                anchors.fill: parent
+                anchors.margins: Kirigami.Units.largeSpacing
+                spacing: Kirigami.Units.smallSpacing * 1.5
+
+                RowLayout {
+                    spacing: Kirigami.Units.smallSpacing * 1.5
+                    Layout.fillWidth: true
+
+                    Kirigami.Icon {
+                        source: "dialog-warning"
+                        Layout.preferredWidth: Kirigami.Units.iconSizes.small
+                        Layout.preferredHeight: Kirigami.Units.iconSizes.small
+                        color: Kirigami.Theme.neutralTextColor
+                        isMask: true
+                    }
+                    Label {
+                        text: I18n.tr("home.modelsTitle")
+                        font.weight: Font.DemiBold
+                        font.pixelSize: 13
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                    }
+                }
+
+                Label {
+                    text: I18n.tr("home.modelsBody")
+                    font.pixelSize: 12
+                    color: Kirigami.Theme.textColor
+                    Layout.fillWidth: true
+                    wrapMode: Text.WordWrap
+                }
+
+                Label {
+                    text: "<a href=\"https://github.com/deepinsight/insightface#license\">" + I18n.tr("home.modelsTermsLink") + "</a>"
+                    textFormat: Text.StyledText
+                    font.pixelSize: 12
+                    onLinkActivated: function (link) {
+                        Qt.openUrlExternally(link);
+                    }
+                    HoverHandler {
+                        cursorShape: Qt.PointingHandCursor
+                    }
+                }
+
+                RowLayout {
+                    spacing: Kirigami.Units.smallSpacing * 1.5
+                    Layout.fillWidth: true
+
+                    Button {
+                        visible: AppController.modelsAvailable
+                        enabled: !AppController.modelsBusy
+                        text: AppController.modelsBusy ? I18n.tr("home.modelsBusy") : I18n.tr("home.modelsAcceptBtn")
+                        icon.name: "download"
+                        onClicked: AppController.installModels()
+                    }
+                    BusyIndicator {
+                        visible: AppController.modelsBusy
+                        running: AppController.modelsBusy
+                        Layout.preferredWidth: Kirigami.Units.iconSizes.smallMedium
+                        Layout.preferredHeight: Kirigami.Units.iconSizes.smallMedium
+                    }
+                    Label {
+                        visible: !AppController.modelsAvailable
+                        text: I18n.tr("home.modelsUnavailable")
+                        font.pixelSize: 12
+                        color: Kirigami.Theme.disabledTextColor
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                    }
+                }
+            }
+
+            Connections {
+                target: AppController
+                function onModelsErrorChanged() {
+                    if (AppController.modelsError !== "")
+                        applicationWindow().showPassiveNotification(modelsErrorText(AppController.modelsError));
+                }
+                function onModelsInstalledChanged() {
+                    if (AppController.modelsInstalled)
+                        applicationWindow().showPassiveNotification(I18n.tr("home.modelsInstalled"));
+                }
+            }
+        }
+
         // Action cards — same neutral card style for both; only the icon
         // badge is accent-filled on the primary one. A solid-blue card here
         // used to read as a permanently "selected" list row rather than a
@@ -171,11 +280,14 @@ Kirigami.ScrollablePage {
             Layout.fillWidth: true
 
             ActionCard {
+                // Enrolling without the models can't work: the daemon
+                // refuses to capture (see the notice above).
+                enabled: AppController.modelsInstalled
                 iconSource: "camera-photo-symbolic"
                 iconColor: Kirigami.Theme.highlightedTextColor
                 badgeColor: Kirigami.Theme.highlightColor
                 title: I18n.tr("home.registerBtn")
-                subtitle: I18n.tr("home.registerBtnDesc")
+                subtitle: AppController.modelsInstalled ? I18n.tr("home.registerBtnDesc") : I18n.tr("home.registerBtnNoModels")
                 onClicked: AppController.navigateToEnrollImpl()
             }
 

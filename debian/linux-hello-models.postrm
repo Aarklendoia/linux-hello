@@ -1,0 +1,14 @@
+#!/bin/sh
+# Post-removal for linux-hello-models
+#
+# The models in /var/lib/linux-hello/models were downloaded on this machine
+# (or kept from an earlier version, see the preinst), not shipped: remove
+# them on purge only.
+
+set -e
+
+if [ "$1" = "purge" ]; then
+    rm -rf /var/lib/linux-hello/models
+fi
+
+exit 0

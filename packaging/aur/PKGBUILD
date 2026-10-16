@@ -2,7 +2,7 @@
 #
 # Arch counterpart to the project's Debian/Ubuntu packaging under debian/ —
 # mirrors the same split (daemon / models / pam / tools / gui), same systemd
-# units, same pinned ONNX model pack. Built by .github/workflows/build-arch.yml
+# units. Built by .github/workflows/build-arch.yml
 # and attached to each GitHub release. See GitHub issue #111 for the
 # non-obvious gaps this had to work around:
 #
@@ -20,6 +20,13 @@
 # linux_hello_config's install_pam_available). The manual steps are in
 # docs/PAM_MODULE.md ("Manual setup on other distributions"), and
 # linux-hello-pam.install prints them.
+#
+# The ONNX face models aren't shipped (#211): InsightFace's terms only allow
+# non-commercial research use and don't grant redistribution, and these
+# packages are attached to GitHub releases. `sudo linux-hello models install`
+# shows those terms and fetches them; linux-hello-models is kept, empty, so
+# that upgrading from a version that shipped them keeps the local copy (see
+# linux-hello-models.install).
 
 pkgbase=linux-hello
 pkgname=(linux-hello linux-hello-daemon linux-hello-models linux-hello-pam linux-hello-tools linux-hello-gui)
@@ -29,7 +36,7 @@ arch=('x86_64' 'aarch64')
 url="https://github.com/Aarklendoia/linux-hello"
 license=('GPL-3.0-or-later')
 makedepends=(
-  'rust' 'clang' 'pkgconf' 'unzip'
+  'rust' 'clang' 'pkgconf'
   'pam' 'tpm2-tss'
   # A split PKGBUILD must be able to install every sub-package's depends at
   # build time (namcap); these are the ones nothing above pulls in.
@@ -38,13 +45,8 @@ makedepends=(
 )
 source=(
   "$pkgbase-$pkgver.tar.gz::https://github.com/Aarklendoia/linux-hello/archive/refs/tags/v$pkgver.tar.gz"
-  "buffalo_sc.zip::https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_sc.zip"
 )
-# buffalo_sc.zip pinned/verified the same way hello_face_core/build.rs and
-# debian/scripts/prepare-offline-build.sh do — update all three together if
-# upstream ever re-cuts this release asset.
-sha256sums=('SKIP'
-            '57d31b56b6ffa911c8a73cfc1707c73cab76efe7f13b675a05223bf42de47c72')
+sha256sums=('SKIP')
 
 prepare() {
   cd "$srcdir/$pkgbase-$pkgver"
@@ -53,19 +55,12 @@ prepare() {
   # and populates the local registry cache for the --offline build/check
   # below.
   cargo fetch --target "$(rustc -vV | sed -n 's/host: //p')"
-
-  # Pre-extract the two ONNX models build.rs otherwise fetches over the
-  # network mid-build — makepkg builds should not depend on that. build.rs
-  # skips its own download when both files already exist and are non-empty
-  # at $XDG_DATA_HOME/linux-hello/models.
-  mkdir -p "$srcdir/offline-models/linux-hello/models"
-  unzip -o -j "$srcdir/buffalo_sc.zip" det_500m.onnx w600k_mbf.onnx \
-    -d "$srcdir/offline-models/linux-hello/models"
 }
 
 build() {
   cd "$srcdir/$pkgbase-$pkgver"
-  export XDG_DATA_HOME="$srcdir/offline-models"
+  # The models aren't shipped (see the header): build.rs mustn't fetch them.
+  export LINUX_HELLO_NO_MODEL_DOWNLOAD=1
   export RUSTUP_TOOLCHAIN=stable
   # The workspace release profile uses lto=true + codegen-units=1 (fat LTO,
   # single codegen unit) for runtime performance. That makes the *final
@@ -88,7 +83,8 @@ build() {
 
 check() {
   cd "$srcdir/$pkgbase-$pkgver"
-  export XDG_DATA_HOME="$srcdir/offline-models"
+  # Without the models, the tests that would load them skip themselves.
+  export LINUX_HELLO_NO_MODEL_DOWNLOAD=1
   # Same standard fallback candidate onnxruntime-cpu installs at on Arch —
   # without it, ort's own lookup can hang indefinitely instead of failing
   # fast (see hello_face_core::ensure_ort_dylib_path's doc comment).
@@ -141,13 +137,10 @@ package_linux-hello-daemon() {
 }
 
 package_linux-hello-models() {
-  pkgdesc="ONNX models for Linux Hello face authentication"
+  pkgdesc="Linux Hello face models: not shipped, install with 'sudo linux-hello models install'"
   arch=('any')
   depends=()
-  install -Dm644 "$srcdir/offline-models/linux-hello/models/det_500m.onnx" \
-    "$pkgdir/usr/share/linux-hello/models/det_500m.onnx"
-  install -Dm644 "$srcdir/offline-models/linux-hello/models/w600k_mbf.onnx" \
-    "$pkgdir/usr/share/linux-hello/models/w600k_mbf.onnx"
+  install=linux-hello-models.install
 }
 
 package_linux-hello-pam() {
@@ -171,7 +164,8 @@ package_linux-hello-pam() {
 
 package_linux-hello-tools() {
   pkgdesc="Command-line tools for Linux Hello"
-  depends=('dbus' 'pam' "linux-hello-daemon=$pkgver-$pkgrel")
+  # curl and unzip: `linux-hello models install`.
+  depends=('dbus' 'pam' 'curl' 'unzip' "linux-hello-daemon=$pkgver-$pkgrel")
   cd "$srcdir/$pkgbase-$pkgver"
   install -Dm755 target/release/linux-hello "$pkgdir/usr/bin/linux-hello"
 }

@@ -36,7 +36,18 @@ pub enum CameraError {
     /// (both silently degraded to all-zero stub frames).
     #[error("Camera busy (in use by another process)")]
     Busy,
+
+    /// The face models aren't installed (#211: Linux Hello doesn't ship
+    /// them; `sudo linux-hello models install` fetches them after showing
+    /// InsightFace's terms). Refused up front, before the camera is even
+    /// opened, rather than falling back to the stub detector/extractor,
+    /// which would accept almost any face.
+    #[error("Face models not installed — run: sudo linux-hello models install")]
+    ModelsMissing,
 }
+
+/// The detector/extractor pair, once loaded.
+type LoadedModels = (Arc<Box<dyn FaceDetector>>, Arc<Box<dyn EmbeddingExtractor>>);
 
 /// Path of the cross-process camera lock. Created (mode 0666) by
 /// systemd-tmpfiles alongside `/run/hello-pam`, so both an unprivileged
@@ -199,10 +210,13 @@ pub struct CameraManager {
     pub rgb_device: String,
     /// Path of the IR device (if detected)
     pub ir_device: Option<String>,
-    /// Face detector (SCRFD or fallback)
-    detector: Arc<Box<dyn FaceDetector>>,
-    /// Embedding extractor (ArcFace or fallback)
-    extractor: Arc<Box<dyn EmbeddingExtractor>>,
+    /// SCRFD detector + ArcFace extractor, `None` until the model files
+    /// exist — see `models()`.
+    models: Mutex<Option<LoadedModels>>,
+    /// Where `models()` looks for them: `None` in production (resolved on
+    /// each attempt via `hello_face_core::default_models_dir()`), a scratch
+    /// directory in tests.
+    models_dir: Option<std::path::PathBuf>,
     /// Override for the cross-process camera lock file path. `None` in
     /// production (resolved via `camera_lock_path()` at acquire time, same
     /// as before this field existed) — set by `for_test()` so concurrent
@@ -231,15 +245,15 @@ impl CameraManager {
             inventory.rgb_device,
             inventory.ir_device.as_deref().unwrap_or("none")
         );
-        let models_dir = hello_face_core::default_models_dir();
-        let detector = Arc::new(hello_face_core::create_detector(&models_dir));
-        let extractor = Arc::new(hello_face_core::create_extractor(&models_dir));
+        // Loaded eagerly when present, so the first verification isn't slowed
+        // down by ONNX session setup; otherwise retried on each capture.
+        let models = Self::load_models(None);
         Self {
             default_timeout_ms,
             rgb_device: inventory.rgb_device,
             ir_device: inventory.ir_device,
-            detector,
-            extractor,
+            models: Mutex::new(models),
+            models_dir: None,
             lock_path: None,
             stop_preview: Arc::new(AtomicBool::new(false)),
             live_status: Arc::new(Mutex::new(LiveCaptureStatus::default())),
@@ -266,8 +280,8 @@ impl CameraManager {
             default_timeout_ms: 1000,
             rgb_device: rgb_device.into(),
             ir_device: None,
-            detector: Arc::new(detector),
-            extractor: Arc::new(extractor),
+            models: Mutex::new(Some((Arc::new(detector), Arc::new(extractor)))),
+            models_dir: None,
             lock_path: Some(lock_path),
             stop_preview: Arc::new(AtomicBool::new(false)),
             live_status: Arc::new(Mutex::new(LiveCaptureStatus::default())),
@@ -275,6 +289,25 @@ impl CameraManager {
                 LIVE_EMBEDDING_BUFFER_CAP,
             ))),
         }
+    }
+
+    fn load_models(models_dir: Option<&std::path::Path>) -> Option<LoadedModels> {
+        let models_dir = models_dir
+            .map(std::path::Path::to_path_buf)
+            .unwrap_or_else(hello_face_core::default_models_dir);
+        hello_face_core::load_models(&models_dir)
+            .map(|(detector, extractor)| (Arc::new(detector), Arc::new(extractor)))
+    }
+
+    /// The loaded detector/extractor, loading them first if the model files
+    /// have appeared since (`linux-hello models install` run while the
+    /// daemon was already up — no restart needed).
+    fn models(&self) -> Result<LoadedModels, CameraError> {
+        let mut guard = self.models.lock().unwrap_or_else(|e| e.into_inner());
+        if guard.is_none() {
+            *guard = Self::load_models(self.models_dir.as_deref());
+        }
+        guard.clone().ok_or(CameraError::ModelsMissing)
     }
 
     /// Resolve the lock file path to use: the test override if set, else
@@ -404,6 +437,7 @@ impl CameraManager {
         num_frames: u32,
         timeout_ms: u64,
     ) -> Result<CaptureResult, CameraError> {
+        let (detector, extractor) = self.models()?;
         let timeout = if timeout_ms == 0 {
             self.default_timeout_ms
         } else {
@@ -568,8 +602,6 @@ impl CameraManager {
         };
 
         // Extract embeddings from the RGB frames via detector + extractor
-        let detector = Arc::clone(&self.detector);
-        let extractor = Arc::clone(&self.extractor);
 
         let now_secs = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -720,6 +752,7 @@ impl CameraManager {
     where
         F: FnMut(Embedding, Option<f32>, f32) -> bool + Send + 'static,
     {
+        let (detector, extractor) = self.models()?;
         let timeout = if timeout_ms == 0 {
             self.default_timeout_ms
         } else {
@@ -735,8 +768,6 @@ impl CameraManager {
 
         let rgb_device = self.rgb_device.clone();
         let ir_device = self.ir_device.clone();
-        let detector = Arc::clone(&self.detector);
-        let extractor = Arc::clone(&self.extractor);
         let lock_path = self.resolved_lock_path();
 
         // Shared with both capture tasks below, released once both finish —
@@ -1000,6 +1031,7 @@ impl CameraManager {
     where
         F: FnMut(CaptureFrameEvent),
     {
+        let (detector, extractor) = self.models()?;
         info!(
             "Starting streaming capture: {} frames, timeout={}ms",
             num_frames, timeout_ms
@@ -1014,8 +1046,6 @@ impl CameraManager {
         stop_flag.store(false, Ordering::Release);
         let mut frame_num: u32 = 0;
 
-        let detector = Arc::clone(&self.detector);
-        let extractor = Arc::clone(&self.extractor);
         let live_status = Arc::clone(&self.live_status);
         let recent_embeddings = Arc::clone(&self.recent_embeddings);
         // Reset both to a clean slate for this run — a previous run's
@@ -1310,6 +1340,45 @@ mod tests {
             Box::new(extractor),
         );
         (dir, camera)
+    }
+
+    /// A `CameraManager` with no models loaded, looking for them in an empty
+    /// scratch directory.
+    fn without_models() -> (tempfile::TempDir, CameraManager) {
+        let (dir, mut camera) = for_test(
+            FakeDetector::always_detects(default_face_region(640, 480)),
+            FakeExtractor::with_vector(vec![1.0; 512], 0.9),
+        );
+        camera.models = Mutex::new(None);
+        let empty = dir.path().join("models");
+        std::fs::create_dir(&empty).unwrap();
+        camera.models_dir = Some(empty);
+        (dir, camera)
+    }
+
+    #[tokio::test]
+    async fn every_capture_refuses_without_models() {
+        // Never the stub detector/extractor (#211): they'd accept almost
+        // any face.
+        let (_dir, camera) = without_models();
+        assert!(matches!(
+            camera.capture_frames(3, 100).await,
+            Err(CameraError::ModelsMissing)
+        ));
+        let called = Arc::new(AtomicBool::new(false));
+        let called_clone = Arc::clone(&called);
+        let result = camera
+            .capture_until(100, move |_, _, _| {
+                called_clone.store(true, Ordering::Release);
+                true
+            })
+            .await;
+        assert!(matches!(result, Err(CameraError::ModelsMissing)));
+        assert!(!called.load(Ordering::Acquire));
+        assert!(matches!(
+            camera.start_capture_stream(3, 100, |_| {}).await,
+            Err(CameraError::ModelsMissing)
+        ));
     }
 
     #[tokio::test]

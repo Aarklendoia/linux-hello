@@ -1,0 +1,14 @@
+#!/bin/sh
+# Post-installation for linux-hello-models
+
+set -e
+
+if [ "$1" = "configure" ] &&
+   ! { [ -f /var/lib/linux-hello/models/det_500m.onnx ] &&
+       [ -f /var/lib/linux-hello/models/w600k_mbf.onnx ]; }; then
+    echo "linux-hello: the face models are not included (InsightFace's terms only"
+    echo "allow non-commercial research use). Face authentication stays off until"
+    echo "you read those terms and install them: sudo linux-hello models install"
+fi
+
+exit 0

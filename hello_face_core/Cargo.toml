@@ -18,6 +18,9 @@ anyhow.workspace = true
 tracing.workspace = true
 dirs.workspace = true
 
+[dev-dependencies]
+tempfile.workspace = true
+
 [build-dependencies]
 # Downloading the ONNX models in build.rs uses std::process::Command for
 # curl/wget (std::net isn't available in a pure build.rs) — dirs is just for

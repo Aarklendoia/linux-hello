@@ -8,8 +8,8 @@ The Linux Hello project builds 6 Debian packages:
 | --- | --- |
 | `linux-hello` | Metapackage — depends on the four packages below. Install this one for a complete, working setup |
 | `linux-hello-daemon` | The daemon binary and PAM module library, systemd user service. Depends on `linux-hello-models` |
-| `linux-hello-models` | The ONNX models (SCRFD-500M detector + ArcFace MobileNetV3 embedder) |
-| `linux-hello-tools` | The `linux-hello` CLI. Depends on `linux-hello-daemon` |
+| `linux-hello-models` | No models inside: InsightFace's terms don't allow redistributing them (see the README's "Face models"). Keeps an existing copy when upgrading from a version that shipped them; `apt purge` removes `/var/lib/linux-hello/models` |
+| `linux-hello-tools` | The `linux-hello` CLI, including `linux-hello models install`, which downloads the models after showing their terms. Depends on `linux-hello-daemon` |
 | `libpam-linux-hello` | Wires the PAM module into `sudo`/screenlock, plus the automatic sudo activation timer and the opt-in SDDM system listener. Depends on `linux-hello-daemon` and `linux-hello-tools` |
 | `linux-hello-gui` | The Kirigami configuration app. Depends on `linux-hello-daemon`; **not** pulled in by the `linux-hello` metapackage since it drags in Qt6/Kirigami, which headless/server installs don't need |
 
@@ -143,7 +143,7 @@ This stops/disables the daemon and the autoconfigure timer. It does
   linux-hello-pam-autoconfigure.service
   hello-daemon-system.service     # enabled only via install-pam.sh
 
-/usr/share/linux-hello/models/
+/var/lib/linux-hello/models/     # not packaged: `sudo linux-hello models install`
   det_500m.onnx
   w600k_mbf.onnx
 

@@ -5,19 +5,15 @@
 # fetches must already be sitting in the working directory by the time
 # dpkg-source tars it up.
 #
-# It does two things dpkg-buildpackage would otherwise do over the network:
-#   1. cargo vendor: pulls every crates.io/git dependency into vendor/, and
-#      writes .cargo/config.toml to point cargo at it instead of the registry.
-#   2. Pre-fetches the ONNX models into debian/offline-models/ — an IN-TREE
-#      path (part of the source tarball dpkg-source builds), not the
-#      packager's real $HOME. debian/rules points build.rs's XDG_DATA_HOME
-#      lookup at it during an offline build, and installs the models from
-#      there too. Using the real $HOME doesn't work: the Launchpad builder
-#      runs with HOME=/sbuild-nonexistent, so anything fetched into the
-#      packaging machine's actual home directory never reaches the
-#      builder at all — confirmed the hard way, override_dh_auto_install
-#      failing with "cannot stat '/sbuild-nonexistent/.local/share/
-#      linux-hello/models/det_500m.onnx'".
+# It does what dpkg-buildpackage would otherwise do over the network:
+# cargo vendor pulls every crates.io/git dependency into vendor/, and writes
+# .cargo/config.toml to point cargo at it instead of the registry.
+#
+# It used to also pre-fetch the InsightFace ONNX models into
+# debian/offline-models/, which put them in the source tarball uploaded to
+# the PPA. They're no longer packaged at all (#211 — InsightFace's terms
+# only allow non-commercial research use and don't grant redistribution);
+# each machine installs them with `linux-hello models install`.
 #
 # IMPORTANT: vendor with the SAME cargo version the target Ubuntu series
 # ships (check with `rmadison -u ubuntu cargo`), not whatever's locally
@@ -85,42 +81,14 @@ find vendor -maxdepth 2 -name ".cargo-checksum.json" |
     jq '.files = {}' "$f" > "$f.tmp" && mv "$f.tmp" "$f"
   done
 
-echo "==> Pre-fetching ONNX models into debian/offline-models/ (in-tree)"
-MODELS_DIR="$REPO_ROOT/debian/offline-models/linux-hello/models"
-mkdir -p "$MODELS_DIR"
-MODEL_PACK_URL="https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_sc.zip"
-# Pinned so a compromised/tampered release asset can't silently end up in the
-# source tarball this script feeds into debuild -S -sa (which publish-ppa.yml
-# runs unattended, with no human reviewing the fetched bytes) — mirrors
-# hello_face_core/build.rs's MODEL_PACK_SHA256; update both together if
-# upstream ever re-cuts this release asset. Verified with sha256sum on
-# 2026-07-22.
-MODEL_PACK_SHA256="57d31b56b6ffa911c8a73cfc1707c73cab76efe7f13b675a05223bf42de47c72"
-ZIP_PATH="$(mktemp -t linux-hello-buffalo_sc-XXXXXX.zip)"
-
-if [ -f "$MODELS_DIR/det_500m.onnx" ] && [ -f "$MODELS_DIR/w600k_mbf.onnx" ]; then
-  echo "    already present in $MODELS_DIR, skipping download"
-else
-  curl -L --silent --max-time 60 --output "$ZIP_PATH" "$MODEL_PACK_URL"
-  actual_sha256="$(sha256sum "$ZIP_PATH" | cut -d' ' -f1)"
-  if [ "$actual_sha256" != "$MODEL_PACK_SHA256" ]; then
-    rm -f "$ZIP_PATH"
-    echo "    ERROR: model pack checksum mismatch (got $actual_sha256, expected $MODEL_PACK_SHA256) — refusing to use it" >&2
-    exit 1
-  fi
-  unzip -o -j "$ZIP_PATH" det_500m.onnx w600k_mbf.onnx -d "$MODELS_DIR"
-  rm -f "$ZIP_PATH"
-  echo "    fetched into $MODELS_DIR (checksum verified)"
-fi
-
 cat <<EOF
 
-Ready. From this same working directory (with vendor/, .cargo/config.toml,
-and $MODELS_DIR populated), debian/rules will now build with
+Ready. From this same working directory (with vendor/ and
+.cargo/config.toml populated), debian/rules will now build with
 'cargo build --offline'. Proceed with the dch / debuild -S -sa / dput cycle
 from docs/LAUNCHPAD.md.
 
-Nothing here is meant to be committed to git — vendor/, .cargo/ and
-debian/offline-models/ are regenerated per release right before
+Nothing here is meant to be committed to git — vendor/ and .cargo/ are
+regenerated per release right before
 packaging (see .gitignore).
 EOF

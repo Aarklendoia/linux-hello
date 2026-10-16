@@ -4,14 +4,14 @@
 # the latest GitHub release (packaging/rpm/_service):
 #   - linux-hello-source.tar.gz: `git archive HEAD`, with a
 #     linux-hello-<version>/ prefix;
-#   - linux-hello-vendor.tar.xz: vendor/, .cargo/config.toml, Cargo.lock
-#     and debian/offline-models/ from debian/scripts/prepare-offline-build.sh
-#     (the vendored crates and the pinned ONNX models), so the build runs
-#     offline as OBS requires.
+#   - linux-hello-vendor.tar.xz: vendor/, .cargo/config.toml and Cargo.lock
+#     from debian/scripts/prepare-offline-build.sh (the vendored crates), so
+#     the build runs offline as OBS requires. The ONNX models aren't
+#     included (#211).
 #
 # Usage: packaging/rpm/make-sources.sh OUTDIR
 #
-# Needs network access, git, rustup, jq, curl and unzip (see
+# Needs network access, git, rustup and jq (see
 # prepare-offline-build.sh; RUST_TOOLCHAIN defaults to stable here, since
 # openSUSE Tumbleweed and Fedora ship a recent cargo).
 
@@ -38,6 +38,6 @@ echo "==> linux-hello-vendor.tar.xz"
 mkdir "$WORK/$P"
 git -C "$ROOT" archive HEAD | tar -x -C "$WORK/$P"
 (cd "$WORK/$P" && RUST_TOOLCHAIN="${RUST_TOOLCHAIN:-stable}" ./debian/scripts/prepare-offline-build.sh > /dev/null)
-tar -C "$WORK/$P" -cJf "$OUTDIR/linux-hello-vendor.tar.xz" vendor .cargo Cargo.lock debian/offline-models
+tar -C "$WORK/$P" -cJf "$OUTDIR/linux-hello-vendor.tar.xz" vendor .cargo Cargo.lock
 
 ls -l "$OUTDIR/linux-hello-source.tar.gz" "$OUTDIR/linux-hello-vendor.tar.xz"

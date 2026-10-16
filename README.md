@@ -24,7 +24,7 @@ Linux Hello lets you unlock `sudo` prompts and your screen lock by looking at yo
 
 Requirements: a Debian- or Ubuntu-based Linux distribution, a webcam, and a terminal.
 
-1. **Install** the `linux-hello` package — it pulls in everything needed (the daemon, the ONNX models, PAM integration, and the CLI):
+1. **Install** the `linux-hello` package — it pulls in everything needed (the daemon, PAM integration, and the CLI) except the face models:
 
    - **Ubuntu 26.04 LTS (resolute) and 26.10 (stonking)**, Kubuntu included, via the [Launchpad PPA](https://launchpad.net/~aarklendoia-edtech/+archive/ubuntu/linux-hello) (simplest — `apt` handles updates too):
 
@@ -40,15 +40,34 @@ Requirements: a Debian- or Ubuntu-based Linux distribution, a webcam, and a term
      sudo apt install ./*.deb
      ```
 
-2. **Enroll your face** (replace `$(id -u)` with your own if enrolling for another user):
+2. **Install the face models** after reading their terms (see [Face models](#face-models)): the command shows InsightFace's terms and asks before downloading anything. The graphical app offers the same thing on its home screen.
+
+   ```bash
+   sudo linux-hello models install
+   ```
+
+3. **Enroll your face** (replace `$(id -u)` with your own if enrolling for another user):
 
    ```bash
    linux-hello enroll $(id -u) --context sudo --samples 3
    ```
 
-3. **Try it**: open a terminal and run `sudo -k && sudo -v` — look at your webcam, and it should authenticate you without asking for a password.
+4. **Try it**: open a terminal and run `sudo -k && sudo -v` — look at your webcam, and it should authenticate you without asking for a password.
 
 That's it. To also enable face unlock on your login/lock screen, see [docs/QUICKSTART.md](docs/QUICKSTART.md); to manage enrolled faces through a graphical settings app instead of the CLI, see [Graphical app (GUI)](#graphical-app-gui) below.
+
+## Face models
+
+Face detection and recognition use two ONNX models from [InsightFace](https://github.com/deepinsight/insightface)'s `buffalo_sc` pack (SCRFD-500M detector, ArcFace MobileNetV3 embedding). InsightFace's code is MIT-licensed, but its README states that the models trained on its data "are available for non-commercial research purposes only" ([terms](https://github.com/deepinsight/insightface#license); InsightFace asks to contact recognition-oss-pack@insightface.ai for other licensing).
+
+So Linux Hello **doesn't ship them** ([#211](https://github.com/Aarklendoia/linux-hello/issues/211)). Each machine downloads them from InsightFace's own release, after its admin has read those terms:
+
+```bash
+sudo linux-hello models install   # shows the terms, asks, downloads, checks the pinned sha256
+linux-hello models status
+```
+
+They go to `/var/lib/linux-hello/models`. Until they're installed, face authentication stays off (the daemon refuses to capture rather than fall back to a placeholder detector) and every prompt uses the password. Upgrading from a version that shipped them keeps the existing copy. If your use isn't covered by InsightFace's terms (for example, commercial use), don't install them.
 
 ## How it works
 
@@ -86,8 +105,8 @@ The project builds 6 `.deb` packages:
 
 - `linux-hello` — metapackage; depends on the four packages below. Install this one for a complete, working setup
 - `linux-hello-daemon` — the daemon binary + PAM module library, systemd user service (depends on `linux-hello-models`)
-- `linux-hello-models` — the ONNX models (SCRFD-500M detector + ArcFace MobileNetV3 embedder)
-- `linux-hello-tools` — the `linux-hello` CLI (depends on `linux-hello-daemon`)
+- `linux-hello-models` — no models inside (see [Face models](#face-models)); keeps an existing copy when upgrading from a version that shipped them
+- `linux-hello-tools` — the `linux-hello` CLI, including `linux-hello models install` (depends on `linux-hello-daemon`)
 - `libpam-linux-hello` — wires the PAM module into `sudo`/screenlock (depends on `linux-hello-daemon` and `linux-hello-tools`)
 - `linux-hello-gui` — the Kirigami configuration app (depends on `linux-hello-daemon`); **not** pulled in by the `linux-hello` metapackage since it drags in Qt6/Kirigami, which headless/server installs don't need — install it separately if you want the graphical settings app
 
@@ -108,6 +127,7 @@ Each [GitHub release](https://github.com/Aarklendoia/linux-hello/releases) carri
 
 ```bash
 sudo pacman -U linux-hello-*.pkg.tar.zst
+sudo linux-hello models install   # the face models, see "Face models" above
 ```
 
 Unlike on Debian/Ubuntu, **PAM isn't configured automatically** and the GUI's login-screen toggle is unavailable. Follow [Manual setup on other distributions](docs/PAM_MODULE.md#manual-setup-on-other-distributions) after enrolling a face. The KDE lock-screen status indicator isn't available either (Plasma on Arch has no QML file to replace, see #111), but unlocking the screen with your face still works.
@@ -121,7 +141,7 @@ sudo dnf install ./linux-hello*.fc45.x86_64.rpm ./linux-hello-models-*.noarch.rp
 sudo zypper install ./linux-hello*.tumbleweed.x86_64.rpm ./linux-hello-models-*.noarch.rpm  # openSUSE
 ```
 
-Same caveats as Arch: PAM is configured by hand (see above) and there's no lock-screen status indicator.
+As everywhere, then install the [face models](#face-models): `sudo linux-hello models install`. Same caveats as Arch: PAM is configured by hand (see above) and there's no lock-screen status indicator.
 
 ## Installing on Gentoo
 
@@ -134,14 +154,14 @@ sudo emaint sync -r guru -r aarklendoia
 printf '%s\n' 'sys-auth/linux-hello ~amd64' 'sci-libs/onnxruntime ~amd64' 'sci-ml/onnx ~amd64' 'dev-cpp/safeint ~amd64' \
   | sudo tee /etc/portage/package.accept_keywords/linux-hello
 echo 'sci-ml/onnx disableStaticReg' | sudo tee /etc/portage/package.use/onnxruntime
-# The bundled face models' license (non-commercial research only, see below):
+# The face models' license (non-commercial research only, see "Face models"):
 echo 'sys-auth/linux-hello InsightFace-research' | sudo tee /etc/portage/package.license/linux-hello
 sudo emerge --ask sys-auth/linux-hello
 ```
 
 USE flags: `gui` (the settings app) and `pam` (the PAM module and the SDDM listener), both on by default. It needs systemd. Same caveats as Arch: PAM is configured by hand and there's no lock-screen status indicator.
 
-The bundled face models are InsightFace's, licensed for non-commercial research only ([#211](https://github.com/Aarklendoia/linux-hello/issues/211)), so the ebuild declares that license and restricts redistribution (`RESTRICT="bindist mirror"`).
+Gentoo builds on your machine, so the ebuild fetches the [face models](#face-models) itself, from InsightFace's release, once you've accepted their license through `package.license` (above): it declares that license and restricts redistribution (`RESTRICT="bindist mirror"`). No `linux-hello models install` needed there.
 
 The Debian and RPM packages enable the per-user daemon for every account. **On Arch and Gentoo, start it yourself** once installed (packages there don't enable services):
 

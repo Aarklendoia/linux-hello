@@ -12,3 +12,6 @@ license.workspace = true
 # `mod` (dead code, removed) and pulled in build time/binary size for
 # nothing, including hello_face_core's heavy ONNX/tract dependencies.
 [dependencies]
+
+[dev-dependencies]
+tempfile.workspace = true

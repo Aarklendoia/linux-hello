@@ -72,18 +72,15 @@ whitelisted set of URLs through a proxy (mainly the Ubuntu archive itself).
 `crates.io`, GitHub, and any other package registry are not reachable during
 a build.
 
-Two places in this repository assume network access is available *during*
-`dpkg-buildpackage`, and both would fail on Launchpad unmodified:
+One place in this repository assumes network access is available *during*
+`dpkg-buildpackage`, and would fail on Launchpad unmodified: `debian/rules`'
+`override_dh_auto_build` runs `cargo build --release`, which fetches the
+crates from crates.io on a clean checkout. (The ONNX models used to be a
+second one; they're no longer packaged at all, see
+[#211](https://github.com/Aarklendoia/linux-hello/issues/211), and the build
+sets `LINUX_HELLO_NO_MODEL_DOWNLOAD=1`.)
 
-1. **Cargo dependencies**: `debian/rules`' `override_dh_auto_build` runs
-   `cargo build --release`, which fetches ~30 crates from crates.io on a
-   clean checkout.
-2. **ONNX models**: `hello_face_core/build.rs` downloads `buffalo_sc.zip`
-   from a GitHub release (`deepinsight/insightface`) into
-   `~/.local/share/linux-hello/models/`, and `debian/rules` copies those
-   files into the `linux-hello-models` package.
-
-Both work fine on GitHub Actions (which has internet access) and locally —
+That works fine on GitHub Actions (which has internet access) and locally —
 `debian/rules` still does that by default. The fix, needed only for a PPA
 build, is to **vendor everything before packaging**, from a machine with
 network access:
