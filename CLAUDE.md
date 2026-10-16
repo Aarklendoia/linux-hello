@@ -29,8 +29,32 @@ either a simple keyword (`sufficient`, `substack`, ...) *or* a `[value=action ..
 expression — never both combined on the same line. A first attempt at the SDDM auth line here
 combined them (`[success=done default=ignore] substack ...`), which real Linux-PAM silently
 misparsed as a bogus module named `substack`, disabling face login on SDDM entirely until caught
-on a real reboot. See `pam-lib.sh`'s `lh_sddm_auth_block` for the corrected jump-count-based
-design, and its comment for the full story.
+on a real reboot. (The jump-count block that replaced it is itself gone since #215: SDDM now goes
+through the same `common-auth` profile line as everything else — see below.)
+
+## PAM wiring: one `pam-auth-update` profile, never another package's conffile (#215)
+
+On Debian/Ubuntu, `debian/pam-configs/linux-hello` (installed to `/usr/share/pam-configs/`) adds
+`auth [success=end default=ignore] pam_linux_hello.so auto` to `common-auth`; the module's `auto`
+mode maps `PAM_SERVICE` to a context (`auto_context_for_service` in `pam_linux_hello/src/lib.rs`)
+and returns `PAM_IGNORE` for anything else. SDDM is gated by the root-owned marker
+`/etc/linux-hello/sddm-enabled`. Do **not** reintroduce edits to `/etc/pam.d/sudo`, `su`, `sddm`,
+`polkit-1` etc.: they're conffiles of `sudo-common`/`util-linux`/`sddm`, so any edit turns every
+distro update into a dpkg conffile prompt, and "install the maintainer's version" silently drops
+face auth. `pam-lib.sh`'s `lh_migrate_legacy_config` (run from `libpam-linux-hello.postinst`)
+removes what earlier versions inserted.
+
+`pam-auth-update` exits 0 even when it refuses to touch a locally modified `common-auth`, and asks
+a high-priority debconf question in that case — always call it through `lh_pam_auth_update`
+(`DEBIAN_FRONTEND=noninteractive`) and check the result with `lh_profile_enabled`.
+
+Testing the shell side without touching the real system: every path in `pam-lib.sh` is
+overridable (`PAM_DIR`, `LH_SDDM_MARKER`, `LH_PAM_CONFIGS_DIR`, `LH_PAM_AUTH_UPDATE`, ...), and
+`LH_PAM_LIB` makes `install-pam.sh`/`linux-hello-pam-autoconfigure` source the checkout's
+`pam-lib.sh` instead of the installed `/usr/lib/linux-hello/pam-lib.sh` (which otherwise wins
+silently). For real PAM behavior, an `ubuntu:<series>` Docker container with `pamtester`, the
+built `.so` and the real `pam-auth-update` works well — run `pamtester` as a non-root user for
+`su`/`su-l`, since `pam_rootok.so` short-circuits them for root.
 
 **Key design decisions, in case they need re-justifying:**
 - **PCR16, not PCR23**, for the "liveness" tag extended after a face match. `tss-esapi`'s own

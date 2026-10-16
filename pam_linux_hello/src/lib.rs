@@ -8,6 +8,15 @@
 //! auth sufficient pam_linux_hello.so context=login timeout_ms=5000
 //! auth include system-login
 //! ```
+//!
+//! On Debian/Ubuntu the packaged setup instead uses a single line in
+//! `common-auth`, managed by `pam-auth-update` (profile:
+//! `debian/pam-configs/linux-hello`):
+//! ```
+//! auth [success=end default=ignore] pam_linux_hello.so auto
+//! ```
+//! where `auto` derives the context from `PAM_SERVICE` — see
+//! [`auto_context_for_service`].
 
 // Use the system allocator (libc malloc) instead of the Rust allocator.
 // Avoids the conflict between two Rust runtimes when the .so is loaded by
@@ -42,6 +51,10 @@ const PAM_IGNORE: c_int = 25;
 const PAM_TEXT_INFO: c_int = 4;
 const PAM_ERROR_MSG: c_int = 3;
 const PAM_PROMPT_ECHO_ON: c_int = 1;
+
+// Item type for the service name the application passed to pam_start()
+// (e.g. "sudo", "polkit-1") — what `auto` mode keys the context off.
+const PAM_SERVICE_ITEM: c_int = 1;
 
 // Item type to retrieve the conversation function
 const PAM_CONV_ITEM: c_int = 5;
@@ -116,6 +129,14 @@ struct PamOptions {
 
     /// Debug mode
     debug: bool,
+
+    /// Derive context/confirm from `PAM_SERVICE` instead of the line's own
+    /// options — see [`auto_context_for_service`]. Ignored when an explicit
+    /// `context=` is also given, so a hand-written line always wins.
+    auto: bool,
+
+    /// Whether `context=` was given explicitly on the line.
+    context_explicit: bool,
 }
 
 impl Default for PamOptions {
@@ -125,8 +146,61 @@ impl Default for PamOptions {
             timeout_ms: 30000,
             confirm: false,
             debug: false,
+            auto: false,
+            context_explicit: false,
         }
     }
+}
+
+/// Marker file that opts the SDDM login screen in to face login (created by
+/// `install-pam.sh --enable-sddm`). In `auto` mode the `sddm` service is
+/// otherwise ignored: SDDM's own PAM file `@include`s `common-auth` too, so
+/// without this gate the single `common-auth` line would turn SDDM face login
+/// on for everyone the moment sudo's was — SDDM must stay an explicit opt-in
+/// (it relies on the always-on root `hello-daemon-system` listener).
+const SDDM_ENABLED_MARKER: &str = "/etc/linux-hello/sddm-enabled";
+
+/// `auto` mode's PAM_SERVICE → (context, confirm) mapping. `None` means
+/// "not a service linux-hello handles": the caller returns `PAM_IGNORE`
+/// before any conversation, so every other service that includes
+/// `common-auth` (login, sshd, the KDE screen locker, ...) is untouched —
+/// no camera, no "Look at the camera" message.
+///
+/// The mapping reproduces what the per-service lines used to say before
+/// the switch to a `pam-auth-update` profile (#215): sudo/su ask for an
+/// explicit [y/N] confirmation, polkit dialogs don't.
+fn auto_context_for_service(service: &str, sddm_enabled: bool) -> Option<(&'static str, bool)> {
+    match service {
+        "sudo" | "sudo-i" | "su" | "su-l" => Some(("sudo", true)),
+        "polkit-1" => Some(("polkit", false)),
+        "sddm" if sddm_enabled => Some(("sddm", false)),
+        _ => None,
+    }
+}
+
+/// Whether the SDDM opt-in marker exists and is owned by root — a file any
+/// local user could have created mustn't be able to switch login-screen
+/// face login on.
+fn sddm_enabled() -> bool {
+    use std::os::unix::fs::MetadataExt;
+    std::fs::symlink_metadata(SDDM_ENABLED_MARKER)
+        .map(|m| m.is_file() && m.uid() == 0)
+        .unwrap_or(false)
+}
+
+/// Reads `PAM_SERVICE` from the handle.
+///
+/// # Safety
+/// `pamh` must be a valid PAM handle for the duration of this call.
+unsafe fn pam_service(pamh: *mut PamHandle) -> Option<String> {
+    let mut item_ptr: *const std::os::raw::c_void = std::ptr::null();
+    if pam_get_item(pamh, PAM_SERVICE_ITEM, &mut item_ptr) != PAM_SUCCESS || item_ptr.is_null() {
+        return None;
+    }
+    CStr::from_ptr(item_ptr as *const c_char)
+        .to_str()
+        .ok()
+        .map(str::to_string)
 }
 
 /// Parse PAM options
@@ -148,7 +222,10 @@ fn parse_options(argc: c_int, argv: *const *const c_char) -> PamOptions {
                 // Parse key=value
                 if let Some((key, value)) = arg_cstr.split_once('=') {
                     match key {
-                        "context" => opts.context = value.to_string(),
+                        "context" => {
+                            opts.context = value.to_string();
+                            opts.context_explicit = true;
+                        }
                         "timeout_ms" => {
                             if let Ok(ms) = value.parse::<u64>() {
                                 opts.timeout_ms = ms;
@@ -181,6 +258,8 @@ fn parse_options(argc: c_int, argv: *const *const c_char) -> PamOptions {
                     opts.debug = true;
                 } else if arg_cstr == "confirm" {
                     opts.confirm = true;
+                } else if arg_cstr == "auto" {
+                    opts.auto = true;
                 }
             }
         }
@@ -482,7 +561,24 @@ pub unsafe extern "C" fn pam_sm_authenticate(
     log_pam("pam_sm_authenticate started");
 
     // Parse the options
-    let opts = parse_options(argc, argv);
+    let mut opts = parse_options(argc, argv);
+
+    if opts.auto && !opts.context_explicit {
+        let service = pam_service(pamh).unwrap_or_default();
+        match auto_context_for_service(&service, sddm_enabled()) {
+            Some((context, confirm)) => {
+                opts.context = context.to_string();
+                opts.confirm = opts.confirm || confirm;
+            }
+            None => {
+                log_pam(&format!(
+                    "auto: service '{}' not handled by linux-hello, ignoring",
+                    service
+                ));
+                return PAM_IGNORE;
+            }
+        }
+    }
 
     if opts.debug {
         log_pam(&format!(
@@ -1228,6 +1324,55 @@ mod tests {
         // what matters.
         assert!(parse_argv(&["confirm=true"]).confirm);
         assert!(parse_argv(&["confirm=false"]).confirm);
+    }
+
+    #[test]
+    fn test_parse_options_auto_flag() {
+        let opts = parse_argv(&["auto"]);
+        assert!(opts.auto);
+        assert!(!opts.context_explicit);
+        let opts = parse_argv(&["auto", "context=sudo"]);
+        assert!(opts.auto);
+        assert!(opts.context_explicit);
+        assert!(!parse_argv(&["context=sudo"]).auto);
+    }
+
+    #[test]
+    fn auto_context_maps_the_sudo_family_with_confirmation() {
+        for svc in ["sudo", "sudo-i", "su", "su-l"] {
+            assert_eq!(
+                auto_context_for_service(svc, false),
+                Some(("sudo", true)),
+                "{svc}"
+            );
+        }
+    }
+
+    #[test]
+    fn auto_context_maps_polkit_without_confirmation() {
+        assert_eq!(
+            auto_context_for_service("polkit-1", false),
+            Some(("polkit", false))
+        );
+    }
+
+    #[test]
+    fn auto_context_sddm_only_when_opted_in() {
+        assert_eq!(auto_context_for_service("sddm", false), None);
+        assert_eq!(
+            auto_context_for_service("sddm", true),
+            Some(("sddm", false))
+        );
+    }
+
+    #[test]
+    fn auto_context_ignores_every_other_service() {
+        // Everything else that @includes common-auth must be left alone.
+        for svc in [
+            "login", "sshd", "kde", "cron", "passwd", "chsh", "runuser", "other", "",
+        ] {
+            assert_eq!(auto_context_for_service(svc, true), None, "{svc}");
+        }
     }
 
     #[test]

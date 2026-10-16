@@ -1,0 +1,22 @@
+#!/bin/sh
+# Pre-removal for libpam-linux-hello
+#
+# Takes the linux-hello profile out of common-auth while pam_linux_hello.so
+# is still on disk, as pam-auth-update(8) requires: PAM must stay consistent
+# at every step of a removal. Not on upgrade — the profile stays enabled
+# across it.
+#
+# Unlike this package's postinst/postrm, this script keeps the debhelper
+# splice point below: before it existed, debhelper generated the whole prerm,
+# and dh_installsystemd's snippet there is what stops hello-daemon-system and
+# the autoconfigure timer on removal.
+
+set -e
+
+if [ "$1" = "remove" ]; then
+    pam-auth-update --package --remove linux-hello
+fi
+
+#DEBHELPER#
+
+exit 0

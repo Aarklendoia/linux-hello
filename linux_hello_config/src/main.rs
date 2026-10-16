@@ -492,25 +492,19 @@ fn extract_face_id_from_busctl(output: &str) -> Option<String> {
     Some(rest[..end].to_string())
 }
 
-/// Whether `/etc/pam.d/sddm` already has the linux-hello auth line — the
-/// same substring check `install-pam.sh --status`/`pam-lib.sh`'s
-/// `lh_configure_service` idempotency check uses to decide "already
-/// configured" (default `marker_substr`, `"pam_linux_hello"`).
+/// Whether face login is active on the SDDM screen — the same rule
+/// `install-pam.sh --status` and the PAM module itself apply.
 ///
-/// This used to check for a `linux-hello-sddm-auth` PAM substack reference
-/// instead — an earlier version of the KWallet-auto-unlock fix wrapped
-/// SDDM's kwallet/gnome-keyring lines in a substack, jumped into from the
-/// outer line by name rather than naming `pam_linux_hello.so` directly.
-/// That substack design turned out to be invalid PAM syntax (`pam.conf(5)`'s
-/// `control` field can't combine a `[value=action]` bracket with a control
-/// keyword like `substack` on the same line — confirmed on real hardware via
-/// `PAM adding faulty module: substack` in the journal) and was replaced by
-/// a jump-count block that references `pam_linux_hello.so` directly (see
-/// `pam-lib.sh`'s `lh_sddm_auth_block` and `docs/PAM_MODULE.md`'s "Password
-/// caching" section) — this check was left stale, always reporting SDDM as
-/// disabled on any machine actually running the corrected, working config.
-fn sddm_pam_line_present(contents: &str) -> bool {
-    contents.contains("pam_linux_hello")
+/// Since #215 there's no SDDM-specific line anymore: `/etc/pam.d/sddm`
+/// reaches the module through `common-auth`, where the `linux-hello`
+/// pam-auth-update profile puts its `pam_linux_hello.so auto` line, and the
+/// module only acts on the `sddm` service once the opt-in marker
+/// (`/etc/linux-hello/sddm-enabled`) exists. So "active" is the marker plus
+/// the profile line — or, on a machine not migrated yet, the line an earlier
+/// version inserted into `/etc/pam.d/sddm` itself.
+fn sddm_face_login_active(marker_present: bool, common_auth: &str, sddm_pam: &str) -> bool {
+    (marker_present && common_auth.contains("pam_linux_hello"))
+        || sddm_pam.contains("pam_linux_hello")
 }
 
 /// Starts a multi-threaded HTTP server on 127.0.0.1 (port allocated by the OS).
@@ -783,8 +777,8 @@ fn handle_ctrl_connection(
             .unwrap_or(false);
         ("200 OK", format!(r#"{{"active":{}}}"#, active))
     } else if req.contains("/sddm-status") {
-        // No elevation needed: /etc/pam.d/sddm is world-readable, and this
-        // is exactly what `install-pam.sh --status` itself checks. Also
+        // No elevation needed: every file read here is world-readable, and
+        // this is what `install-pam.sh --status` itself checks. Also
         // reports whether the SDDM toggle is even usable at all — the GUI
         // package doesn't hard-depend on libpam-linux-hello (install-pam.sh
         // lives there), so a GUI-only install must degrade gracefully
@@ -792,9 +786,12 @@ fn handle_ctrl_connection(
         // is computed once at startup (see `main`), not re-derived here
         // on every request — unlike `active`, it can't change over this
         // process's lifetime.
-        let active = std::fs::read_to_string("/etc/pam.d/sddm")
-            .map(|contents| sddm_pam_line_present(&contents))
-            .unwrap_or(false);
+        let read = |path: &str| std::fs::read_to_string(path).unwrap_or_default();
+        let active = sddm_face_login_active(
+            std::path::Path::new("/etc/linux-hello/sddm-enabled").exists(),
+            &read("/etc/pam.d/common-auth"),
+            &read("/etc/pam.d/sddm"),
+        );
         (
             "200 OK",
             format!(
@@ -1097,46 +1094,54 @@ mod tests {
         assert!(out.is_err());
     }
 
+    const STOCK_SDDM: &str = "#%PAM-1.0\n\
+        auth    requisite       pam_nologin.so\n\
+        @include common-auth\n";
+    const COMMON_AUTH_WITH_PROFILE: &str =
+        "auth\t[success=2 default=ignore]\tpam_linux_hello.so auto\n\
+        auth\t[success=1 default=ignore]\tpam_unix.so nullok\n";
+    const STOCK_COMMON_AUTH: &str = "auth\t[success=1 default=ignore]\tpam_unix.so nullok\n";
+
     #[test]
-    fn sddm_pam_line_present_detects_configured_line() {
-        let contents = "#%PAM-1.0\n\
-            auth    requisite       pam_nologin.so\n\
-            # >>> linux-hello-start\n\
-            auth       [success=ok default=3]   pam_linux_hello.so context=sddm\n\
-            auth       optional                  pam_kwallet5.so use_first_pass\n\
-            auth       optional                  pam_gnome_keyring.so use_first_pass\n\
-            auth       sufficient                pam_permit.so\n\
-            # <<< linux-hello-end\n\
-            @include common-auth\n";
-        assert!(sddm_pam_line_present(contents));
+    fn sddm_active_with_marker_and_profile() {
+        assert!(sddm_face_login_active(
+            true,
+            COMMON_AUTH_WITH_PROFILE,
+            STOCK_SDDM
+        ));
     }
 
     #[test]
-    fn sddm_pam_line_present_detects_the_old_plain_sufficient_line_too() {
-        // Pre-jump-block installs (or a machine mid-upgrade) still have this
-        // form until install-pam.sh --enable-sddm is re-run — must still
-        // report "enabled", not flip to "disabled" just because the file
-        // hasn't been migrated to the current design yet.
-        let contents = "#%PAM-1.0\n\
-            auth    requisite       pam_nologin.so\n\
+    fn sddm_inactive_without_marker_even_with_profile() {
+        // The profile alone only covers sudo/su/polkit — the module ignores
+        // the sddm service until the opt-in marker exists.
+        assert!(!sddm_face_login_active(
+            false,
+            COMMON_AUTH_WITH_PROFILE,
+            STOCK_SDDM
+        ));
+    }
+
+    #[test]
+    fn sddm_inactive_with_marker_but_no_profile() {
+        assert!(!sddm_face_login_active(true, STOCK_COMMON_AUTH, STOCK_SDDM));
+    }
+
+    #[test]
+    fn sddm_active_on_a_not_yet_migrated_machine() {
+        // An earlier version's line in /etc/pam.d/sddm itself, before
+        // libpam-linux-hello's postinst migrated it.
+        let legacy = "#%PAM-1.0\n\
             # >>> linux-hello-start\n\
             auth       sufficient   pam_linux_hello.so context=sddm\n\
             # <<< linux-hello-end\n\
             @include common-auth\n";
-        assert!(sddm_pam_line_present(contents));
+        assert!(sddm_face_login_active(false, STOCK_COMMON_AUTH, legacy));
     }
 
     #[test]
-    fn sddm_pam_line_present_false_for_stock_file() {
-        let contents = "#%PAM-1.0\n\
-            auth    requisite       pam_nologin.so\n\
-            @include common-auth\n";
-        assert!(!sddm_pam_line_present(contents));
-    }
-
-    #[test]
-    fn sddm_pam_line_present_false_for_empty_string() {
-        assert!(!sddm_pam_line_present(""));
+    fn sddm_inactive_when_files_unreadable() {
+        assert!(!sddm_face_login_active(false, "", ""));
     }
 
     #[test]

@@ -74,9 +74,10 @@ configuration — see below.
 ## PAM Activation
 
 - **sudo activates automatically**: `libpam-linux-hello` ships
-  `linux-hello-pam-autoconfigure.timer`, which configures `/etc/pam.d/sudo`,
-  `su`, and `polkit-1` as soon as any local user enrolls a face — no manual
-  step. See [PAM_MODULE.md](PAM_MODULE.md#automatic-activation).
+  `linux-hello-pam-autoconfigure.timer`, which enables the `linux-hello`
+  `pam-auth-update` profile (one line in `common-auth`, covering sudo, su
+  and polkit) as soon as any local user enrolls a face — no manual step.
+  See [PAM_MODULE.md](PAM_MODULE.md#automatic-activation).
 - **Screenlock unlocking needs no PAM configuration at all**: it's handled
   by `hello-daemon`'s own watcher, which unlocks the session directly via
   `loginctl` on a face match once you're locked out.
@@ -155,11 +156,17 @@ This stops/disables the daemon and the autoconfigure timer. It does
 
 ## Configuration Files Modified
 
-`linux-hello-pam-autoconfigure` and `install-pam.sh` back up any PAM file
-before editing it: `/etc/pam.d/<service>.pre-linuxhello-<timestamp>`.
-`install-pam.sh --remove` restores from the latest backup (or strips the
-inserted lines if none exists) and writes `/etc/linux-hello/pam-disabled`
-so automatic activation won't silently re-enable what was just removed.
+Only `/etc/pam.d/common-auth`, and only through `pam-auth-update` (profile
+`/usr/share/pam-configs/linux-hello`). No other package's PAM file is
+edited, so distro updates to `/etc/pam.d/sudo`, `su` or `sddm` never stop on
+a dpkg conffile prompt because of linux-hello
+([#215](https://github.com/Aarklendoia/linux-hello/issues/215)). linux-hello's
+own state lives in `/etc/linux-hello/`: `pam-disabled` (written by
+`install-pam.sh --remove`, so automatic activation won't silently re-enable
+what was just removed) and `sddm-enabled` (the SDDM opt-in).
+
+Upgrading from a version that edited the per-service files migrates them
+automatically: see [PAM_MODULE.md](PAM_MODULE.md#how-its-wired-a-pam-auth-update-profile).
 
 ## Troubleshooting
 
@@ -189,14 +196,14 @@ ls -la /dev/video*
 sudo usermod -a -G video $USER
 ```
 
-### Restore PAM from backup manually
+### Turn face authentication off by hand
 
 ```bash
-ls -la /etc/pam.d/*.pre-linuxhello-*
-sudo cp /etc/pam.d/sudo.pre-linuxhello-<timestamp> /etc/pam.d/sudo
+sudo pam-auth-update --disable linux-hello
 ```
 
-Or just run `sudo ./install-pam.sh --remove`.
+Or run `sudo install-pam.sh --remove`, which also stops the automatic timer
+from turning it back on.
 
 ## Package Dependencies
 

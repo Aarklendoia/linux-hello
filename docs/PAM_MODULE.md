@@ -26,15 +26,53 @@ Use the full path in the PAM configuration to test without root privileges.
 
 Installing `libpam-linux-hello` also installs `linux-hello-pam-autoconfigure.timer`,
 a systemd system timer (runs shortly after boot, then every ~5 minutes) that
-configures PAM for **sudo** automatically, as soon as any local user has
-enrolled at least one face — no manual step needed. It edits `sudo`,
-`sudo-i`, `su`, `su-l`, and `polkit-1`, using the same idempotent, backed-up
-insertion logic as `install-pam.sh` (see `pam-lib.sh`). The `sudo`/`sudo-i`/
-`su`/`su-l` lines are configured with the [`confirm`](#available-options)
-option — `polkit-1` isn't, since it already has its own confirmation dialog.
-It's safe on multi-user machines: the module already falls back to the password for any
-user with no enrolled face, so a single system-wide activation is correct
-regardless of who has actually enrolled.
+turns face authentication on automatically, as soon as any local user has
+enrolled at least one face — no manual step needed. It's safe on multi-user
+machines: the module already falls back to the password for any user with no
+enrolled face, so a single system-wide activation is correct regardless of
+who has actually enrolled.
+
+### How it's wired: a `pam-auth-update` profile
+
+The package ships a `pam-auth-update` profile,
+`/usr/share/pam-configs/linux-hello` (source:
+[debian/pam-configs/linux-hello](../debian/pam-configs/linux-hello)), the same
+mechanism `fprintd` uses. It's registered at install time but off by default
+(`Default: no`); the timer turns it on with `pam-auth-update --enable
+linux-hello`, which adds one line at the top of `/etc/pam.d/common-auth`:
+
+```text
+auth	[success=end default=ignore]	pam_linux_hello.so auto
+```
+
+(`pam-auth-update` rewrites `end` into the jump count past `pam_unix.so`.)
+With `auto`, the module picks its context from the PAM service:
+
+| PAM service | Context | Confirmation |
+|---|---|---|
+| `sudo`, `sudo-i`, `su`, `su-l` | `sudo` | [`confirm`](#available-options) ([y/N]) |
+| `polkit-1` | `polkit` | no — polkit already shows its own dialog |
+| `sddm` | `sddm` | no — only if `/etc/linux-hello/sddm-enabled` exists and is owned by root (see [SDDM](#sddm-login-screen)) |
+| anything else (`login`, `sshd`, the screen locker, ...) | — | ignored immediately (`PAM_IGNORE`): no camera, no message |
+
+On a match, `success=end` skips the password prompt; any other outcome
+(no match, no camera, daemon down, declined confirmation) is `ignore`, so the
+password stack runs as usual.
+
+No other package's file is edited. Earlier versions inserted a marked block
+into `/etc/pam.d/sudo`, `su`, `sddm`, etc. — conffiles of `sudo-common`,
+`util-linux` and `sddm` — so every distro update to one of them stopped the
+upgrade with a dpkg conffile prompt, and picking the maintainer's version
+silently dropped face auth for that service
+([#215](https://github.com/Aarklendoia/linux-hello/issues/215)). On upgrade,
+`libpam-linux-hello`'s postinst migrates such a machine: it enables the
+profile (and keeps an SDDM opt-in as the marker file), then removes the old
+lines, the `/etc/pam.d/polkit-1` file those versions created (it shadowed
+polkitd's own `/usr/lib/pam.d/polkit-1`), and the `*.pre-linuxhello-*`
+backups. If `common-auth` was edited by hand, `pam-auth-update` leaves it
+alone, so the migration stops and keeps the old lines; run
+`sudo pam-auth-update` and tick "Linux Hello face authentication", then
+`sudo install-pam.sh` to finish.
 
 **Screenlock doesn't use PAM at all.** Unlocking the screen with your face is
 handled entirely by `hello-daemon`'s own watcher: it polls
@@ -71,7 +109,8 @@ and the UI simply doesn't update — the original one-shot automatic unlock
 attempt at lock time still works either way.
 
 **Not covered by the automatic timer — the SDDM login screen.**
-`linux-hello-pam-autoconfigure` deliberately never touches `/etc/pam.d/sddm`.
+`linux-hello-pam-autoconfigure` deliberately never creates the SDDM opt-in
+marker, so the module keeps ignoring the `sddm` service.
 Login-screen support does exist (see [SDDM (Login Screen)](#sddm-login-screen)
 below) but stays manual/opt-in only, via `install-pam.sh` — it starts a new,
 always-on, root-owned, pre-authentication-reachable listener, which is
@@ -84,8 +123,9 @@ directly (no `getent`/NSS lookup) — accounts served only via `systemd-homed`
 timer, though PAM auth for those users still works fine once configured by
 some other means.
 
-**Opting out.** Run `sudo ./install-pam.sh --remove` to disable and revert;
-this creates `/etc/linux-hello/pam-disabled`, which the automatic timer
+**Opting out.** Run `sudo ./install-pam.sh --remove` to disable everything
+(it runs `pam-auth-update --disable linux-hello`); this also creates
+`/etc/linux-hello/pam-disabled`, which the automatic timer
 checks and respects — it will not re-enable PAM config while that marker
 exists. Running `install-pam.sh` again (without `--remove`) clears the
 marker and re-enables automatic activation. `install-pam.sh --status` shows
@@ -95,8 +135,8 @@ enabled or opted out.
 ## Manual setup on other distributions
 
 Automatic activation, `install-pam.sh` and the GUI's login-screen toggle only
-ship in the Debian/Ubuntu packages: they rely on Debian's `@include
-common-auth` PAM layout and on `dpkg-divert`. The Arch, RPM (Fedora,
+ship in the Debian/Ubuntu packages: they rely on `pam-auth-update` and on
+`dpkg-divert`. The Arch, RPM (Fedora,
 openSUSE) and Gentoo packages ship the module without them, so PAM is set up by hand there — after enrolling at
 least one face (GUI, or `linux-hello enroll`). The module falls back to the
 password for any user with no enrolled face, so these lines are safe on
@@ -160,13 +200,15 @@ home directory directly (root can read any home) and checks
 creating anything there.
 
 **This capability is opt-in only**, via `sudo install-pam.sh --enable-sddm`
-(which inserts the `pam_linux_hello.so context=sddm` line into
-`/etc/pam.d/sddm`, enables `hello-daemon-system.service`, **and** installs a
+(which creates the root-owned `/etc/linux-hello/sddm-enabled` marker the
+module checks before acting on the `sddm` service — `/etc/pam.d/sddm`
+itself is left untouched, it already `@include`s `common-auth` — enables
+`hello-daemon-system.service`, **and** installs a
 live status indicator into the configured SDDM greeter theme — see below),
 reverted with `sudo install-pam.sh --disable-sddm` (or together with
 everything else via `install-pam.sh --remove`). It is deliberately **not**
-part of automatic activation (`linux-hello-pam-autoconfigure` never touches
-`sddm` or this service) and, since this session, **not** part of
+part of automatic activation (`linux-hello-pam-autoconfigure` never creates
+the marker or starts this service) and, since this session, **not** part of
 `install-pam.sh`'s bare/default invocation either (which only configures
 sudo/su/polkit) — starting a new pre-authentication-reachable root listener
 is a large enough change to a machine's attack surface that it must always
@@ -335,54 +377,28 @@ either context would accomplish nothing.
 After a verified face match, `pam_sm_authenticate` calls
 `pam_set_item(pamh, PAM_AUTHTOK, cached_password)` — exactly the item a real
 password entry would have populated — before returning `PAM_SUCCESS`. That
-part alone isn't sufficient (see above), so `install-pam.sh --enable-sddm`
-also writes `context=sddm`'s auth line differently from every other
-context: instead of
+part alone isn't sufficient (see above): the keyring modules' own `auth`
+hooks still have to run *after* it, in the same transaction.
 
-```text
-auth sufficient pam_linux_hello.so context=sddm
-```
+Since [#215](https://github.com/Aarklendoia/linux-hello/issues/215) that
+falls out of the [`pam-auth-update` profile](#how-its-wired-a-pam-auth-update-profile)
+with no SDDM-specific line at all. The module's line sits at the top of
+`common-auth`'s *primary* block as `[success=end default=ignore]`; `end`
+jumps past `pam_unix.so` to the end of that block, not out of the stack. So
+after a face match, everything below still runs: `common-auth`'s
+"additional" block (where Kubuntu's `kde-kwallet` profile puts
+`auth optional pam_kwallet5.so`), then the rest of `/etc/pam.d/sddm` after
+its `@include common-auth` (`-auth optional pam_gnome_keyring.so`,
+`-auth optional pam_kwallet5.so`). Each of those reads the `PAM_AUTHTOK`
+the module just set, exactly as after a typed password.
 
-`install-pam.sh --enable-sddm` writes a small **jump-count block**
-(`pam-lib.sh`'s `lh_sddm_auth_block`) directly into `/etc/pam.d/sddm`,
-ahead of `@include common-auth`:
-
-```text
-# /etc/pam.d/sddm
-auth [success=ok default=3]  pam_linux_hello.so context=sddm
-auth optional                 pam_kwallet5.so use_first_pass
-auth optional                 pam_gnome_keyring.so use_first_pass
-auth sufficient                pam_permit.so
-@include common-auth
-...
-```
-
-An earlier version of this wrapped the two keyring lines in a PAM
-**substack**, jumped into from the outer line via
-`[success=done default=ignore] substack ...`. That turned out to be invalid
-PAM syntax: `pam.conf(5)`'s `control` field is either a simple keyword
-(`substack` included) *or* a `[value=action ...]` expression, never both on
-the same line. Real Linux-PAM parsed the bracket as the complete control
-token and then treated the literal word `substack` as a *module path* to
-`dlopen` — confirmed on real hardware via `PAM adding faulty module:
-substack` in the journal, which silently disabled face login on SDDM
-entirely (`pam_linux_hello.so` was no longer referenced by the file at all),
-not just the KWallet auto-unlock.
-
-The jump-count block avoids that failure mode entirely — no substack, just
-documented primitives combined the way `pam.conf(5)` describes them:
-`pam_linux_hello`'s own line uses `[success=ok default=3]`, not
-`sufficient`: on success it falls through into the two `optional` keyring
-lines (instead of terminating), so their `auth` hooks actually run and
-capture the now-populated `PAM_AUTHTOK`, then reach `pam_permit.so` — a
-module that always succeeds and, being `sufficient`, ends the auth phase
-right there, skipping `@include common-auth`. On any other outcome,
-`default=3` jumps clean over all three of those lines (per `pam.conf(5)`,
-a jumped-over module's own contribution counts as `ignore` during
-`pam_authenticate`, not a recorded failure) straight into `@include
-common-auth` — the ordinary password fallback, untouched. `use_first_pass`
-on the two keyring lines means they no-op quietly rather than prompting
-when `PAM_AUTHTOK` was never set.
+Earlier versions wrote a hand-built block into `/etc/pam.d/sddm` to get the
+same effect (`[success=ok default=3] pam_linux_hello.so context=sddm`, two
+`optional ... use_first_pass` keyring lines and `sufficient pam_permit.so`),
+after a first attempt combining `[success=done default=ignore]` with the
+`substack` keyword turned out to be invalid `pam.conf(5)` syntax that
+Linux-PAM silently misparsed as a module named `substack`. Both were edits
+to SDDM's conffile; the upgrade migration removes them.
 
 The password is captured once, explicitly, via `linux-hello cache-password`
 (CLI or the settings GUI's "Cache session password" card) — never from a
@@ -433,14 +449,9 @@ face-only login, since there's no password to capture there. It's:
 
 Requires SDDM face-login already enabled (`sudo install-pam.sh --enable-sddm`
 — `hello-daemon-system`, the only process with TPM access, doesn't run
-otherwise) and a working TPM. If SDDM face-login was already enabled
-*before* the jump-count block described above existed (either the original
-plain `sufficient` line, or the short-lived broken substack version), re-run
-`sudo install-pam.sh --enable-sddm` once — it's idempotent-safe to re-run,
-and upgrades the file to the block needed for the KWallet unlock to actually
-take effect (the lines it replaces still authenticate correctly on their
-own, they just never reach `pam_kwallet5`, or — for the broken substack
-version — never reach `pam_linux_hello.so` either). Then:
+otherwise) and a working TPM. A machine set up by an earlier version (any of
+the per-service SDDM lines described above) is migrated to the profile by
+the package upgrade itself; nothing to re-run. Then:
 
 ```bash
 linux-hello cache-password
@@ -525,6 +536,11 @@ auth [sufficient|required] /path/to/libpam_linux_hello.so [options]
 ### Available options
 
 - `context=<context>`: Authentication context (login, sudo, screenlock, sddm, test, etc.) [default: default]
+- `auto`: Pick the context (and `confirm`) from the PAM service instead —
+  the packaged `common-auth` line uses this; see the table in
+  [How it's wired](#how-its-wired-a-pam-auth-update-profile). Any service
+  not in that table gets `PAM_IGNORE` before any prompt. An explicit
+  `context=` on the same line wins over `auto`.
 - `timeout_ms=<ms>`: How long the camera stays engaged trying to recognize
   you [default: 30000]. Unlike a fixed quick burst, the camera opens once
   and keeps retrying continuously for up to this long — giving you real
@@ -537,9 +553,9 @@ auth [sufficient|required] /path/to/libpam_linux_hello.so [options]
 - `confirm`: After a face match, prompt "Confirm? [y/N]" and require an
   explicit `y` before granting access, instead of granting immediately.
   Guards against an accidental grant from someone merely being visible to
-  the camera while a prompt is open. Enabled by default on the
-  automatically-configured `sudo`/`sudo-i`/`su`/`su-l` lines (see
-  [Automatic Activation](#automatic-activation)); not applied to
+  the camera while a prompt is open. Applied by `auto` to `sudo`/`sudo-i`/
+  `su`/`su-l` (see [Automatic Activation](#automatic-activation)); not
+  applied to
   `screenlock` (meant to stay hands-free) or `polkit`/`sddm` (which already
   have their own confirmation UI). No timeout of its own — PAM's
   conversation API doesn't support one — so a confirmation prompt can wait
@@ -561,8 +577,9 @@ This plain `sufficient` line is fine on its own, but on a KDE/Plasma session
 it silently defeats KWallet auto-unlock even with password caching enabled:
 `sufficient`'s success skips every later `auth` line in the file, including
 `pam_kwallet5`/`pam_gnome_keyring`'s own — see "Password caching / KWallet
-auto-unlock" below for why that matters and the jump-count block
-`install-pam.sh --enable-sddm` actually writes instead.
+auto-unlock" above for why that matters, and for why the packaged
+`common-auth` line (`[success=end default=ignore] ... auto`) doesn't have
+this problem.
 
 #### Sudo
 

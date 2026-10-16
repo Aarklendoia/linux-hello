@@ -1,0 +1,6 @@
+Name: Linux Hello face authentication (sudo, su, polkit; SDDM if opted in)
+Default: no
+Priority: 300
+Auth-Type: Primary
+Auth:
+	[success=end default=ignore]	pam_linux_hello.so auto

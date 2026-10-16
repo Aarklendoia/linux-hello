@@ -174,6 +174,12 @@ On first build, `hello_face_core`'s build script downloads the ONNX models into 
 
 ## Configuring PAM
 
+On Debian/Ubuntu, nothing to do: the packages enable a `pam-auth-update`
+profile once a face is enrolled, which adds one line to `common-auth`
+(`pam_linux_hello.so auto`) and leaves every other PAM file alone. See
+[docs/PAM_MODULE.md](docs/PAM_MODULE.md#automatic-activation). On other
+distributions, add lines by hand, for example:
+
 ```text
 # /etc/pam.d/sudo
 auth   sufficient   pam_linux_hello.so context=sudo confirm=true
@@ -184,7 +190,7 @@ auth   sufficient   pam_linux_hello.so context=screenlock timeout_ms=3000
 auth   include      system-login
 ```
 
-Module options: `context`, `timeout_ms`, `confirm`, `debug`. Full reference in [docs/PAM_MODULE.md](docs/PAM_MODULE.md) and [docs/INTEGRATION_GUIDE.md](docs/INTEGRATION_GUIDE.md).
+Module options: `context`, `auto`, `timeout_ms`, `confirm`, `debug`. Full reference in [docs/PAM_MODULE.md](docs/PAM_MODULE.md) and [docs/INTEGRATION_GUIDE.md](docs/INTEGRATION_GUIDE.md).
 
 ## CLI usage
 
@@ -237,11 +243,10 @@ A fourth card, "Cache session password", is grayed out until SDDM face-login is 
 
 ## Security notes
 
-**You can never be locked out.** Every PAM line this project installs falls
-through to the normal password prompt if the camera fails, the face isn't
-recognized, or anything else goes wrong — `auth sufficient` for `sudo` and
-the screen locker, and an equivalent (but KWallet-aware — see below) jump
-block for SDDM. Face recognition only ever adds a faster option; it never
+**You can never be locked out.** The PAM line this project installs
+(`[success=end default=ignore]` in `common-auth`) falls through to the
+normal password prompt if the camera fails, the face isn't recognized, or
+anything else goes wrong. Face recognition only ever adds a faster option; it never
 replaces or gates your existing login. Calls are also bounded by a timeout,
 so a stuck camera can't hang a login attempt.
 
