@@ -1,0 +1,15 @@
+linux-hello (1.12.0) unstable; urgency=medium
+
+  The face models (det_500m.onnx and w600k_mbf.onnx, from InsightFace's
+  buffalo_sc pack) are no longer shipped in linux-hello-models. InsightFace
+  licenses them for non-commercial research purposes only:
+  https://github.com/deepinsight/insightface#license
+
+  If this machine already had them, they were kept and moved to
+  /var/lib/linux-hello/models: nothing changes, but check that your use is
+  covered by those terms. Otherwise, face authentication stays off until
+  you read the terms and install the models with:
+
+    sudo linux-hello models install
+
+ -- Linux Hello CI <aarklendoia+ci@proton.me>  Fri, 16 Oct 2026 10:00:00 +0200

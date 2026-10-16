@@ -71,14 +71,17 @@ Package: linux-hello-models
 Architecture: all
 Depends:
   ${misc:Depends}
-Description: ONNX models for Linux Hello face authentication
- This package contains the ONNX neural network models required by Linux Hello
- for face detection and embedding extraction.
+Description: Linux Hello face models (not included, installed on request)
+ Linux Hello needs two ONNX models from InsightFace's buffalo_sc pack: the
+ SCRFD-500M face detector and the ArcFace MobileNetV3 face embedding.
+ InsightFace licenses them for non-commercial research purposes only, so
+ they are not included in this package. After reading those terms, install
+ them with:
  .
- Models installed in /usr/share/linux-hello/models/:
+   sudo linux-hello models install
  .
-  * det_500m.onnx — SCRFD-500M face detector (~500 KB)
-  * w600k_mbf.onnx — ArcFace MobileNetV3 face embedding (~2.5 MB)
+ Upgrading from a version that shipped them keeps the existing copy, in
+ /var/lib/linux-hello/models.
 
 Package: libpam-linux-hello
 Architecture: any
@@ -102,7 +105,9 @@ Architecture: any
 Depends:
   ${shlibs:Depends},
   ${misc:Depends},
-  linux-hello-daemon
+  linux-hello-daemon,
+  curl | wget,
+  unzip
 Description: Command-line tools for Linux Hello
  Includes the linux-hello CLI for managing faces and testing.
 

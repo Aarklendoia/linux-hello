@@ -7,6 +7,7 @@
 //! - linux-hello list $UID   : list enrolled faces
 
 mod cache_password;
+mod models;
 
 use clap::{Parser, Subcommand};
 use hello_daemon::dbus_interface::{
@@ -96,6 +97,27 @@ enum Commands {
     /// Requires SDDM face-login to already be enabled
     /// (sudo install-pam.sh --enable-sddm) and a TPM.
     CachePassword,
+
+    /// Face models: Linux Hello doesn't ship them (InsightFace's terms only
+    /// allow non-commercial research use) — install them here after
+    /// reading those terms.
+    Models {
+        #[command(subcommand)]
+        action: ModelsAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum ModelsAction {
+    /// Show whether the face models are installed
+    Status,
+    /// Show InsightFace's terms, then download and install the models (root)
+    Install {
+        /// Accept the terms without asking (for scripts and the settings GUI,
+        /// which shows them itself first)
+        #[arg(long)]
+        accept_license: bool,
+    },
 }
 
 #[tokio::main]
@@ -129,6 +151,10 @@ async fn main() -> anyhow::Result<()> {
         Commands::Delete { user_id, face_id } => command_delete(user_id, face_id).await,
         Commands::Camera { duration } => command_camera(duration).await,
         Commands::CachePassword => cache_password::run(),
+        Commands::Models { action } => match action {
+            ModelsAction::Status => models::status(),
+            ModelsAction::Install { accept_license } => models::install(accept_license),
+        },
     }
 }
 

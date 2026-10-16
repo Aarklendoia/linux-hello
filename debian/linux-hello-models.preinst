@@ -1,0 +1,23 @@
+#!/bin/sh
+# Pre-installation for linux-hello-models
+#
+# Versions before #211 shipped the InsightFace face models in
+# /usr/share/linux-hello/models; this one doesn't (InsightFace's terms only
+# allow non-commercial research use and don't grant redistribution). On
+# upgrade, dpkg removes those files right after this script runs: keep the
+# copy this machine already has, where `linux-hello models install` would
+# put it, so face authentication keeps working.
+
+set -e
+
+old=/usr/share/linux-hello/models
+new=/var/lib/linux-hello/models
+
+if [ "$1" = "upgrade" ] &&
+   [ -f "$old/det_500m.onnx" ] && [ -f "$old/w600k_mbf.onnx" ] &&
+   ! { [ -f "$new/det_500m.onnx" ] && [ -f "$new/w600k_mbf.onnx" ]; }; then
+    install -d -m 755 "$new"
+    install -m 644 "$old/det_500m.onnx" "$old/w600k_mbf.onnx" "$new/"
+fi
+
+exit 0

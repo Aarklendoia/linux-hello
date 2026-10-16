@@ -95,7 +95,7 @@ jobs:
           echo "$PPA_GPG_PRIVATE_KEY" | gpg --batch --import
           gpg --list-secret-keys "$GPG_KEY_ID"
 
-      - name: Vendor dependencies and fetch ONNX models
+      - name: Vendor dependencies
         run: |
           RUST_TOOLCHAIN="${{ env.RUST_TOOLCHAIN }}" ./debian/scripts/prepare-offline-build.sh
 

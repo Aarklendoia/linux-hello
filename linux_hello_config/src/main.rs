@@ -507,6 +507,30 @@ fn sddm_face_login_active(marker_present: bool, common_auth: &str, sddm_pam: &st
         || sddm_pam.contains("pam_linux_hello")
 }
 
+/// The `linux-hello` CLI, which installs the face models.
+const LINUX_HELLO_CLI: &str = "/usr/bin/linux-hello";
+
+/// Directories the daemons load the face models from, in
+/// `hello_face_core::model_pack::resolve_models_dir`'s order (this crate
+/// deliberately doesn't depend on hello_face_core): where
+/// `linux-hello models install` puts them, then where packages before #211
+/// shipped them.
+const FACE_MODELS_DIRS: [&str; 2] = [
+    "/var/lib/linux-hello/models",
+    "/usr/share/linux-hello/models",
+];
+const FACE_MODEL_FILES: [&str; 2] = ["det_500m.onnx", "w600k_mbf.onnx"];
+
+fn face_models_installed() -> bool {
+    FACE_MODELS_DIRS
+        .iter()
+        .any(|dir| models_in(std::path::Path::new(dir)))
+}
+
+fn models_in(dir: &std::path::Path) -> bool {
+    FACE_MODEL_FILES.iter().all(|f| dir.join(f).is_file())
+}
+
 /// Starts a multi-threaded HTTP server on 127.0.0.1 (port allocated by the OS).
 /// Each connection is handled in a dedicated thread.
 /// Returns the assigned port.
@@ -776,6 +800,44 @@ fn handle_ctrl_connection(
             })
             .unwrap_or(false);
         ("200 OK", format!(r#"{{"active":{}}}"#, active))
+    } else if req.contains("/models-status") {
+        // The face models aren't shipped (#211): the home screen shows
+        // InsightFace's terms and an install button until they're there.
+        // `available`: whether that button can work at all (the CLI that
+        // downloads them lives in linux-hello-tools, and pkexec is needed to
+        // run it as root).
+        let installed = face_models_installed();
+        let available = std::path::Path::new(LINUX_HELLO_CLI).exists()
+            && std::path::Path::new("/usr/bin/pkexec").exists();
+        (
+            "200 OK",
+            format!(r#"{{"installed":{},"available":{}}}"#, installed, available),
+        )
+    } else if req.contains("/models-install") {
+        // The GUI shows the terms itself before this route is called, hence
+        // --accept-license. Blocking is fine: each connection runs on its
+        // own thread, and pkexec waits for the user's polkit dialog.
+        match run_command(Command::new("pkexec").args([
+            LINUX_HELLO_CLI,
+            "models",
+            "install",
+            "--accept-license",
+        ])) {
+            Ok(_) => ("200 OK", r#"{"ok":true}"#.to_string()),
+            Err(err) => {
+                eprintln!("✗ models install failed: {}", err);
+                // Same "Not authorized" collapsing as /sddm-enable.
+                let error_code = if err.contains("Not authorized") {
+                    "models-error:cancelled".to_string()
+                } else {
+                    json_escape(&err)
+                };
+                (
+                    "200 OK",
+                    format!(r#"{{"ok":false,"error":"{}"}}"#, error_code),
+                )
+            }
+        }
     } else if req.contains("/sddm-status") {
         // No elevation needed: every file read here is world-readable, and
         // this is what `install-pam.sh --status` itself checks. Also
@@ -1072,6 +1134,16 @@ mod tests {
         );
         assert_eq!(choose_qml_runtime(|_| None, || None), None);
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn models_in_needs_both_files() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(!models_in(dir.path()));
+        std::fs::write(dir.path().join(FACE_MODEL_FILES[0]), b"x").unwrap();
+        assert!(!models_in(dir.path()));
+        std::fs::write(dir.path().join(FACE_MODEL_FILES[1]), b"x").unwrap();
+        assert!(models_in(dir.path()));
     }
 
     #[test]

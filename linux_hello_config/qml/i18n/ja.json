@@ -28,7 +28,15 @@
         "cachePasswordTitle": "Cache session password",
         "cachePasswordActiveSub": "Cached — auto-unlocks KWallet",
         "cachePasswordInactiveSub": "Not cached — tap to set up",
-        "cachePasswordUnavailableSub": "Unavailable — enable the login screen first"
+        "cachePasswordUnavailableSub": "Unavailable — enable the login screen first",
+        "modelsTitle": "Face models not installed",
+        "modelsBody": "Face authentication needs two models from InsightFace (the buffalo_sc pack). Linux Hello doesn't include them: InsightFace licenses them for non-commercial research purposes only. Downloading them means you accept those terms for this computer. If your use isn't covered (for example, commercial use), don't download them.",
+        "modelsTermsLink": "Read InsightFace's terms",
+        "modelsAcceptBtn": "Accept and download",
+        "modelsBusy": "Downloading…",
+        "modelsUnavailable": "Install linux-hello-tools, then run: sudo linux-hello models install",
+        "modelsInstalled": "Face models installed",
+        "registerBtnNoModels": "Install the face models first"
     },
     "enrollment": {
         "title": "顔登録",

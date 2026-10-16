@@ -155,3 +155,18 @@ real users) aren't affected: `sudo apt-mark unhold ...`.
 (en/fr/zh/es/hi/ar/pt/ru/ja/de). When adding new keys: write real EN and FR text (this session's
 established quality bar); the other 8 currently carry the **English text as a placeholder**
 pending real translation — a known, flagged gap, not a finished translation.
+
+## Face models are never shipped (#211)
+
+`det_500m.onnx`/`w600k_mbf.onnx` are InsightFace's (buffalo_sc), "for non-commercial research
+purposes only" — no package, source tarball (PPA upload, RPM vendor tarball) or release asset may
+contain them. Machines fetch them with `sudo linux-hello models install`
+(`linux_hello_cli/src/models.rs`: shows the terms, pinned sha256, installs to
+`/var/lib/linux-hello/models`) or the GUI's home-screen notice (pkexec, `--accept-license`).
+Packaging builds set `LINUX_HELLO_NO_MODEL_DOWNLOAD=1`. Gentoo is the exception: Portage fetches
+them on the user's machine after `package.license` acceptance, with `RESTRICT="bindist mirror"`.
+
+Without the models the daemon **refuses to capture** (`CameraError::ModelsMissing`) instead of
+using `create_detector`/`create_extractor`'s stub fallbacks — the stub detector "finds" a face in
+the middle of any frame and the stub extractor hashes pixel brightness, so enrolling/verifying with
+them would accept almost anyone. Don't wire the stubs back into a production path.

@@ -1,14 +1,18 @@
 //! build.rs for hello_face_core
 //!
-//! Downloads the ONNX models if missing:
-//!   - det_500m.onnx  (SCRFD-500M, ~500 KB)
-//!   - w600k_mbf.onnx (ArcFace MobileNetV3, ~2.5 MB)
+//! Development convenience: downloads the ONNX models if missing, into
+//! $XDG_DATA_HOME/linux-hello/models/ (one of the directories
+//! `model_pack::resolve_models_dir` searches):
+//!   - det_500m.onnx  (SCRFD-500M)
+//!   - w600k_mbf.onnx (ArcFace MobileNetV3)
 //!
-//! Models are stored in ~/.local/share/linux-hello/models/
-//! (or /var/lib/linux-hello/models/ in root mode).
+//! They're InsightFace's, for non-commercial research only (#211), so no
+//! package ships them: every packaging build sets
+//! LINUX_HELLO_NO_MODEL_DOWNLOAD=1, and installed systems fetch them with
+//! `linux-hello models install` (see src/model_pack.rs).
 //!
-//! If the download fails, the build continues normally —
-//! the Rust code will automatically fall back to the stub.
+//! If the download fails, the build continues normally; the daemon then
+//! refuses to capture until the models are installed.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -18,14 +22,11 @@ use std::process::Command;
 const MODEL_PACK_URL: &str =
     "https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_sc.zip";
 
-// Pinned so a compromised/tampered release asset can't silently end up
-// bundled into a signed package — this exact build.rs pattern also runs
-// unattended in debian/scripts/prepare-offline-build.sh (which mirrors this
-// constant), feeding the source tarball that publish-ppa.yml signs and
-// uploads with no human reviewing the fetched bytes in between. Verified
-// against the real v0.7 buffalo_sc.zip with `sha256sum` on 2026-07-22 — if
-// upstream ever re-cuts this release asset, both this and the shell script's
-// copy need updating together.
+// Pinned so a tampered release asset is rejected. Mirrors
+// src/model_pack.rs's MODEL_PACK_SHA256 (a build script can't use its own
+// crate) — update both together if upstream ever re-cuts this release
+// asset. Verified against the real v0.7 buffalo_sc.zip with `sha256sum` on
+// 2026-07-22.
 const MODEL_PACK_SHA256: &str = "57d31b56b6ffa911c8a73cfc1707c73cab76efe7f13b675a05223bf42de47c72";
 
 const MODELS: &[(&str, &str)] = &[
@@ -91,12 +92,12 @@ fn download_pack(url: &str, dest: &Path) -> bool {
                         }
                         Some(actual) => {
                             println!(
-                                "cargo:warning=⚠ Model pack checksum mismatch (got {}, expected {}) - refusing to use it, stub fallback will be used",
+                                "cargo:warning=⚠ Model pack checksum mismatch (got {}, expected {}) - refusing to use it",
                                 actual, MODEL_PACK_SHA256
                             );
                         }
                         None => {
-                            println!("cargo:warning=⚠ Could not compute the model pack's checksum (sha256sum missing?) - refusing to use it, stub fallback will be used");
+                            println!("cargo:warning=⚠ Could not compute the model pack's checksum (sha256sum missing?) - refusing to use it");
                         }
                     }
                 }
@@ -105,7 +106,7 @@ fn download_pack(url: &str, dest: &Path) -> bool {
         let _ = std::fs::remove_file(dest);
     }
 
-    println!("cargo:warning=⚠ Failed to download the model pack - stub fallback will be used");
+    println!("cargo:warning=⚠ Failed to download the model pack - the daemon will refuse to capture until the models are installed");
     false
 }
 
@@ -129,7 +130,7 @@ fn extract_from_pack(zip_path: &Path, filename: &str, dest: &Path, desc: &str) -
         true
     } else {
         println!(
-            "cargo:warning=⚠ Failed to extract {} - stub fallback will be used",
+            "cargo:warning=⚠ Failed to extract {} - the daemon will refuse to capture until the models are installed",
             desc
         );
         let _ = std::fs::remove_file(dest);

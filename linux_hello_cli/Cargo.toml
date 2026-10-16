@@ -27,3 +27,6 @@ libc.workspace = true
 # (hand-rolled pam_start/pam_authenticate FFI, see command_cache_password),
 # then wipes it from memory once sent to hello-daemon-system's cache socket.
 zeroize = "1.9.0"
+
+[dev-dependencies]
+tempfile.workspace = true

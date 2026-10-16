@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 pub mod liveness;
+pub mod model_pack;
 pub mod stub_detector;
 
 #[cfg(feature = "tract")]
@@ -215,30 +216,10 @@ pub mod simple_implementation {
     }
 }
 
-/// Default path of the models directory
+/// Directory the ONNX models are loaded from — see
+/// [`model_pack::resolve_models_dir`].
 pub fn default_models_dir() -> std::path::PathBuf {
-    // 1. Runtime environment variable (test/development override)
-    if let Ok(p) = std::env::var("LINUX_HELLO_MODELS_DIR") {
-        return std::path::PathBuf::from(p);
-    }
-    // 2. System path (installed linux-hello-models package)
-    let system_path = std::path::PathBuf::from("/usr/share/linux-hello/models");
-    if system_path.exists() {
-        return system_path.clone();
-    }
-    // 3. Path compiled in by build.rs (development/CI)
-    if let Some(p) = option_env!("LINUX_HELLO_MODELS_DIR") {
-        let path = std::path::PathBuf::from(p);
-        if path.exists() {
-            return path;
-        }
-    }
-    // 4. $XDG_DATA_HOME, falling back to ~/.local/share (dirs::data_dir()'s
-    //    own fallback chain)
-    if let Some(data_dir) = dirs::data_dir() {
-        return data_dir.join("linux-hello/models");
-    }
-    system_path
+    model_pack::resolve_models_dir()
 }
 
 /// What `ensure_ort_dylib_path` should do about `ORT_DYLIB_PATH`.
@@ -332,6 +313,51 @@ fn ensure_ort_dylib_path() {
                  to fix this."
             );
         }
+    }
+}
+
+/// Loads the real detector and extractor from `models_dir`, or `None` if
+/// either model file is missing or fails to load (or the crate was built
+/// without the `tract` feature).
+///
+/// Unlike [`create_detector`]/[`create_extractor`], never falls back to the
+/// stubs: the stub detector reports a face in the middle of any frame and
+/// the stub extractor derives an "embedding" from pixel brightness, so
+/// enrolling or verifying with them would accept almost anyone. The daemon
+/// uses this and refuses to capture until the models are installed (#211).
+pub fn load_models(
+    models_dir: &std::path::Path,
+) -> Option<(Box<dyn FaceDetector>, Box<dyn EmbeddingExtractor>)> {
+    #[cfg(feature = "tract")]
+    {
+        if !model_pack::models_present(models_dir) {
+            tracing::warn!("Face models not installed in {:?}", models_dir);
+            return None;
+        }
+        ensure_ort_dylib_path();
+        let detector = match scrfd_detector::ScrfdDetector::load(&models_dir.join("det_500m.onnx"))
+        {
+            Ok(det) => det,
+            Err(e) => {
+                tracing::warn!("SCRFD loading failed: {}", e);
+                return None;
+            }
+        };
+        let extractor =
+            match arcface_extractor::ArcFaceExtractor::load(&models_dir.join("w600k_mbf.onnx")) {
+                Ok(ext) => ext,
+                Err(e) => {
+                    tracing::warn!("ArcFace loading failed: {}", e);
+                    return None;
+                }
+            };
+        tracing::info!("Face models loaded from {:?}", models_dir);
+        Some((Box::new(detector), Box::new(extractor)))
+    }
+    #[cfg(not(feature = "tract"))]
+    {
+        let _ = models_dir;
+        None
     }
 }
 

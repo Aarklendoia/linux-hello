@@ -1,0 +1,34 @@
+# The face models aren't shipped anymore (#211, InsightFace's terms): this
+# package used to install them in /usr/share/linux-hello/models.
+
+# Runs before pacman removes the old package's files: keep the copy this
+# machine already has, where `linux-hello models install` would put it.
+pre_upgrade() {
+  local old=/usr/share/linux-hello/models new=/var/lib/linux-hello/models
+  if [ -f "$old/det_500m.onnx" ] && [ -f "$old/w600k_mbf.onnx" ] &&
+     ! { [ -f "$new/det_500m.onnx" ] && [ -f "$new/w600k_mbf.onnx" ]; }; then
+    install -d -m755 "$new"
+    install -m644 "$old/det_500m.onnx" "$old/w600k_mbf.onnx" "$new/"
+  fi
+}
+
+post_upgrade() {
+  post_install
+}
+
+post_install() {
+  if [ -f /var/lib/linux-hello/models/det_500m.onnx ] && [ -f /var/lib/linux-hello/models/w600k_mbf.onnx ]; then
+    cat <<'EOF'
+==> linux-hello-models: face models found in /var/lib/linux-hello/models.
+    They're InsightFace's, licensed for non-commercial research only:
+    https://github.com/deepinsight/insightface#license
+EOF
+  else
+    cat <<'EOF'
+==> linux-hello-models: the face models are NOT included (InsightFace's
+    terms only allow non-commercial research use). Face authentication
+    stays off until you read those terms and install them:
+      sudo linux-hello models install
+EOF
+  fi
+}

@@ -28,7 +28,15 @@
         "cachePasswordTitle": "Mémoriser le mot de passe",
         "cachePasswordActiveSub": "Mémorisé — déverrouille KWallet automatiquement",
         "cachePasswordInactiveSub": "Non mémorisé — appuyez pour configurer",
-        "cachePasswordUnavailableSub": "Indisponible — activez d'abord l'écran de connexion"
+        "cachePasswordUnavailableSub": "Indisponible — activez d'abord l'écran de connexion",
+        "modelsTitle": "Modèles de visage non installés",
+        "modelsBody": "La reconnaissance faciale nécessite deux modèles d'InsightFace (le pack buffalo_sc). Linux Hello ne les inclut pas : InsightFace les réserve à un usage de recherche non commercial. En les téléchargeant, vous acceptez ces conditions pour cet ordinateur. Si votre usage n'est pas couvert (par exemple un usage commercial), ne les téléchargez pas.",
+        "modelsTermsLink": "Lire les conditions d'InsightFace",
+        "modelsAcceptBtn": "Accepter et télécharger",
+        "modelsBusy": "Téléchargement…",
+        "modelsUnavailable": "Installez linux-hello-tools, puis lancez : sudo linux-hello models install",
+        "modelsInstalled": "Modèles de visage installés",
+        "registerBtnNoModels": "Installez d'abord les modèles de visage"
     },
     "enrollment": {
         "title": "Enregistrement du visage",
