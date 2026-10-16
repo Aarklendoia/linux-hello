@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.12.0](https://github.com/Aarklendoia/linux-hello/compare/v1.11.0...v1.12.0) (2026-10-16)
+
+
+### Features
+
+* **models:** stop shipping the InsightFace models; install them on request after showing their terms ([#217](https://github.com/Aarklendoia/linux-hello/issues/217)) ([c92ffb9](https://github.com/Aarklendoia/linux-hello/commit/c92ffb9661894da173a3e65af59ca90753c0c696))
+
+
+### Bug Fixes
+
+* **pam:** wire face auth through a pam-auth-update profile instead of editing distro conffiles ([#216](https://github.com/Aarklendoia/linux-hello/issues/216)) ([dc0e2d2](https://github.com/Aarklendoia/linux-hello/commit/dc0e2d2a86cc7667e2bd9b2324a1b4fa70063963))
+
 ## [1.11.0](https://github.com/Aarklendoia/linux-hello/compare/v1.10.0...v1.11.0) (2026-10-15)
 
 
