@@ -201,6 +201,29 @@ lh_remove_legacy_backups() {
     find "${PAM_DIR:?}" -maxdepth 1 -type f -name "*.pre-linuxhello-*" -delete 2>/dev/null || true
 }
 
+# lh_report_stale_dist_conffiles — earlier versions' edits made the legacy
+# service files locally modified conffiles, so a distro upgrade in between
+# kept the old file and left the new one next to it as `.dpkg-dist`.
+# Stripping our lines leaves that *previous* distro version behind, still
+# "modified" in dpkg's eyes (#227). Restoring it is the admin's call — the
+# file may carry edits of their own — so this only names the files and the
+# command. Prints nothing when there's nothing to report.
+lh_report_stale_dist_conffiles() {
+    local svc stale=""
+    for svc in $LH_LEGACY_SERVICES; do
+        if [[ -f "$PAM_DIR/$svc.dpkg-dist" ]]; then
+            stale="$stale $svc"
+        fi
+    done
+    [[ -n "$stale" ]] || return 0
+    echo "Note: the distribution's current version of these PAM files is waiting next to them as .dpkg-dist:"
+    for svc in $stale; do
+        echo "  $PAM_DIR/$svc  (new version: $PAM_DIR/$svc.dpkg-dist)"
+    done
+    echo "linux-hello no longer edits them. Unless you changed them yourself, switch to the distribution's version:"
+    echo "  for f in$stale; do sudo mv $PAM_DIR/\$f.dpkg-dist $PAM_DIR/\$f; done"
+}
+
 # lh_migrate_legacy_config — moves a machine configured by an earlier
 # version to the profile: keeps SDDM's opt-in (as the marker), enables the
 # profile, and only then removes the old per-service lines, so face auth

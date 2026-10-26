@@ -74,6 +74,18 @@ alone, so the migration stops and keeps the old lines; run
 `sudo pam-auth-update` and tick "Linux Hello face authentication", then
 `sudo install-pam.sh` to finish.
 
+If a distro upgrade happened while those lines were still there (e.g.
+Kubuntu 26.04 → 26.10), dpkg kept the old `su`/`su-l`/`sddm` and put the new
+version next to it as `.dpkg-dist`. The migration strips its lines but
+doesn't swap another package's file for you, since it may carry your own
+edits; the postinst lists any such file
+([#227](https://github.com/Aarklendoia/linux-hello/issues/227)). Unless you
+changed them yourself, switch to the distro's version:
+
+```sh
+for f in su su-l sddm; do [ -f /etc/pam.d/$f.dpkg-dist ] && sudo mv /etc/pam.d/$f.dpkg-dist /etc/pam.d/$f; done
+```
+
 **Screenlock doesn't use PAM at all.** Unlocking the screen with your face is
 handled entirely by `hello-daemon`'s own watcher: it polls
 `org.freedesktop.ScreenSaver` over D-Bus, and on a face match while the

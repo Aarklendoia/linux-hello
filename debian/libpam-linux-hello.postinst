@@ -25,6 +25,7 @@ if [ "$1" = "configure" ]; then
         if ! lh_migrate_legacy_config; then
             echo "⚠ linux-hello: could not migrate the earlier per-service PAM configuration (see above); it was left in place" >&2
         fi
+        lh_report_stale_dist_conffiles
         exec 9>&-
     fi
 fi
