@@ -32,6 +32,7 @@ concurrency:
 jobs:
   sources:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout code
         uses: actions/checkout@v7
@@ -62,6 +63,7 @@ jobs:
           - { name: tumbleweed, image: 'opensuse/tumbleweed', dist: '.tumbleweed' }
           - { name: fedora45, image: 'fedora:45', dist: '' }
     runs-on: ubuntu-latest
+    timeout-minutes: 75
     container: ${{ matrix.image }}
 
     steps:
@@ -135,6 +137,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: rpm
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Download sources
         uses: actions/download-artifact@v8

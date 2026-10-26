@@ -10,6 +10,7 @@ on:
 jobs:
   format:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     
     steps:
       - name: Checkout code
@@ -25,6 +26,7 @@ jobs:
   
   lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     
     steps:
       - name: Checkout code
@@ -53,6 +55,7 @@ jobs:
   
   security:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     
     steps:
       - name: Checkout code

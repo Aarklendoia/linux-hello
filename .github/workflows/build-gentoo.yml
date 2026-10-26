@@ -35,6 +35,7 @@ jobs:
     # so it's built and pushed here by the first run of each month or after
     # the Dockerfile changes, and pulled by every other run.
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     outputs:
       image: ${{ steps.image.outputs.ref }}
     steps:
@@ -66,6 +67,7 @@ jobs:
   gentoo:
     needs: image
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     container:
       image: ${{ needs.image.outputs.image }}
       credentials:
