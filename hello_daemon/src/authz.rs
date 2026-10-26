@@ -17,8 +17,8 @@
 //! login session can trigger the prompt, but only a human answering it with
 //! the account password lets the call through.
 use tracing::{debug, warn};
-use zbus::zvariant::Value;
 use zbus::Connection;
+use zbus::Variant;
 
 /// The single polkit action shared by `register_face` and `delete_face` —
 /// both let a caller change what unlocks `sudo`, so both carry the same risk
@@ -119,8 +119,8 @@ async fn check_polkit_authorization(action: &str) -> bool {
     };
 
     let mut subject_details = std::collections::HashMap::new();
-    subject_details.insert("pid", Value::new(std::process::id()));
-    subject_details.insert("start-time", Value::new(start_time));
+    subject_details.insert("pid", Variant::new(std::process::id()));
+    subject_details.insert("start-time", Variant::new(start_time));
     let subject = ("unix-process", subject_details);
     let details: std::collections::HashMap<&str, &str> = std::collections::HashMap::new();
     const ALLOW_USER_INTERACTION: u32 = 1;

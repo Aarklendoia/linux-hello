@@ -41,8 +41,7 @@ const RETRY_COOLDOWN: Duration = Duration::from_secs(4);
 #[proxy(
     interface = "org.freedesktop.ScreenSaver",
     default_service = "org.freedesktop.ScreenSaver",
-    default_path = "/org/freedesktop/ScreenSaver",
-    gen_blocking = false
+    default_path = "/org/freedesktop/ScreenSaver"
 )]
 trait ScreenSaver {
     /// Returns true if the screen is currently locked.
