@@ -37,6 +37,7 @@ env:
 jobs:
   plan:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
     steps:
@@ -63,6 +64,7 @@ jobs:
   publish-ppa:
     needs: plan
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     strategy:
       # One series failing (e.g. a Launchpad rejection) mustn't block the
       # others' uploads.
