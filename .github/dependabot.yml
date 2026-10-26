@@ -16,6 +16,13 @@ updates:
       prefix: "chore: "
       prefix-development: "chore(dev): "
       include: "scope"
+    ignore:
+      # parking_lot 0.13 (and parking_lot_core 0.10) require Rust 1.95, but the
+      # PPA build for Ubuntu resolute uses that series' cargo (1.93.1), and the
+      # RPM spec / Gentoo ebuild declare 1.93 as the minimum. Drop this once
+      # every supported target ships Rust >= 1.95 (#222).
+      - dependency-name: "parking_lot"
+        versions: [">=0.13"]
   
   # GitHub Actions
   - package-ecosystem: "github-actions"
