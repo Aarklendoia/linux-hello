@@ -183,7 +183,15 @@ override_dh_installsystemd:
 	# same risk class as #158, just inverted. The package's other two
 	# units (which should auto-enable/start normally) and every other
 	# package's units are unaffected.
-	dh_installsystemd -plibpam-linux-hello --no-enable --no-start --name=hello-daemon-system
+	#
+	# --restart-after-upgrade must be explicit: --no-start silently turns
+	# off debhelper's compat-10+ default, and dh_installsystemd then emits
+	# a preinst that *stops* the unit on every upgrade. The postinst's
+	# "restart it if it's active" check then finds it stopped and leaves it
+	# down until the next reboot — no SDDM face login, no KWallet
+	# auto-unlock. With it, the old binary keeps running through the
+	# unpack and the postinst restarts it.
+	dh_installsystemd -plibpam-linux-hello --no-enable --no-start --restart-after-upgrade --name=hello-daemon-system
 	dh_installsystemd -plibpam-linux-hello linux-hello-pam-autoconfigure.service linux-hello-pam-autoconfigure.timer
 	dh_installsystemd --remaining-packages
 
