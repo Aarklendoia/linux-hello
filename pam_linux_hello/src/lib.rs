@@ -532,6 +532,56 @@ fn apply_cached_authtok(pamh: *mut PamHandle, username: &str, password: String) 
     }
 }
 
+/// What a granted transaction leaves in `PAM_AUTHTOK`.
+#[derive(Debug, PartialEq, Eq)]
+enum AuthtokAction {
+    /// The password released from the TPM-sealed cache (SDDM): the keyring
+    /// modules unlock with it.
+    Cached(String),
+    /// An empty token. Since #216 the face match only jumps to the end of
+    /// `common-auth`'s Primary block, so the Additional modules after it
+    /// still run on sudo/su/polkit too — and `pam_kwallet5` prompts for a
+    /// password itself when `PAM_AUTHTOK` is NULL, while it does nothing on
+    /// an empty one (#229).
+    Blank,
+    /// A token is already there (an earlier module set it): leave it alone.
+    Keep,
+}
+
+fn authtok_action(cached_authtok: Option<String>, authtok_set: bool) -> AuthtokAction {
+    match cached_authtok {
+        Some(password) => AuthtokAction::Cached(password),
+        None if authtok_set => AuthtokAction::Keep,
+        None => AuthtokAction::Blank,
+    }
+}
+
+/// Whether `PAM_AUTHTOK` already holds a token.
+///
+/// # Safety
+/// `pamh` must be a valid PAM handle for the duration of this call.
+unsafe fn authtok_is_set(pamh: *mut PamHandle) -> bool {
+    let mut item_ptr: *const std::os::raw::c_void = std::ptr::null();
+    pam_get_item(pamh, PAM_AUTHTOK, &mut item_ptr) == PAM_SUCCESS && !item_ptr.is_null()
+}
+
+/// Sets `PAM_AUTHTOK` to an empty string — see `AuthtokAction::Blank`.
+fn apply_blank_authtok(pamh: *mut PamHandle, username: &str) {
+    let ret = unsafe {
+        pam_set_item(
+            pamh,
+            PAM_AUTHTOK,
+            c"".as_ptr() as *const std::os::raw::c_void,
+        )
+    };
+    if ret != PAM_SUCCESS {
+        log_pam(&format!(
+            "apply_blank_authtok: pam_set_item failed for {} (ret={})",
+            username, ret
+        ));
+    }
+}
+
 /// Main PAM function: authentication
 ///
 /// # Arguments
@@ -692,8 +742,12 @@ pub unsafe extern "C" fn pam_sm_authenticate(
                 // confirmation must not leak it into PAM_AUTHTOK on a
                 // transaction that's about to fail anyway.
                 if retcode == PAM_SUCCESS {
-                    if let Some(password) = cached_authtok {
-                        apply_cached_authtok(pamh, &username, password);
+                    match authtok_action(cached_authtok, authtok_is_set(pamh)) {
+                        AuthtokAction::Cached(password) => {
+                            apply_cached_authtok(pamh, &username, password)
+                        }
+                        AuthtokAction::Blank => apply_blank_authtok(pamh, &username),
+                        AuthtokAction::Keep => {}
                     }
                 }
 
@@ -1354,6 +1408,28 @@ mod tests {
             auto_context_for_service("polkit-1", false),
             Some(("polkit", false))
         );
+    }
+
+    #[test]
+    fn authtok_action_prefers_the_cached_password() {
+        assert_eq!(
+            authtok_action(Some("secret".into()), false),
+            AuthtokAction::Cached("secret".into())
+        );
+        assert_eq!(
+            authtok_action(Some("secret".into()), true),
+            AuthtokAction::Cached("secret".into())
+        );
+    }
+
+    #[test]
+    fn authtok_action_blanks_an_unset_token_so_kwallet_does_not_prompt() {
+        assert_eq!(authtok_action(None, false), AuthtokAction::Blank);
+    }
+
+    #[test]
+    fn authtok_action_keeps_an_existing_token() {
+        assert_eq!(authtok_action(None, true), AuthtokAction::Keep);
     }
 
     #[test]
