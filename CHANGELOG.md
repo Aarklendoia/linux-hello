@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.12.2](https://github.com/Aarklendoia/linux-hello/compare/v1.12.1...v1.12.2) (2026-10-26)
+
+
+### Bug Fixes
+
+* **pam:** point out PAM conffiles left on a stale distro version ([#232](https://github.com/Aarklendoia/linux-hello/issues/232)) ([9d9720f](https://github.com/Aarklendoia/linux-hello/commit/9d9720fe5b45774a510f9a13ec3027ed9458ce42))
+
 ## [1.12.1](https://github.com/Aarklendoia/linux-hello/compare/v1.12.0...v1.12.1) (2026-10-26)
 
 
