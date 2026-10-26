@@ -43,7 +43,7 @@
 
 Name:           linux-hello
 # x-release-please-start-version
-Version:        1.12.1
+Version:        1.12.2
 # x-release-please-end
 Release:        0%{?dist}
 Summary:        Face authentication for Linux (metapackage)
