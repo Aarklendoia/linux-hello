@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.12.1](https://github.com/Aarklendoia/linux-hello/compare/v1.12.0...v1.12.1) (2026-10-26)
+
+
+### Bug Fixes
+
+* **deps:** update ort to 2.0.0-rc.15 for its memory-safety fixes ([#221](https://github.com/Aarklendoia/linux-hello/issues/221)) ([b181796](https://github.com/Aarklendoia/linux-hello/commit/b181796ad5bdb9090164013563024c3fff160dd3))
+* **packaging:** keep hello-daemon-system running across package upgrades ([#228](https://github.com/Aarklendoia/linux-hello/issues/228)) ([3c88dbd](https://github.com/Aarklendoia/linux-hello/commit/3c88dbdd1e18ffcf08564184e8ad568db40ec6af))
+* **pam:** stop pam_kwallet5 prompting for a password after a face match ([#230](https://github.com/Aarklendoia/linux-hello/issues/230)) ([07edd92](https://github.com/Aarklendoia/linux-hello/commit/07edd920f31dc7676bb98febb97401ef39a40f6c))
+
 ## [1.12.0](https://github.com/Aarklendoia/linux-hello/compare/v1.11.0...v1.12.0) (2026-10-16)
 
 

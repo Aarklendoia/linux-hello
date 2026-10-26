@@ -30,7 +30,7 @@
 
 pkgbase=linux-hello
 pkgname=(linux-hello linux-hello-daemon linux-hello-models linux-hello-pam linux-hello-tools linux-hello-gui)
-pkgver=1.12.0 # x-release-please-version
+pkgver=1.12.1 # x-release-please-version
 pkgrel=1
 arch=('x86_64' 'aarch64')
 url="https://github.com/Aarklendoia/linux-hello"
