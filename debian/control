@@ -36,15 +36,16 @@ Depends:
 Description: Face Authentication System for Linux (metapackage)
  Linux Hello provides facial recognition authentication for:
  .
+  * sudo and su
+  * polkit prompts
+  * screen unlock (KDE/GNOME)
+  * the SDDM login screen (opt-in)
  .
-  * sudo authentication
-  * screenlock unlock (KDE/GNOME)
-  * login screen (future)
- .
- This is a metapackage: installing it pulls in the daemon, the ONNX
- models, the CLI, and the PAM integration — everything needed for a
- complete, enrollable setup. The graphical configuration app is a
- separate, optional package (linux-hello-gui).
+ This is a metapackage: installing it pulls in the daemon, the CLI and the
+ PAM integration — everything needed for a complete, enrollable setup once
+ the face models are installed with "sudo linux-hello models install"
+ (they are not included, see linux-hello-models). The graphical
+ configuration app is a separate, optional package (linux-hello-gui).
 
 Package: linux-hello-daemon
 Architecture: any
@@ -58,14 +59,12 @@ Depends:
   linux-hello-models
 Recommends: tpm2-abrmd, libtss2-tcti-tabrmd0
 Description: Face Authentication System for Linux — daemon
- Linux Hello provides facial recognition authentication for:
+ The per-user hello-daemon: camera capture, face detection and matching,
+ IR liveness detection, the D-Bus API the CLI and GUI use, and screen
+ unlock. It has no graphical dependencies and works on headless machines.
  .
- .
-  * sudo authentication
-  * screenlock unlock (KDE/GNOME)
-  * login screen (future)
- .
- This package includes the daemon and PAM module library.
+ The PAM module and the root listener used for the SDDM login screen are
+ in libpam-linux-hello.
 
 Package: linux-hello-models
 Architecture: all
@@ -92,13 +91,15 @@ Depends:
   linux-hello-tools,
   libpam-runtime
 Description: PAM module for Linux Hello
- This PAM module integrates Linux Hello facial recognition
- with system authentication (sudo, screenlock, etc).
+ pam_linux_hello.so, its pam-auth-update profile (sudo, su, polkit, and the
+ SDDM login screen when opted in), and hello-daemon-system, the root
+ listener used for the SDDM login screen and for polkit prompts answered
+ from another user's session.
  .
- Installing this package pulls in everything needed for a working
- setup: the daemon, the ONNX models, and the linux-hello CLI for
- enrolling faces. The graphical configuration app is a separate,
- optional package (linux-hello-gui).
+ Installing this package pulls in the daemon and the linux-hello CLI for
+ enrolling faces. The face models are not included: install them with
+ "sudo linux-hello models install". The graphical configuration app is a
+ separate, optional package (linux-hello-gui).
 
 Package: linux-hello-tools
 Architecture: any
@@ -132,7 +133,6 @@ Description: Configuration GUI for Linux Hello
  Portuguese, Russian, Japanese, German, French).
  .
  Features:
- .
  .
   * Face registration and management
   * Authentication settings configuration
