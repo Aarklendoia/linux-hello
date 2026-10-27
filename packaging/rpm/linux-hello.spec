@@ -187,7 +187,6 @@ install -Dm644 debian/polkit/com.linuxhello.manage-faces.policy \
 # Lets an ordinary user's hello-daemon reach tpm2-abrmd (#152).
 install -Dm644 debian/dbus/linux-hello-tabrmd.conf \
   %{buildroot}%{_datadir}/dbus-1/system.d/linux-hello-tabrmd.conf
-%{_datadir}/dbus-1/interfaces/com.linuxhello.FaceAuth.xml
 install -Dm644 docs/dbus/com.linuxhello.FaceAuth.xml \
   %{buildroot}%{_datadir}/dbus-1/interfaces/com.linuxhello.FaceAuth.xml
 # Same entries as debian/rules (see it for the rationale).
@@ -295,6 +294,7 @@ fi
 %{_userunitdir}/hello-daemon.service
 %{_datadir}/polkit-1/actions/com.linuxhello.manage-faces.policy
 %{_datadir}/dbus-1/system.d/linux-hello-tabrmd.conf
+%{_datadir}/dbus-1/interfaces/com.linuxhello.FaceAuth.xml
 %{_tmpfilesdir}/linux-hello.conf
 %{_userpresetdir}/80-linux-hello.preset
 %dir %{_sysconfdir}/linux-hello
