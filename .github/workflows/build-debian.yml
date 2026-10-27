@@ -17,17 +17,20 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v7
       
-      - name: Cache Rust installations
+      # Only the crate sources: the toolchain itself (~/.rustup, ~/.cargo/bin)
+      # is left to dtolnay/rust-toolchain. Cargo.lock is gitignored, so this
+      # key never changes, and a cached toolchain restored under it made
+      # rustup update an old stable in place — which intermittently failed
+      # with "could not rename component file … Directory not empty".
+      - name: Cache crate sources
         uses: actions/cache@v6
         with:
           path: |
-            ~/.cargo/bin
             ~/.cargo/registry
             ~/.cargo/git
-            ~/.rustup
-          key: ${{ runner.os }}-rust-stable-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-sources-${{ hashFiles('**/Cargo.toml') }}
           restore-keys: |
-            ${{ runner.os }}-rust-stable-
+            ${{ runner.os }}-cargo-sources-
       
       - name: Install build dependencies
         run: |
