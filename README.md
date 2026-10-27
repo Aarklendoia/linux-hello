@@ -263,6 +263,10 @@ A fourth card, "Cache session password", is grayed out until SDDM face-login is 
 
 ## Security notes
 
+The full threat model (assets, trust boundaries, attackers, known gaps) is in
+[docs/SECURITY_MODEL.md](docs/SECURITY_MODEL.md); report vulnerabilities as
+described in [SECURITY.md](SECURITY.md).
+
 **You can never be locked out.** The PAM line this project installs
 (`[success=end default=ignore]` in `common-auth`) falls through to the
 normal password prompt if the camera fails, the face isn't recognized, or
