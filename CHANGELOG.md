@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.12.3](https://github.com/Aarklendoia/linux-hello/compare/v1.12.2...v1.12.3) (2026-10-27)
+
+
+### Bug Fixes
+
+* **camera:** rescan when a USB camera resets or re-enumerates ([#245](https://github.com/Aarklendoia/linux-hello/issues/245)) ([5172edf](https://github.com/Aarklendoia/linux-hello/commit/5172edfd3cfaad49c93064334646a312e494959e))
+* **pam:** say how to install missing face models instead of "face not recognized" ([#242](https://github.com/Aarklendoia/linux-hello/issues/242)) ([f529113](https://github.com/Aarklendoia/linux-hello/commit/f529113c8fc3d5b33e54633a481ec7748017eecb))
+* **screenlock:** don't lose the lock screen control server to the greeter's daemon ([#250](https://github.com/Aarklendoia/linux-hello/issues/250)) ([086a146](https://github.com/Aarklendoia/linux-hello/commit/086a146cf2daa040ba42f7c7e66e4a51c8048335))
+* **tests:** keep unit tests away from the real embedding-relay socket ([#252](https://github.com/Aarklendoia/linux-hello/issues/252)) ([3b532b5](https://github.com/Aarklendoia/linux-hello/commit/3b532b5a687725c69d6400cd9315751af7c24ec2))
+
+
+### Performance Improvements
+
+* add a per-stage latency benchmark for the face pipeline ([#246](https://github.com/Aarklendoia/linux-hello/issues/246)) ([e6e7f34](https://github.com/Aarklendoia/linux-hello/commit/e6e7f34ea0d3dc49f132d488ad74c3a1d21f4579))
+* **daemon:** log where a real verification's time goes ([#255](https://github.com/Aarklendoia/linux-hello/issues/255)) ([e840659](https://github.com/Aarklendoia/linux-hello/commit/e840659a55bc8e4e903da09f21ba6435ddfc2e13))
+
 ## [1.12.2](https://github.com/Aarklendoia/linux-hello/compare/v1.12.1...v1.12.2) (2026-10-26)
 
 
