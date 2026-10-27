@@ -229,6 +229,25 @@ rate and its time to first frame usually dominate. Comparing machines or camera
 setups is easier with this output pasted in the issue. Matching against stored
 embeddings (a 512-float dot product each) is negligible next to these numbers.
 
+### On a real camera
+
+Every verification also logs where its time went, at `info` level
+(`journalctl --user -u hello-daemon`, or `hello-daemon-system` for SDDM):
+
+```
+Loaded 2 stored embeddings in 0 ms
+Capture timings: first frame 2664 ms, 3 frames (3 with a face), detection 21.0 ms/frame, embedding 27.2 ms/face, total 2919 ms, peak RSS 132 MiB
+Face recognized after 2 consecutive matching frames (score=0.807) in 2919 ms
+```
+
+`Loaded … in` includes unsealing the embedding key from the TPM, which can take
+seconds the first time. `first frame` runs from the start of the capture (camera
+lock taken) to the first RGB frame, so it covers opening and starting the
+camera. The lines above come from a Logitech Brio on the same machine. There,
+the first frame accounts for 90 % of the verification: the RGB stream alone
+delivers it in about 1.2 s, and starting the IR stream 300 ms later pushes it
+to about 2.8 s.
+
 ## 📚 Documentation
 
 The Rust documentation is generated automatically:

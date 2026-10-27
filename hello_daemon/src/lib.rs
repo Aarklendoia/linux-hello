@@ -636,6 +636,7 @@ pub async fn verify_with_storage(
         "Verifying for user_id={}, context={}",
         request.user_id, request.context
     );
+    let started = std::time::Instant::now();
 
     // Load the registered faces
     let faces = storage
@@ -651,6 +652,13 @@ pub async fn verify_with_storage(
     let stored_embeddings = storage
         .load_face_embeddings(request.user_id, faces.iter().map(|f| &f.face_id))
         .map_err(|e| DaemonError::StorageError(e.to_string()))?;
+    // Includes the TPM unseal of the embedding key, which can take seconds
+    // on a real TPM the first time.
+    info!(
+        "Loaded {} stored embeddings in {} ms",
+        stored_embeddings.len(),
+        started.elapsed().as_millis()
+    );
 
     // `faces` (metadata) being non-empty doesn't guarantee any of them
     // actually decrypted — e.g. a TPM policy failure (issue #160) can leave
@@ -706,8 +714,10 @@ pub async fn verify_with_storage(
 
     if let Some(success) = &final_state.success_result {
         info!(
-            "Face recognized after {} consecutive matching frames (score={:.3})",
-            REQUIRED_CONSECUTIVE_MATCHES, success.best_score
+            "Face recognized after {} consecutive matching frames (score={:.3}) in {} ms",
+            REQUIRED_CONSECUTIVE_MATCHES,
+            success.best_score,
+            started.elapsed().as_millis()
         );
         return Ok(VerifyResult::Success {
             face_id: success.face_id.clone().unwrap_or_default(),
