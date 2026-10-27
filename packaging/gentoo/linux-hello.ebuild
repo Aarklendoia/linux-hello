@@ -118,7 +118,9 @@ src_install() {
 	insinto /etc/linux-hello
 	doins linux-hello.config.toml.example
 
-	dodoc README.md docs/{QUICKSTART,INTEGRATION_GUIDE,PAM_MODULE}.md
+	dodoc README.md docs/{QUICKSTART,INTEGRATION_GUIDE,PAM_MODULE,DBUS_API}.md
+	insinto /usr/share/dbus-1/interfaces
+	doins docs/dbus/com.linuxhello.FaceAuth.xml
 	# pkg_postinst points to it: keep it readable as is.
 	docompress -x "/usr/share/doc/${PF}/PAM_MODULE.md"
 

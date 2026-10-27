@@ -133,6 +133,9 @@ package_linux-hello-daemon() {
   install -Dm644 docs/QUICKSTART.md "$pkgdir/usr/share/doc/linux-hello/QUICKSTART.md"
   install -Dm644 docs/INTEGRATION_GUIDE.md "$pkgdir/usr/share/doc/linux-hello/INTEGRATION_GUIDE.md"
   install -Dm644 docs/PAM_MODULE.md "$pkgdir/usr/share/doc/linux-hello/PAM_MODULE.md"
+  install -Dm644 docs/DBUS_API.md "$pkgdir/usr/share/doc/linux-hello/DBUS_API.md"
+  install -Dm644 docs/dbus/com.linuxhello.FaceAuth.xml \
+    "$pkgdir/usr/share/dbus-1/interfaces/com.linuxhello.FaceAuth.xml"
   install -Dm644 linux-hello.config.toml.example "$pkgdir/etc/linux-hello/config.toml.example"
 }
 

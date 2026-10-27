@@ -128,6 +128,9 @@ override_dh_auto_install:
 	cp $(CURDIR)/docs/QUICKSTART.md $(CURDIR)/debian/tmp/usr/share/doc/linux-hello/
 	cp $(CURDIR)/docs/INTEGRATION_GUIDE.md $(CURDIR)/debian/tmp/usr/share/doc/linux-hello/
 	cp $(CURDIR)/docs/PAM_MODULE.md $(CURDIR)/debian/tmp/usr/share/doc/linux-hello/
+	cp $(CURDIR)/docs/DBUS_API.md $(CURDIR)/debian/tmp/usr/share/doc/linux-hello/
+	mkdir -p $(CURDIR)/debian/tmp/usr/share/dbus-1/interfaces
+	cp $(CURDIR)/docs/dbus/com.linuxhello.FaceAuth.xml $(CURDIR)/debian/tmp/usr/share/dbus-1/interfaces/
 	cp $(CURDIR)/sudo-linux-hello.pam $(CURDIR)/debian/tmp/usr/share/doc/linux-hello/
 	
 	# KDE lock screen QML overlay: stored in /usr/share/linux-hello/lockscreen/.
