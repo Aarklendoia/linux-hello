@@ -284,7 +284,7 @@ fn detect_lang() -> String {
 
 /// Translate a PAM message according to the detected language.
 /// Recognized keys: "looking", "recognized", "not_recognized", "confirm_prompt",
-/// "not_confirmed"
+/// "not_confirmed", "models_missing" (English fallback outside en/fr for now)
 ///
 /// `confirm_prompt`'s "[y/N]" keystroke hint is intentionally left in Latin
 /// script in every language (common CLI i18n convention): the confirmation
@@ -300,12 +300,18 @@ fn pam_t(key: &str) -> &'static str {
         (_, "not_recognized") if lang == "en" => "✗ Face not recognized",
         (_, "confirm_prompt") if lang == "en" => "✓ Face recognized. Confirm? [y/N]: ",
         (_, "not_confirmed") if lang == "en" => "✗ Not confirmed",
+        (_, "models_missing") if lang == "en" => {
+            "✗ Face models not installed — run: sudo linux-hello models install"
+        }
         // French
         ("fr", "looking") => "🔍 Regardez vers la caméra...",
         ("fr", "recognized") => "✓ Visage reconnu",
         ("fr", "not_recognized") => "✗ Visage non reconnu",
         ("fr", "confirm_prompt") => "✓ Visage reconnu. Confirmer ? [y/N] : ",
         ("fr", "not_confirmed") => "✗ Non confirmé",
+        ("fr", "models_missing") => {
+            "✗ Modèles de reconnaissance faciale non installés — exécutez : sudo linux-hello models install"
+        }
         // German
         ("de", "looking") => "🔍 Schauen Sie in die Kamera...",
         ("de", "recognized") => "✓ Gesicht erkannt",
@@ -360,6 +366,9 @@ fn pam_t(key: &str) -> &'static str {
         (_, "not_recognized") => "✗ Face not recognized",
         (_, "confirm_prompt") => "✓ Face recognized. Confirm? [y/N]: ",
         (_, "not_confirmed") => "✗ Not confirmed",
+        (_, "models_missing") => {
+            "✗ Face models not installed — run: sudo linux-hello models install"
+        }
         _ => "",
     }
 }
@@ -753,6 +762,13 @@ pub unsafe extern "C" fn pam_sm_authenticate(
 
                 retcode
             }
+            PamHelperResponse::Failure { reason } if reason == MODELS_MISSING_REASON => {
+                // Nothing was attempted: say how to fix it and let the
+                // password take over, instead of "face not recognized" (#235).
+                log_pam(&format!("Face models not installed, skipping {}", username));
+                pam_conv_send(pamh, flags, PAM_ERROR_MSG, pam_t("models_missing"));
+                PAM_IGNORE
+            }
             PamHelperResponse::Failure { reason } => {
                 log_pam(&format!(
                     "Authentication failed for {}: {}",
@@ -952,6 +968,11 @@ fn uid_from_name(username: &str) -> Option<u32> {
         return Some(pwd.pw_uid);
     }
 }
+
+/// `PamHelperResponse::Failure` reason the daemon sends when the face models
+/// aren't installed — a copy of `hello_daemon::pam_helper::MODELS_MISSING_REASON`
+/// (this crate doesn't depend on `hello_daemon`), keep both in sync.
+const MODELS_MISSING_REASON: &str = "Face models not installed";
 
 /// Request structure for the PAM helper via socket
 #[derive(Serialize, Deserialize, Debug)]
@@ -1540,12 +1561,20 @@ mod tests {
         }
         assert_eq!(pam_t("looking"), "🔍 Look at the camera...");
         assert_eq!(pam_t("recognized"), "✓ Face recognized");
+        assert!(pam_t("models_missing").contains("sudo linux-hello models install"));
 
         unsafe {
             std::env::set_var("LANG", "fr_FR.UTF-8");
         }
         assert_eq!(pam_t("recognized"), "✓ Visage reconnu");
         assert_eq!(pam_t("not_recognized"), "✗ Visage non reconnu");
+        assert!(pam_t("models_missing").starts_with("✗ Modèles"));
+
+        // No translation yet: English, never an empty message.
+        unsafe {
+            std::env::set_var("LANG", "de_DE.UTF-8");
+        }
+        assert!(pam_t("models_missing").contains("sudo linux-hello models install"));
 
         unsafe {
             for (v, val) in saved {

@@ -50,6 +50,12 @@ pub enum PamHelperResponse {
     },
 }
 
+/// `PamHelperResponse::Failure` reason when the face models aren't
+/// installed. Matched verbatim by `pam_linux_hello` (its own copy of this
+/// constant), which then tells the user how to install them instead of
+/// "face not recognized" (#235) — keep both in sync.
+pub const MODELS_MISSING_REASON: &str = "Face models not installed";
+
 /// Who (if anyone) owns whatever's currently sitting at `socket_path`.
 enum StaleSocketOwner {
     /// Nothing there — a fresh bind can proceed directly.
@@ -210,6 +216,9 @@ fn verify_outcome_to_response(
         },
         Ok(Ok(_)) => PamHelperResponse::Failure {
             reason: "Face not recognized".to_string(),
+        },
+        Ok(Err(crate::DaemonError::ModelsMissing)) => PamHelperResponse::Failure {
+            reason: MODELS_MISSING_REASON.to_string(),
         },
         Ok(Err(e)) => PamHelperResponse::Failure {
             reason: e.to_string(),
@@ -433,7 +442,8 @@ pub async fn start_system_pam_helper(
 /// Resolve the `PamHelperResponse` for a system-listener request: unknown
 /// user, no enrollment, or an actual camera capture + match attempt. The
 /// returned `bool` is whether [`respond_with_floor`] should still pad this
-/// response up to `req.timeout_ms` — `true` for every branch except a
+/// response up to `req.timeout_ms` — `true` for every branch except missing
+/// face models (same answer for every uid, so nothing to hide) and a
 /// [`VerifyResult::NoUsableEmbeddings`] outcome (see
 /// [`should_skip_floor`]'s doc for why that one's exempt).
 ///
@@ -445,6 +455,18 @@ async fn compute_verify_response(
     matcher: Arc<crate::matcher::FaceMatcher>,
     req: &PamHelperRequest,
 ) -> (PamHelperResponse, bool) {
+    // Checked before anything about `req.user_id`, so answering at once
+    // (no floor) can't reveal whether that account is enrolled: the answer
+    // is the same for every uid.
+    if !camera.models_available() {
+        return (
+            PamHelperResponse::Failure {
+                reason: MODELS_MISSING_REASON.to_string(),
+            },
+            false,
+        );
+    }
+
     match resolve_home_dir(req.user_id) {
         None => {
             debug!(
@@ -1084,6 +1106,21 @@ mod tests {
         // code review instead; see the call site's comment.
     }
 
+    /// A `CameraManager` with fake models loaded and no real camera, so the
+    /// branches below aren't cut short by [`MODELS_MISSING_REASON`] on a
+    /// machine (or CI runner) without the face models installed.
+    fn camera_with_models() -> (tempfile::TempDir, crate::camera::CameraManager) {
+        use crate::test_support::{default_face_region, FakeDetector, FakeExtractor};
+        let dir = tempfile::tempdir().unwrap();
+        let camera = crate::camera::CameraManager::for_test(
+            dir.path().join("no-camera-here").to_string_lossy(),
+            dir.path().join("camera.lock"),
+            Box::new(FakeDetector::always_detects(default_face_region(640, 480))),
+            Box::new(FakeExtractor::with_vector(vec![1.0; 512], 0.9)),
+        );
+        (dir, camera)
+    }
+
     fn unknown_user_req(timeout_ms: u64) -> PamHelperRequest {
         PamHelperRequest {
             // Same "astronomically unlikely to exist" uid used above —
@@ -1097,7 +1134,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_compute_verify_response_unknown_user_is_a_fast_failure() {
-        let camera = crate::camera::CameraManager::new(1000);
+        let (_dir, camera) = camera_with_models();
         let matcher = Arc::new(crate::matcher::FaceMatcher::new());
         let req = unknown_user_req(5000);
 
@@ -1110,6 +1147,41 @@ mod tests {
         assert!(apply_floor, "the existing unknown-user floor must be kept");
     }
 
+    /// #235: without models, every uid gets the same immediate answer —
+    /// checked before the user is even looked up, so skipping the floor
+    /// can't reveal who is enrolled.
+    #[tokio::test]
+    async fn test_compute_verify_response_without_models_is_unpadded_and_uid_independent() {
+        let (dir, camera) = camera_with_models();
+        let empty = dir.path().join("models");
+        std::fs::create_dir(&empty).unwrap();
+        let camera = camera.without_models_for_test(empty);
+
+        for user_id in [my_uid(), 4_294_967_000] {
+            let req = PamHelperRequest {
+                user_id,
+                context: "sddm".to_string(),
+                timeout_ms: 5000,
+            };
+            let matcher = Arc::new(crate::matcher::FaceMatcher::new());
+            let (response, apply_floor) = compute_verify_response(&camera, matcher, &req).await;
+            assert!(matches!(
+                response,
+                PamHelperResponse::Failure { ref reason } if reason == MODELS_MISSING_REASON
+            ));
+            assert!(!apply_floor);
+        }
+    }
+
+    #[test]
+    fn test_verify_outcome_models_missing_uses_the_stable_reason() {
+        let response = verify_outcome_to_response(Ok(Err(crate::DaemonError::ModelsMissing)));
+        assert!(matches!(
+            response,
+            PamHelperResponse::Failure { reason } if reason == MODELS_MISSING_REASON
+        ));
+    }
+
     /// Regression test for the timing side-channel described in
     /// docs/PAM_MODULE.md: without `respond_with_floor`, this branch returns
     /// in microseconds — a local attacker at the greeter could distinguish
@@ -1117,7 +1189,7 @@ mod tests {
     /// caller-supplied `timeout_ms` closes that gap.
     #[tokio::test]
     async fn test_respond_with_floor_pads_a_fast_failure_up_to_timeout_ms() {
-        let camera = crate::camera::CameraManager::new(1000);
+        let (_dir, camera) = camera_with_models();
         let matcher = Arc::new(crate::matcher::FaceMatcher::new());
         let req = unknown_user_req(150);
 

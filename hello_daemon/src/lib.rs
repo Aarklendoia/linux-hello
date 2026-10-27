@@ -69,11 +69,26 @@ pub enum DaemonError {
     #[error("Camera: {0}")]
     CameraError(String),
 
+    /// [`camera::CameraError::ModelsMissing`], kept distinct from
+    /// [`DaemonError::CameraError`] so the PAM helper can tell the user how
+    /// to fix it instead of reporting an unrecognized face (#235).
+    #[error("{}", camera::CameraError::ModelsMissing)]
+    ModelsMissing,
+
     #[error("I/O error: {0}")]
     IoError(#[from] std::io::Error),
 
     #[error("JSON error: {0}")]
     JsonError(#[from] serde_json::Error),
+}
+
+impl From<camera::CameraError> for DaemonError {
+    fn from(e: camera::CameraError) -> Self {
+        match e {
+            camera::CameraError::ModelsMissing => DaemonError::ModelsMissing,
+            e => DaemonError::CameraError(e.to_string()),
+        }
+    }
 }
 
 /// Daemon configuration
@@ -300,7 +315,7 @@ impl FaceAuthDaemon {
                         "Enrollment capture failed for user_id={}: {}",
                         request.user_id, e
                     );
-                    DaemonError::CameraError(e.to_string())
+                    DaemonError::from(e)
                 })?;
 
             // Average all valid embeddings, then normalize.
@@ -688,8 +703,7 @@ pub async fn verify_with_storage(
                 record_frame_result(&mut s, result, REQUIRED_CONSECUTIVE_MATCHES)
             },
         )
-        .await
-        .map_err(|e| DaemonError::CameraError(e.to_string()))?;
+        .await?;
 
     let final_state = state.lock().unwrap();
 
