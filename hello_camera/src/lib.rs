@@ -20,6 +20,12 @@ pub enum CameraError {
     #[error("Capture timeout")]
     CaptureTimeout,
 
+    /// The device node is gone or stopped answering (see
+    /// [`is_device_lost`]): rescanning may find the camera again, possibly
+    /// under another `/dev/videoN`.
+    #[error("Camera device lost: {0}")]
+    DeviceLost(String),
+
     #[error("I/O error: {0}")]
     IoError(#[from] std::io::Error),
 }
@@ -123,6 +129,28 @@ fn yuyv_to_rgb_strided(data: &[u8], width: u32, height: u32, stride: u32) -> Vec
 /// Capture `num_frames` frames from V4L2 in YUYV and deliver them as RGB via callback.
 ///
 /// Opens `/dev/video0` (or the given path), configures YUYV 640x480, creates a **single**
+/// Whether `e` means the device node is gone or no longer answers — a USB
+/// camera unplugged, reset, or re-enumerated under another `/dev/videoN`
+/// (suspend/resume, hub power glitch) — rather than a format, permission or
+/// timing problem.
+pub fn is_device_lost(e: &std::io::Error) -> bool {
+    matches!(
+        e.raw_os_error(),
+        Some(libc::ENOENT | libc::ENODEV | libc::ENXIO | libc::EIO)
+    )
+}
+
+/// [`CameraError::DeviceLost`] if `e` is a lost device, otherwise what
+/// `other` builds — for the open/stream/dequeue error paths below.
+#[cfg(feature = "v4l2")]
+fn device_error(e: std::io::Error, context: &str, other: fn(String) -> CameraError) -> CameraError {
+    if is_device_lost(&e) {
+        CameraError::DeviceLost(format!("{}: {}", context, e))
+    } else {
+        other(format!("{}: {}", context, e))
+    }
+}
+
 /// Result of a scan of available cameras
 #[derive(Debug, Clone)]
 pub struct CameraInventory {
@@ -292,11 +320,11 @@ fn open_and_configure(
     use v4l::video::Capture;
 
     let dev = v4l::Device::with_path(device_path)
-        .map_err(|e| CameraError::NotAvailable(format!("{}: {}", device_path, e)))?;
+        .map_err(|e| device_error(e, device_path, CameraError::NotAvailable))?;
 
     let mut fmt = dev
         .format()
-        .map_err(|e| CameraError::OpenFailed(e.to_string()))?;
+        .map_err(|e| device_error(e, device_path, CameraError::OpenFailed))?;
     fmt.width = 640;
     fmt.height = 480;
     fmt.fourcc = v4l::format::FourCC::new(fourcc);
@@ -334,7 +362,7 @@ where
     let height = applied.height;
 
     let mut stream = v4l::io::mmap::Stream::with_buffers(&dev, Type::VideoCapture, 4)
-        .map_err(|e| CameraError::CaptureFailed(format!("GREY stream error: {}", e)))?;
+        .map_err(|e| device_error(e, "GREY stream error", CameraError::CaptureFailed))?;
     // Per-dequeue bound — see capture_rgb_stream_v4l2's comment on the same
     // line for why this can't be left unset.
     stream.set_timeout(std::time::Duration::from_millis(2000));
@@ -350,10 +378,11 @@ where
             Ok((buf, _meta)) => on_frame(buf.to_vec(), width, height),
             Err(e) if e.kind() == std::io::ErrorKind::TimedOut => continue,
             Err(e) => {
-                return Err(CameraError::CaptureFailed(format!(
-                    "GREY capture error: {}",
-                    e
-                )))
+                return Err(device_error(
+                    e,
+                    "GREY capture error",
+                    CameraError::CaptureFailed,
+                ))
             }
         }
     }
@@ -386,7 +415,7 @@ where
 
     // A single persistent stream for all frames
     let mut stream = v4l::io::mmap::Stream::with_buffers(&dev, Type::VideoCapture, 4)
-        .map_err(|e| CameraError::CaptureFailed(format!("Stream creation error: {}", e)))?;
+        .map_err(|e| device_error(e, "Stream creation error", CameraError::CaptureFailed))?;
     // Per-dequeue bound: left unset, `stream.next()` blocks indefinitely on
     // a stalled dequeue — seen in practice right after reopening the device
     // shortly after a previous stream on it closed (e.g. the GUI's live
@@ -412,7 +441,7 @@ where
                 on_frame(rgb, width, height);
             }
             Err(e) if e.kind() == std::io::ErrorKind::TimedOut => continue,
-            Err(e) => return Err(CameraError::CaptureFailed(format!("Capture error: {}", e))),
+            Err(e) => return Err(device_error(e, "Capture error", CameraError::CaptureFailed)),
         }
     }
 
@@ -451,7 +480,7 @@ where
     let height = applied.height;
 
     let mut stream = v4l::io::mmap::Stream::with_buffers(&dev, Type::VideoCapture, 4)
-        .map_err(|e| CameraError::CaptureFailed(format!("Stream creation error: {}", e)))?;
+        .map_err(|e| device_error(e, "Stream creation error", CameraError::CaptureFailed))?;
     // Per-dequeue bound, well above the observed ~220ms/frame rate, so a
     // stalled frame can't silently defeat the overall deadline below.
     stream.set_timeout(std::time::Duration::from_millis(2000));
@@ -468,7 +497,7 @@ where
                 }
             }
             Err(e) if e.kind() == std::io::ErrorKind::TimedOut => continue,
-            Err(e) => return Err(CameraError::CaptureFailed(format!("Capture error: {}", e))),
+            Err(e) => return Err(device_error(e, "Capture error", CameraError::CaptureFailed)),
         }
     }
 
@@ -646,6 +675,30 @@ mod tests {
         assert_eq!(
             classify_device("Generic Camera", &["GREY".to_string(), "YUYV".to_string()]),
             DeviceKind::Rgb
+        );
+    }
+
+    #[test]
+    fn test_is_device_lost_only_for_a_vanished_or_dead_node() {
+        for errno in [libc::ENOENT, libc::ENODEV, libc::ENXIO, libc::EIO] {
+            assert!(is_device_lost(&std::io::Error::from_raw_os_error(errno)));
+        }
+        // Permission, busy, bad format, timeout: the device is still there.
+        for errno in [libc::EACCES, libc::EBUSY, libc::EINVAL, libc::ETIMEDOUT] {
+            assert!(!is_device_lost(&std::io::Error::from_raw_os_error(errno)));
+        }
+        assert!(!is_device_lost(&std::io::Error::other("no errno")));
+    }
+
+    #[cfg(feature = "v4l2")]
+    #[test]
+    fn test_opening_a_missing_node_reports_device_lost() {
+        let result =
+            capture_rgb_stream_until("/dev/video-linux-hello-test-missing", 100, |_, _, _| true);
+        assert!(
+            matches!(result, Err(CameraError::DeviceLost(_))),
+            "{:?}",
+            result
         );
     }
 }

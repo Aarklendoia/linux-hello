@@ -49,6 +49,87 @@ pub enum CameraError {
 /// The detector/extractor pair, once loaded.
 type LoadedModels = (Arc<Box<dyn FaceDetector>>, Arc<Box<dyn EmbeddingExtractor>>);
 
+/// Finds the RGB/IR device nodes: `hello_camera::scan_cameras` in
+/// production, a fake in tests.
+type Scanner = Arc<dyn Fn() -> hello_camera::CameraInventory + Send + Sync>;
+
+/// The RGB/IR device paths captures use, rescanned when they may be stale
+/// (#238). USB cameras reset and re-enumerate (suspend/resume, a hub power
+/// glitch, unplug/replug), sometimes under another `/dev/videoN`, and a
+/// camera can be plugged in after the daemon started — `hello-daemon-system`
+/// starts at boot. Scanning only once at startup kept using a dead path
+/// until the daemon restarted.
+struct DeviceInventory {
+    current: Mutex<hello_camera::CameraInventory>,
+    /// Set after a capture failed in a way a rescan might fix; cleared by
+    /// the next [`DeviceInventory::refresh_if_stale`].
+    stale: AtomicBool,
+    scan: Scanner,
+}
+
+impl DeviceInventory {
+    fn scanned(scan: Scanner) -> Self {
+        let inventory = scan();
+        info!(
+            "Camera inventory: RGB={}, IR={}",
+            inventory.rgb_device,
+            inventory.ir_device.as_deref().unwrap_or("none")
+        );
+        Self {
+            current: Mutex::new(inventory),
+            stale: AtomicBool::new(false),
+            scan,
+        }
+    }
+
+    fn snapshot(&self) -> hello_camera::CameraInventory {
+        self.current
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
+    fn mark_stale(&self) {
+        self.stale.store(true, Ordering::Release);
+    }
+
+    /// The inventory to capture with, rescanned first if the last capture
+    /// asked for it or a stored node has disappeared. Blocking (a rescan
+    /// opens every `/dev/videoN`): call from a blocking context.
+    fn refresh_if_stale(&self) -> hello_camera::CameraInventory {
+        let inventory = self.snapshot();
+        let missing = |path: &str| !std::path::Path::new(path).exists();
+        let node_gone =
+            missing(&inventory.rgb_device) || inventory.ir_device.as_deref().is_some_and(missing);
+        if !self.stale.swap(false, Ordering::AcqRel) && !node_gone {
+            return inventory;
+        }
+        self.rescan()
+    }
+
+    /// Blocking, like [`DeviceInventory::refresh_if_stale`].
+    fn rescan(&self) -> hello_camera::CameraInventory {
+        let fresh = (self.scan)();
+        let mut current = self.current.lock().unwrap_or_else(|e| e.into_inner());
+        if fresh.rgb_device != current.rgb_device || fresh.ir_device != current.ir_device {
+            info!(
+                "Camera inventory changed: RGB {} -> {}, IR {} -> {}",
+                current.rgb_device,
+                fresh.rgb_device,
+                current.ir_device.as_deref().unwrap_or("none"),
+                fresh.ir_device.as_deref().unwrap_or("none")
+            );
+            if current.ir_device.is_some() && fresh.ir_device.is_none() {
+                // Same as starting without an IR camera: liveness falls back
+                // to RGB, which never releases the cached SDDM password.
+                warn!("IR camera no longer found; liveness falls back to RGB until it's back");
+            }
+        }
+        *current = fresh.clone();
+        fresh
+    }
+}
+
 /// Path of the cross-process camera lock. Created (mode 0666) by
 /// systemd-tmpfiles alongside `/run/hello-pam`, so both an unprivileged
 /// per-user daemon and the root SDDM system listener can acquire it.
@@ -206,10 +287,8 @@ pub struct CaptureResult {
 pub struct CameraManager {
     /// Default timeout for captures (ms)
     default_timeout_ms: u64,
-    /// Path of the RGB device
-    pub rgb_device: String,
-    /// Path of the IR device (if detected)
-    pub ir_device: Option<String>,
+    /// RGB/IR device paths — see `DeviceInventory`.
+    devices: Arc<DeviceInventory>,
     /// SCRFD detector + ArcFace extractor, `None` until the model files
     /// exist — see `models()`.
     models: Mutex<Option<LoadedModels>>,
@@ -239,19 +318,14 @@ pub struct CameraManager {
 impl CameraManager {
     /// Create a camera manager by scanning available devices
     pub fn new(default_timeout_ms: u64) -> Self {
-        let inventory = hello_camera::scan_cameras();
-        info!(
-            "Camera inventory: RGB={}, IR={}",
-            inventory.rgb_device,
-            inventory.ir_device.as_deref().unwrap_or("none")
-        );
         // Loaded eagerly when present, so the first verification isn't slowed
         // down by ONNX session setup; otherwise retried on each capture.
         let models = Self::load_models(None);
         Self {
             default_timeout_ms,
-            rgb_device: inventory.rgb_device,
-            ir_device: inventory.ir_device,
+            devices: Arc::new(DeviceInventory::scanned(Arc::new(
+                hello_camera::scan_cameras,
+            ))),
             models: Mutex::new(models),
             models_dir: None,
             lock_path: None,
@@ -286,10 +360,15 @@ impl CameraManager {
         detector: Box<dyn FaceDetector>,
         extractor: Box<dyn EmbeddingExtractor>,
     ) -> Self {
-        Self {
-            default_timeout_ms: 1000,
+        let inventory = hello_camera::CameraInventory {
             rgb_device: rgb_device.into(),
             ir_device: None,
+        };
+        Self {
+            default_timeout_ms: 1000,
+            devices: Arc::new(DeviceInventory::scanned(Arc::new(move || {
+                inventory.clone()
+            }))),
             models: Mutex::new(Some((Arc::new(detector), Arc::new(extractor)))),
             models_dir: None,
             lock_path: Some(lock_path),
@@ -327,6 +406,14 @@ impl CameraManager {
         self.models().is_ok()
     }
 
+    /// The device paths to capture with — see `DeviceInventory`.
+    async fn current_devices(&self) -> hello_camera::CameraInventory {
+        let devices = Arc::clone(&self.devices);
+        tokio::task::spawn_blocking(move || devices.refresh_if_stale())
+            .await
+            .unwrap_or_else(|_| self.devices.snapshot())
+    }
+
     /// Resolve the lock file path to use: the test override if set, else
     /// the same `camera_lock_path()` production default as before.
     fn resolved_lock_path(&self) -> std::path::PathBuf {
@@ -337,15 +424,15 @@ impl CameraManager {
 
     /// Check whether an RGB camera is available
     pub fn is_available(&self) -> bool {
-        std::path::Path::new(&self.rgb_device).exists()
+        std::path::Path::new(&self.devices.snapshot().rgb_device).exists()
     }
 
     /// Check whether an IR camera is available
     pub fn has_ir(&self) -> bool {
-        self.ir_device
-            .as_ref()
-            .map(|p| std::path::Path::new(p).exists())
-            .unwrap_or(false)
+        self.devices
+            .snapshot()
+            .ir_device
+            .is_some_and(|p| std::path::Path::new(&p).exists())
     }
 
     /// Best-effort snapshot of the most recent preview frame's detection
@@ -461,16 +548,18 @@ impl CameraManager {
             timeout_ms
         };
 
+        let hello_camera::CameraInventory {
+            rgb_device,
+            ir_device,
+        } = self.current_devices().await;
         info!(
             "Capturing {} frames, timeout={}ms, rgb={}, ir={}",
             num_frames,
             timeout,
-            self.rgb_device,
-            self.ir_device.as_deref().unwrap_or("none")
+            rgb_device,
+            ir_device.as_deref().unwrap_or("none")
         );
 
-        let rgb_device = self.rgb_device.clone();
-        let ir_device = self.ir_device.clone();
         let lock_path = self.resolved_lock_path();
 
         // Acquired once up front and shared (via Arc) with both capture
@@ -492,6 +581,7 @@ impl CameraManager {
         // optional)" comment described the *intent*, but both captures
         // actually ran sequentially inside the same blocking closure).
         let rgb_lock = Arc::clone(&camera_lock);
+        let rgb_devices = Arc::clone(&self.devices);
         let rgb_task = tokio::task::spawn_blocking(move || -> Vec<Frame> {
             let _lock = rgb_lock;
             let mut rgb_frames: Vec<Frame> = Vec::new();
@@ -521,6 +611,7 @@ impl CameraManager {
                     e
                 );
                 rgb_frames.clear();
+                rgb_devices.mark_stale();
             }
 
             // Pad with stub frames if the capture didn't provide enough frames
@@ -565,6 +656,7 @@ impl CameraManager {
 
         let ir_task = ir_device.map(|ir_path| {
             let ir_lock = Arc::clone(&camera_lock);
+            let ir_devices = Arc::clone(&self.devices);
             tokio::task::spawn_blocking(move || -> Vec<Frame> {
                 let _lock = ir_lock;
                 let mut ir_frames: Vec<Frame> = Vec::new();
@@ -589,6 +681,7 @@ impl CameraManager {
                 );
                 if let Err(e) = ir_result {
                     warn!("IR capture failed ({}), disabled for this session", e);
+                    ir_devices.mark_stale();
                 } else {
                     debug!(
                         "IR capture returned {}/{} frames",
@@ -776,15 +869,17 @@ impl CameraManager {
             timeout_ms
         };
 
+        let hello_camera::CameraInventory {
+            rgb_device,
+            ir_device,
+        } = self.current_devices().await;
         info!(
             "Continuous capture for up to {}ms, rgb={}, ir={}",
             timeout,
-            self.rgb_device,
-            self.ir_device.as_deref().unwrap_or("none")
+            rgb_device,
+            ir_device.as_deref().unwrap_or("none")
         );
 
-        let rgb_device = self.rgb_device.clone();
-        let ir_device = self.ir_device.clone();
         let lock_path = self.resolved_lock_path();
 
         // Shared with both capture tasks below, released once both finish —
@@ -828,29 +923,64 @@ impl CameraManager {
 
         let rgb_lock = Arc::clone(&camera_lock);
         let rgb_stop = Arc::clone(&stop_requested);
+        let rgb_devices = Arc::clone(&self.devices);
         let rgb_task = tokio::task::spawn_blocking(move || {
             let _lock = rgb_lock;
             let mut frame_index: u32 = 0;
-            let result =
-                hello_camera::capture_rgb_stream_until(&rgb_device, timeout, |data, w, h| {
-                    frame_index += 1;
-                    if let Some((embedding, rgb_liveness)) =
-                        score_frame(&**detector, &**extractor, frame_index, &data, w, h)
-                    {
-                        if frame_tx.blocking_send((embedding, rgb_liveness)).is_err() {
-                            // Consumer is gone (decided already) — stop.
-                            return true;
+            let mut on_frame = |data: Vec<u8>, w, h| {
+                frame_index += 1;
+                if let Some((embedding, rgb_liveness)) =
+                    score_frame(&**detector, &**extractor, frame_index, &data, w, h)
+                {
+                    if frame_tx.blocking_send((embedding, rgb_liveness)).is_err() {
+                        // Consumer is gone (decided already) — stop.
+                        return true;
+                    }
+                }
+                rgb_stop.load(Ordering::Acquire)
+            };
+
+            let deadline = Instant::now() + Duration::from_millis(timeout);
+            // Only a camera that was there when this attempt started is
+            // worth waiting for: without one, fail as fast as before so the
+            // password prompt isn't delayed by the whole timeout.
+            let mut reopened = !std::path::Path::new(&rgb_device).exists();
+            let mut rgb_path = rgb_device;
+            loop {
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                let result = hello_camera::capture_rgb_stream_until(
+                    &rgb_path,
+                    remaining.as_millis() as u64,
+                    &mut on_frame,
+                );
+                match result {
+                    Ok(()) => break,
+                    // A camera that reset mid-attempt usually reappears
+                    // within a second or two, possibly as another node:
+                    // look for it once and carry on within the same
+                    // deadline, instead of failing this authentication.
+                    Err(hello_camera::CameraError::DeviceLost(e)) if !reopened => {
+                        warn!(
+                            "RGB camera lost during capture ({}); looking for it again",
+                            e
+                        );
+                        reopened = true;
+                        match wait_for_rgb_device(&rgb_devices, deadline, &rgb_stop) {
+                            Some(path) => rgb_path = path,
+                            None => break,
                         }
                     }
-                    rgb_stop.load(Ordering::Acquire)
-                });
-
-            if let Err(e) = result {
-                // Same fail-safe spirit as capture_frames: a capture hiccup
-                // degrades to "no more frames for this attempt", it doesn't
-                // hard-fail verify() (camera lock contention above is the
-                // one exception that does propagate).
-                warn!("Continuous RGB capture ended: {}", e);
+                    Err(e) => {
+                        // Same fail-safe spirit as capture_frames: a capture
+                        // hiccup degrades to "no more frames for this
+                        // attempt", it doesn't hard-fail verify() (camera
+                        // lock contention above is the one exception that
+                        // does propagate). The next attempt rescans.
+                        warn!("Continuous RGB capture ended: {}", e);
+                        rgb_devices.mark_stale();
+                        break;
+                    }
+                }
             }
         });
 
@@ -864,9 +994,10 @@ impl CameraManager {
             tokio::time::sleep(IR_STARTUP_STAGGER).await;
         }
 
-        let ir_task = ir_device.map(|ir_path| {
+        let ir_task = ir_device.map(|mut ir_path| {
             let ir_lock = Arc::clone(&camera_lock);
             let ir_stop = Arc::clone(&stop_requested);
+            let ir_devices = Arc::clone(&self.devices);
             tokio::task::spawn_blocking(move || {
                 let _lock = ir_lock;
 
@@ -943,6 +1074,16 @@ impl CameraManager {
                         // here.
                         Ok(()) => {
                             debug!("IR burst captured no frames (attempt nearly out of time)");
+                        }
+                        // The IR node came back elsewhere after a reset: pick
+                        // up its new path for the next burst. Never swapped
+                        // for a non-IR node — the rescan classifies devices.
+                        Err(hello_camera::CameraError::DeviceLost(e)) => {
+                            warn!("IR camera lost ({}); rescanning before the next burst", e);
+                            match ir_devices.rescan().ir_device {
+                                Some(path) => ir_path = path,
+                                None => ir_devices.mark_stale(),
+                            }
                         }
                         Err(e) => {
                             warn!("IR burst capture failed ({}); retrying next cycle", e);
@@ -1054,7 +1195,7 @@ impl CameraManager {
             num_frames, timeout_ms
         );
 
-        let rgb_device = self.rgb_device.clone();
+        let rgb_device = self.current_devices().await.rgb_device;
         let lock_path = self.resolved_lock_path();
         let stop_flag = Arc::clone(&self.stop_preview);
         // Clear any stale request from a previous call before this one
@@ -1163,6 +1304,7 @@ impl CameraManager {
             }
             Err(e) => {
                 warn!("V4L2 not available ({}), using simulation", e);
+                self.devices.mark_stale();
             }
         }
 
@@ -1209,6 +1351,29 @@ impl CameraManager {
             num_frames
         );
         Ok(())
+    }
+}
+
+/// After the RGB camera vanished mid-capture: rescans every
+/// `RGB_REAPPEAR_POLL` until an RGB node exists again (USB re-enumeration
+/// takes a moment), `deadline` passes or `stop` is set. Returns its path.
+fn wait_for_rgb_device(
+    devices: &DeviceInventory,
+    deadline: Instant,
+    stop: &AtomicBool,
+) -> Option<String> {
+    const RGB_REAPPEAR_POLL: Duration = Duration::from_millis(250);
+    loop {
+        let rgb = devices.rescan().rgb_device;
+        if std::path::Path::new(&rgb).exists() {
+            info!("RGB camera back as {}", rgb);
+            return Some(rgb);
+        }
+        if Instant::now() + RGB_REAPPEAR_POLL >= deadline || stop.load(Ordering::Acquire) {
+            devices.mark_stale();
+            return None;
+        }
+        std::thread::sleep(RGB_REAPPEAR_POLL);
     }
 }
 
@@ -1273,7 +1438,7 @@ mod tests {
 
         let camera = CameraManager::new(5000);
         // The scan must not panic even without /dev/video*
-        assert!(!camera.rgb_device.is_empty());
+        assert!(!camera.devices.snapshot().rgb_device.is_empty());
     }
 
     #[test]
@@ -1497,6 +1662,119 @@ mod tests {
         assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 0);
     }
 
+    /// A camera that's absent when the attempt starts must not make
+    /// verify() wait for it (#238's reopen only applies to a camera lost
+    /// mid-capture): the password prompt would be delayed by the timeout.
+    #[tokio::test]
+    async fn test_capture_until_without_any_camera_returns_without_waiting() {
+        let (_dir, camera) = for_test(
+            FakeDetector::always_detects(default_face_region(640, 480)),
+            FakeExtractor::with_vector(vec![1.0, 0.0, 0.0], 0.9),
+        );
+        let start = Instant::now();
+        let result = camera.capture_until(3000, |_, _, _| false).await;
+        assert!(result.is_ok());
+        assert!(
+            start.elapsed() < Duration::from_millis(1500),
+            "{:?}",
+            start.elapsed()
+        );
+    }
+
+    /// Scanner returning `paths` in turn (the last one forever after), and
+    /// counting its calls.
+    fn scripted_scanner(
+        paths: Vec<String>,
+    ) -> (
+        Arc<std::sync::atomic::AtomicUsize>,
+        impl Fn() -> hello_camera::CameraInventory + Send + Sync + 'static,
+    ) {
+        let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let counter = Arc::clone(&calls);
+        let scan = move || {
+            let n = counter.fetch_add(1, Ordering::SeqCst);
+            hello_camera::CameraInventory {
+                rgb_device: paths[n.min(paths.len() - 1)].clone(),
+                ir_device: None,
+            }
+        };
+        (calls, scan)
+    }
+
+    #[test]
+    fn test_device_inventory_rescans_when_the_rgb_node_is_gone() {
+        let dir = tempfile::tempdir().unwrap();
+        let gone = dir.path().join("video0").to_string_lossy().into_owned();
+        let back = dir.path().join("video2");
+        std::fs::write(&back, b"").unwrap();
+        let back = back.to_string_lossy().into_owned();
+
+        let (calls, scan) = scripted_scanner(vec![gone, back.clone()]);
+        let devices = DeviceInventory::scanned(Arc::new(scan));
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+
+        assert_eq!(devices.refresh_if_stale().rgb_device, back);
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        // Present and not marked stale: no rescan.
+        assert_eq!(devices.refresh_if_stale().rgb_device, back);
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn test_device_inventory_rescans_once_after_a_failed_capture() {
+        let dir = tempfile::tempdir().unwrap();
+        let node = dir.path().join("video0");
+        std::fs::write(&node, b"").unwrap();
+        let (calls, scan) = scripted_scanner(vec![node.to_string_lossy().into_owned()]);
+        let devices = DeviceInventory::scanned(Arc::new(scan));
+
+        devices.mark_stale();
+        devices.refresh_if_stale();
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        devices.refresh_if_stale();
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[test]
+    fn test_wait_for_rgb_device_returns_the_node_once_it_reappears() {
+        let dir = tempfile::tempdir().unwrap();
+        let gone = dir.path().join("video0").to_string_lossy().into_owned();
+        let back = dir.path().join("video2");
+        std::fs::write(&back, b"").unwrap();
+        let back = back.to_string_lossy().into_owned();
+        // Still missing on the first two rescans, as during re-enumeration.
+        let (calls, scan) = scripted_scanner(vec![gone.clone(), gone.clone(), gone, back.clone()]);
+        let devices = DeviceInventory::scanned(Arc::new(scan));
+
+        let found = wait_for_rgb_device(
+            &devices,
+            Instant::now() + Duration::from_secs(5),
+            &AtomicBool::new(false),
+        );
+        assert_eq!(found, Some(back.clone()));
+        assert_eq!(calls.load(Ordering::SeqCst), 4);
+        assert_eq!(devices.snapshot().rgb_device, back);
+    }
+
+    #[test]
+    fn test_wait_for_rgb_device_gives_up_at_the_deadline() {
+        let dir = tempfile::tempdir().unwrap();
+        let gone = dir.path().join("video0").to_string_lossy().into_owned();
+        let (_calls, scan) = scripted_scanner(vec![gone]);
+        let devices = DeviceInventory::scanned(Arc::new(scan));
+
+        let start = Instant::now();
+        let found = wait_for_rgb_device(
+            &devices,
+            Instant::now() + Duration::from_millis(600),
+            &AtomicBool::new(false),
+        );
+        assert_eq!(found, None);
+        assert!(start.elapsed() < Duration::from_millis(900));
+        // The next attempt rescans again.
+        assert!(devices.stale.load(Ordering::Acquire));
+    }
+
     #[test]
     fn test_score_frame_returns_none_when_no_face_detected() {
         let detector = FakeDetector::never_detects();
@@ -1685,8 +1963,13 @@ mod tests {
             "capture_until: {} frames over {:?} (rgb={}, ir={})",
             frames.len(),
             elapsed,
-            camera.rgb_device,
-            camera.ir_device.as_deref().unwrap_or("none"),
+            camera.devices.snapshot().rgb_device,
+            camera
+                .devices
+                .snapshot()
+                .ir_device
+                .as_deref()
+                .unwrap_or("none"),
         );
         for (t, ir, rgb) in frames.iter() {
             eprintln!("  t={}ms ir_liveness={:?} rgb_liveness={:.3}", t, ir, rgb);
