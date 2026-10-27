@@ -38,3 +38,9 @@ tract = [
     "dep:image",
     "dep:ort",
 ]
+
+# Per-stage latency on this machine, with the real models: cargo bench -p hello_face_core
+[[bench]]
+name = "pipeline"
+harness = false
+required-features = ["backends"]

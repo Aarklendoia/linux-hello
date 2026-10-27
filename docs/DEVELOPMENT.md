@@ -197,10 +197,37 @@ cargo test --lib my_test
 
 # With output
 cargo test -- --nocapture
-
-# Benchmark
-cargo bench --all
 ```
+
+## ⏱️ Benchmarks
+
+`hello_face_core/benches/pipeline.rs` times each stage a verification runs on
+every camera frame, with the real models (it skips if they aren't installed),
+and prints the peak memory of the process:
+
+```bash
+cargo bench -p hello_face_core
+# Same, on a real photo (resized to 640x480), to also time a real detection:
+LINUX_HELLO_BENCH_FRAME=face.jpg cargo bench -p hello_face_core
+```
+
+Reference, AMD Ryzen 7 5800X (CPU inference, synthetic frame):
+
+```
+stage                              min    median       p95       max
+detection (SCRFD-500M)        15.67 ms  15.92 ms  16.16 ms  16.25 ms
+embedding (ArcFace MBF)       25.21 ms  25.52 ms  26.54 ms  26.66 ms
+IR liveness score              1.11 ms   1.13 ms   1.13 ms   1.17 ms
+RGB liveness score             1.14 ms   1.15 ms   1.16 ms   1.22 ms
+
+peak RSS: 109 MiB
+```
+
+A frame with a face costs detection + embedding + RGB liveness (~43 ms here).
+A verification needs several consecutive matching frames, so the camera's frame
+rate and its time to first frame usually dominate. Comparing machines or camera
+setups is easier with this output pasted in the issue. Matching against stored
+embeddings (a 512-float dot product each) is negligible next to these numbers.
 
 ## 📚 Documentation
 
