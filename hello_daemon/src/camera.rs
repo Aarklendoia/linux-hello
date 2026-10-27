@@ -924,14 +924,24 @@ impl CameraManager {
         let rgb_lock = Arc::clone(&camera_lock);
         let rgb_stop = Arc::clone(&stop_requested);
         let rgb_devices = Arc::clone(&self.devices);
+        let capture_started = Instant::now();
         let rgb_task = tokio::task::spawn_blocking(move || {
             let _lock = rgb_lock;
             let mut frame_index: u32 = 0;
+            let mut times = StageTimes::default();
+            let mut first_frame = None;
             let mut on_frame = |data: Vec<u8>, w, h| {
                 frame_index += 1;
-                if let Some((embedding, rgb_liveness)) =
-                    score_frame(&**detector, &**extractor, frame_index, &data, w, h)
-                {
+                first_frame.get_or_insert_with(|| capture_started.elapsed());
+                if let Some((embedding, rgb_liveness)) = score_frame_timed(
+                    &**detector,
+                    &**extractor,
+                    frame_index,
+                    &data,
+                    w,
+                    h,
+                    &mut times,
+                ) {
                     if frame_tx.blocking_send((embedding, rgb_liveness)).is_err() {
                         // Consumer is gone (decided already) — stop.
                         return true;
@@ -982,6 +992,7 @@ impl CameraManager {
                     }
                 }
             }
+            (times, first_frame)
         });
 
         // Deliberately staggered behind rgb_task, not spawned in parallel
@@ -1169,13 +1180,17 @@ impl CameraManager {
             }
         }
 
-        rgb_task
+        let (times, first_frame) = rgb_task
             .await
             .map_err(|e| CameraError::CaptureError(e.to_string()))?;
         if let Some(task) = ir_task {
             task.await
                 .map_err(|e| CameraError::CaptureError(e.to_string()))?;
         }
+        info!(
+            "Capture timings: {}",
+            times.summary(first_frame, capture_started.elapsed())
+        );
         Ok(())
     }
 
@@ -1395,7 +1410,78 @@ pub(crate) fn score_frame(
     w: u32,
     h: u32,
 ) -> Option<(Embedding, f32)> {
-    let faces = match detector.detect(data, w, h, 3) {
+    score_frame_timed(
+        detector,
+        extractor,
+        frame_index,
+        data,
+        w,
+        h,
+        &mut StageTimes::default(),
+    )
+}
+
+/// Per-stage time spent on the RGB frames of one `capture_until` call,
+/// logged once at the end of it (#239) so a slow authentication on real
+/// hardware shows where the time went.
+#[derive(Debug, Default)]
+pub(crate) struct StageTimes {
+    frames: u32,
+    faces: u32,
+    detection: Duration,
+    embedding: Duration,
+}
+
+impl StageTimes {
+    fn summary(&self, first_frame: Option<Duration>, total: Duration) -> String {
+        let avg = |d: Duration, n: u32| {
+            if n == 0 {
+                "-".to_string()
+            } else {
+                format!("{:.1} ms", d.as_secs_f64() * 1000.0 / n as f64)
+            }
+        };
+        format!(
+            "first frame {}, {} frames ({} with a face), detection {}/frame, embedding {}/face, total {} ms, peak RSS {}",
+            first_frame.map_or("-".to_string(), |d| format!("{} ms", d.as_millis())),
+            self.frames,
+            self.faces,
+            avg(self.detection, self.frames),
+            avg(self.embedding, self.faces),
+            total.as_millis(),
+            peak_rss_mib().map_or("-".to_string(), |m| format!("{m} MiB")),
+        )
+    }
+}
+
+/// `VmHWM` (this process's peak resident set) from /proc/self/status.
+fn peak_rss_mib() -> Option<u64> {
+    let status = std::fs::read_to_string("/proc/self/status").ok()?;
+    let kib: u64 = status
+        .lines()
+        .find_map(|l| l.strip_prefix("VmHWM:"))?
+        .trim()
+        .trim_end_matches("kB")
+        .trim()
+        .parse()
+        .ok()?;
+    Some(kib / 1024)
+}
+
+fn score_frame_timed(
+    detector: &dyn FaceDetector,
+    extractor: &dyn EmbeddingExtractor,
+    frame_index: u32,
+    data: &[u8],
+    w: u32,
+    h: u32,
+    times: &mut StageTimes,
+) -> Option<(Embedding, f32)> {
+    times.frames += 1;
+    let started = Instant::now();
+    let faces = detector.detect(data, w, h, 3);
+    times.detection += started.elapsed();
+    let faces = match faces {
         Ok(f) => f,
         Err(e) => {
             warn!("SCRFD detection error frame {}: {}", frame_index, e);
@@ -1405,7 +1491,11 @@ pub(crate) fn score_frame(
     let best_face = faces
         .into_iter()
         .max_by(|a, b| a.confidence.total_cmp(&b.confidence))?;
-    let embedding = match extractor.extract(&best_face, data, w, h, 3) {
+    times.faces += 1;
+    let started = Instant::now();
+    let embedding = extractor.extract(&best_face, data, w, h, 3);
+    times.embedding += started.elapsed();
+    let embedding = match embedding {
         Ok(emb) => emb,
         Err(e) => {
             warn!("Embedding extraction frame {}: {}", frame_index, e);
@@ -1422,6 +1512,40 @@ pub(crate) fn score_frame(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stage_times_summary_averages_per_frame_and_per_face() {
+        let times = StageTimes {
+            frames: 4,
+            faces: 2,
+            detection: Duration::from_millis(60),
+            embedding: Duration::from_millis(50),
+        };
+        let line = times.summary(
+            Some(Duration::from_millis(420)),
+            Duration::from_millis(1500),
+        );
+        assert!(
+            line.starts_with("first frame 420 ms, 4 frames (2 with a face)"),
+            "{line}"
+        );
+        assert!(
+            line.contains("detection 15.0 ms/frame, embedding 25.0 ms/face"),
+            "{line}"
+        );
+        assert!(line.contains("total 1500 ms"), "{line}");
+    }
+
+    #[test]
+    fn stage_times_summary_without_frames() {
+        let line = StageTimes::default().summary(None, Duration::from_millis(3));
+        assert!(
+            line.starts_with(
+                "first frame -, 0 frames (0 with a face), detection -/frame, embedding -/face"
+            ),
+            "{line}"
+        );
+    }
 
     #[tokio::test]
     async fn test_camera_manager_creation() {
