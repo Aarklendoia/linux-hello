@@ -28,6 +28,15 @@ use tracing::{debug, warn};
 const RELAY_TIMEOUT: Duration = Duration::from_secs(2);
 
 async fn send(req: &EmbeddingRelayRequest) -> Result<(), String> {
+    // Unit tests enroll and delete faces under the developer's own uid —
+    // on a machine with SDDM face login enabled, that reached the real
+    // hello-daemon-system and planted test embeddings in (or wiped) root's
+    // copy for that uid (#251). Only a test that points the socket somewhere
+    // on purpose gets through.
+    #[cfg(test)]
+    if std::env::var_os("LINUX_HELLO_EMBEDDING_RELAY_SOCKET_PATH").is_none() {
+        return Err("relay disabled in tests".to_string());
+    }
     let socket_path = embedding_relay_socket_path();
     tokio::time::timeout(RELAY_TIMEOUT, send_inner(&socket_path, req))
         .await
