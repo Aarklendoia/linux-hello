@@ -118,7 +118,7 @@ scenario "sudo: match + n, then password"          sudo     match   "n\n$USER_PA
 scenario "sudo: match + n, wrong password"         sudo     match   'n\nwrong\n'            fail contacted
 scenario "sudo: no match, then password"           sudo     nomatch "$USER_PASS\n"          0    contacted "Face not recognized"
 scenario "sudo: no match, wrong password"          sudo     nomatch 'wrong\n'               fail contacted
-scenario "sudo: no models, then password"          sudo     models  "$USER_PASS\n"          0    contacted
+scenario "sudo: no models, then password"          sudo     models  "$USER_PASS\n"          0    contacted "sudo linux-hello models install"
 scenario "su: match + y, no password"              su       match   'y\n'                   0    contacted "Face recognized"
 scenario "polkit-1: match, no confirmation"        polkit-1 match   ''                      0    contacted "Face recognized"
 scenario "login: not handled, password only"       login    match   "$USER_PASS\n"          0    silent
