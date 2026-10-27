@@ -28,10 +28,6 @@ use tokio::sync::{Notify, RwLock};
 use tracing::{error, info, warn};
 use zbus::proxy;
 
-/// Fixed port of the screenlock status/retry control server (loopback only).
-/// Distinct from `preview::MJPEG_PORT` (17823).
-pub const SCREENLOCK_CTRL_PORT: u16 = 17824;
-
 /// Minimum delay between two face-recognition attempts, whether triggered by
 /// a lock transition or a retry request — avoids hammering the camera if the
 /// lock screen fires several retries in quick succession.
@@ -390,6 +386,17 @@ fn extract_token_header(req: &str) -> Option<&str> {
     })
 }
 
+/// Port 0: the kernel picks a free one, published through the port file the
+/// lock screen already reads. A fixed port meant whichever per-user daemon
+/// started first owned it — at login that was the greeter's (`sddm` user's)
+/// daemon, leaving the real session's lock screen with no server at all
+/// ("Service de reconnaissance injoignable").
+async fn bind_control_listener() -> std::io::Result<(tokio::net::TcpListener, u16)> {
+    let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0)).await?;
+    let port = listener.local_addr()?.port();
+    Ok((listener, port))
+}
+
 /// Start the screenlock status/retry control server
 /// (`GET /status`, `POST /retry`) on loopback, and write its port to
 /// `control_port_file_path()`.
@@ -408,13 +415,11 @@ pub async fn start_screenlock_control_server(
     status: SharedScreenlockStatus,
     retry_notify: Arc<Notify>,
 ) -> std::io::Result<()> {
-    use tokio::net::TcpListener;
-
-    let listener = TcpListener::bind(("127.0.0.1", SCREENLOCK_CTRL_PORT)).await?;
+    let (listener, port) = bind_control_listener().await?;
 
     match control_port_file_path() {
         Some(path) => {
-            if let Err(e) = std::fs::write(&path, SCREENLOCK_CTRL_PORT.to_string()) {
+            if let Err(e) = std::fs::write(&path, port.to_string()) {
                 warn!(
                     "Could not write screenlock control port file {}: {} \
                      (status/retry UI in the lock screen won't find the server)",
@@ -451,10 +456,7 @@ pub async fn start_screenlock_control_server(
         ),
     }
 
-    info!(
-        "Screenlock control server: http://127.0.0.1:{}",
-        SCREENLOCK_CTRL_PORT
-    );
+    info!("Screenlock control server: http://127.0.0.1:{}", port);
 
     tokio::spawn(async move {
         loop {
@@ -614,5 +616,12 @@ mod tests {
                 assert_eq!(control_token_file_path(), None);
             }
         }
+    }
+
+    #[tokio::test]
+    async fn two_daemons_each_get_their_own_control_port() {
+        let (_a, port_a) = bind_control_listener().await.unwrap();
+        let (_b, port_b) = bind_control_listener().await.unwrap();
+        assert_ne!(port_a, port_b);
     }
 }

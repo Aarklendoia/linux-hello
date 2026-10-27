@@ -6,6 +6,11 @@ After=dbus.service
 # The PAM module falls back to the password, so security is still ensured.
 StartLimitIntervalSec=60s
 StartLimitBurst=5
+# Not for system accounts: the login greeter runs a user manager as `sddm`
+# too, and a daemon there has nothing to serve (SDDM face login goes through
+# hello-daemon-system) — it only loaded the models and held the loopback
+# ports while the real session's daemon started.
+ConditionUser=!@system
 
 [Service]
 Type=simple
