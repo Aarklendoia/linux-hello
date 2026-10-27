@@ -616,10 +616,11 @@ auth required pam_permit.so
 
 ## PAM Return Codes
 
-- `PAM_SUCCESS`: Authentication succeeded (face recognized)
-- `PAM_AUTH_ERR`: Authentication failed (face not recognized or system error)
-- `PAM_SYSTEM_ERR`: System error (daemon unavailable, etc.)
-- `PAM_IGNORE`: Module cannot authenticate (debug mode)
+- `PAM_SUCCESS`: Authentication succeeded (face recognized, and confirmed when asked)
+- `PAM_AUTH_ERR`: Face not recognized, or the confirmation was declined
+- `PAM_IGNORE`: Nothing was attempted, so the next module (the password) decides:
+  service not handled in `auto` mode, daemon unavailable, face models not
+  installed, or no conversation available to confirm
 
 ## Contexts and Thresholds
 
@@ -719,6 +720,13 @@ The Linux Hello daemon is not running. Start it:
 ```bash
 ./target/debug/hello-daemon
 ```
+
+### "Face models not installed — run: sudo linux-hello models install"
+
+The models aren't shipped (InsightFace's license, see the README), so face
+authentication stays off until they are installed. Run the command shown, or
+use the notice on the settings app's home screen; no daemon restart is needed.
+Until then, every prompt falls straight through to the password.
 
 ### "Unable to retrieve UID for user"
 

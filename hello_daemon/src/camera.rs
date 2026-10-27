@@ -263,6 +263,16 @@ impl CameraManager {
         }
     }
 
+    /// Drops the injected models and looks for real ones in `models_dir`
+    /// instead — an empty directory makes every capture refuse with
+    /// [`CameraError::ModelsMissing`].
+    #[cfg(test)]
+    pub(crate) fn without_models_for_test(mut self, models_dir: std::path::PathBuf) -> Self {
+        self.models = Mutex::new(None);
+        self.models_dir = Some(models_dir);
+        self
+    }
+
     /// Build a `CameraManager` around injected detector/extractor fakes and
     /// an isolated lock file, bypassing `create_detector`/`create_extractor`
     /// (and the real ONNX/model-file dependency that comes with them)
@@ -308,6 +318,13 @@ impl CameraManager {
             *guard = Self::load_models(self.models_dir.as_deref());
         }
         guard.clone().ok_or(CameraError::ModelsMissing)
+    }
+
+    /// Whether the face models are installed (loading them if they just
+    /// appeared). Lets a caller refuse up front, before anything
+    /// user-specific happens — see `pam_helper::compute_verify_response`.
+    pub fn models_available(&self) -> bool {
+        self.models().is_ok()
     }
 
     /// Resolve the lock file path to use: the test override if set, else
@@ -1345,15 +1362,13 @@ mod tests {
     /// A `CameraManager` with no models loaded, looking for them in an empty
     /// scratch directory.
     fn without_models() -> (tempfile::TempDir, CameraManager) {
-        let (dir, mut camera) = for_test(
+        let (dir, camera) = for_test(
             FakeDetector::always_detects(default_face_region(640, 480)),
             FakeExtractor::with_vector(vec![1.0; 512], 0.9),
         );
-        camera.models = Mutex::new(None);
         let empty = dir.path().join("models");
         std::fs::create_dir(&empty).unwrap();
-        camera.models_dir = Some(empty);
-        (dir, camera)
+        (dir, camera.without_models_for_test(empty))
     }
 
     #[tokio::test]
