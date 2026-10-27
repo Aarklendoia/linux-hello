@@ -54,7 +54,9 @@ overridable (`PAM_DIR`, `LH_SDDM_MARKER`, `LH_PAM_CONFIGS_DIR`, `LH_PAM_AUTH_UPD
 `pam-lib.sh` instead of the installed `/usr/lib/linux-hello/pam-lib.sh` (which otherwise wins
 silently). For real PAM behavior, an `ubuntu:<series>` Docker container with `pamtester`, the
 built `.so` and the real `pam-auth-update` works well — run `pamtester` as a non-root user for
-`su`/`su-l`, since `pam_rootok.so` short-circuits them for root.
+`su`/`su-l`, since `pam_rootok.so` short-circuits them for root. That setup is scripted in
+`tests/pam-e2e/run.sh` (CI job `pam-e2e`, one run per supported series): add a scenario there for
+any change to the profile, `auto_context_for_service` or the helper protocol.
 
 **Key design decisions, in case they need re-justifying:**
 - **PCR16, not PCR23**, for the "liveness" tag extended after a face match. `tss-esapi`'s own

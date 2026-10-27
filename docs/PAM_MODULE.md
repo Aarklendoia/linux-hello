@@ -673,9 +673,17 @@ dbus-send --session --print-reply \
 
 ### PAM Test with pamtester
 
-```bash
-# See the project sources for the full test script
-./test-pam-full.sh
+`tests/pam-e2e/run.sh` loads the built module into the real Linux-PAM through
+the real `pam-auth-update` profile, with a fake daemon on the helper socket,
+and checks every service mapping, the confirmation, the fallback to the
+password, the SDDM marker and system socket, and the legacy migration. It
+rewrites `/etc/pam.d`, so it only runs in a throwaway container (CI runs it on
+every supported Ubuntu series):
+
+```fish
+cargo build -p pam_linux_hello --profile ci
+docker run --rm -v "$PWD:/src:ro" ubuntu:resolute \
+    bash /src/tests/pam-e2e/run.sh /src/target/ci/libpam_linux_hello.so
 ```
 
 ## Security

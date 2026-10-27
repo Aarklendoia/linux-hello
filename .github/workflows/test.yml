@@ -60,3 +60,42 @@ jobs:
           LINUX_HELLO_NO_MODEL_DOWNLOAD: "1"
         run: |
           cargo test --all --profile ci
+
+  # pam_linux_hello.so loaded by the real Linux-PAM through the real
+  # pam-auth-update profile, on each Ubuntu series we publish for, with a fake
+  # daemon on the helper socket (tests/pam-e2e/run.sh, #237). Catches what
+  # unit tests can't: a control line Linux-PAM misparses, a service mapped to
+  # the wrong context, a broken fallback to the password.
+  pam-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        series: [ resolute, stonking ]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpam0g-dev pkg-config
+
+      - name: Cache cargo registry
+        uses: actions/cache@v6
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build the PAM module
+        run: cargo build -p pam_linux_hello --profile ci
+
+      - name: Run PAM scenarios in ubuntu:${{ matrix.series }}
+        run: |
+          docker run --rm -v "$PWD:/src:ro" "ubuntu:${{ matrix.series }}" \
+            bash /src/tests/pam-e2e/run.sh /src/target/ci/libpam_linux_hello.so
