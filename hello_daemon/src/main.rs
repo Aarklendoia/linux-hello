@@ -176,8 +176,7 @@ async fn main() -> anyhow::Result<()> {
 
     info!("✓ D-Bus service registered: com.linuxhello.FaceAuth");
     info!("  Interface: /com/linuxhello/FaceAuth");
-    info!("  Methods: register_face, verify, delete_face, list_faces, ping");
-    info!("  Signals: CaptureProgress, CaptureCompleted, CaptureError");
+    info!("  Spec: docs/dbus/com.linuxhello.FaceAuth.xml");
 
     // Keep the daemon running indefinitely
     info!("Daemon ready. Press Ctrl+C to stop.");

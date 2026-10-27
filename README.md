@@ -97,7 +97,7 @@ If no face is detected or the match fails, PAM falls back to the normal password
 | `linux_hello_cli` | bin (`linux-hello`) | CLI for enrollment, verification and management |
 | `linux_hello_config` | bin | Qt6/QML/Kirigami configuration GUI, with 10-language i18n |
 
-Each crate builds and tests independently; see [docs/DESIGN.md](docs/DESIGN.md) (D-Bus/PAM design) for details.
+Each crate builds and tests independently; see [docs/DESIGN.md](docs/DESIGN.md) (D-Bus/PAM design) for details. The daemon's D-Bus API is documented in [docs/DBUS_API.md](docs/DBUS_API.md).
 
 ## Installing from Debian packages
 

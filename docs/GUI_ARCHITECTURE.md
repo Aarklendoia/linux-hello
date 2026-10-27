@@ -61,33 +61,15 @@ linux-hello-rust/
 
 ## 📡 D-Bus Communication
 
-### Streaming Signals (Daemon → GUI)
+> This document is an early design note; the D-Bus section below has been
+> updated, the rest predates the Qt/Kirigami GUI.
 
-```
-com.linuxhello.FaceAuth.CaptureProgress
-├── frame_number: u32          # 0-indexed
-├── total_frames: u32          # 30
-├── frame_data: ay             # Vec<u8> RGB
-├── width: u32                 # 640
-├── height: u32                # 480
-├── face_detected: b           # bool
-├── face_box: (iiii)           # x, y, w, h optional
-└── quality_score: d           # f32 (0.0-1.0)
-```
-
-### D-Bus Methods (GUI → Daemon)
-
-```
-com.linuxhello.FaceAuth.StartCapture(
-    user_id: u32,
-    num_frames: u32,
-    timeout_ms: u64
-) → OK or error
-
-com.linuxhello.FaceAuth.CancelCapture() → OK
-
-com.linuxhello.FaceAuth.ListFaces(user_id: u32) → [FaceInfo]
-```
+The GUI talks to the per-user daemon over `com.linuxhello.FaceAuth`; see
+[DBUS_API.md](DBUS_API.md) for the methods and their JSON payloads, and
+[dbus/com.linuxhello.FaceAuth.xml](dbus/com.linuxhello.FaceAuth.xml) for the
+introspection data. The enrollment preview uses no D-Bus signal: the GUI calls
+`StartCaptureStream`, polls `GetCaptureStatus` for the detection state, and
+shows frames from the daemon's local MJPEG server (`/snapshot`).
 
 ## 🔄 Enrollment Flow
 

@@ -16,7 +16,6 @@ pub mod camera;
 pub mod capture_stream;
 pub mod dbus;
 pub mod dbus_interface;
-pub mod dbus_signals;
 pub mod embedding_cipher;
 pub mod embedding_relay;
 pub mod matcher;
@@ -160,9 +159,7 @@ pub struct FaceAuthDaemon {
     /// Gate on register_face/delete_face — see `authz` module docs. Defaults
     /// to `AllowAll` (no gate) here so every existing test constructing a
     /// daemon via `new`/`new_for_test` is unaffected; production wires the
-    /// real check explicitly via `with_enrollment_authorizer` (see main.rs),
-    /// the same opt-in pattern `new_with_connection`/`from_arc` already use
-    /// for `FaceAuthInterface`'s signal emitter.
+    /// real check explicitly via `with_enrollment_authorizer` (see main.rs).
     enrollment_authorizer: EnrollmentAuthorizer,
 }
 

@@ -3,7 +3,6 @@
 //! Wrapper that exposes the daemon's operations via D-Bus
 
 use crate::dbus_interface::{DeleteFaceRequest, RegisterFaceRequest, VerifyRequest};
-use crate::dbus_signals::StreamingSignalEmitter;
 use crate::FaceAuthDaemon;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -13,7 +12,6 @@ use zbus::interface;
 /// D-Bus wrapper around the daemon
 pub struct FaceAuthInterface {
     daemon: Arc<RwLock<FaceAuthDaemon>>,
-    signal_emitter: Option<Arc<StreamingSignalEmitter>>,
     version: String,
     storage_path: String,
 }
@@ -30,12 +28,11 @@ fn parse_request<T: serde::de::DeserializeOwned>(request_json: &str) -> zbus::fd
 }
 
 impl FaceAuthInterface {
-    /// Create a new interface without a signal emitter (backward compatible)
+    /// Create a new interface owning `daemon`
     pub fn new(daemon: FaceAuthDaemon) -> Self {
         let storage_path = daemon.config().storage_path.to_string_lossy().into_owned();
         Self {
             daemon: Arc::new(RwLock::new(daemon)),
-            signal_emitter: None,
             version: env!("CARGO_PKG_VERSION").to_string(),
             storage_path,
         }
@@ -43,10 +40,8 @@ impl FaceAuthInterface {
 
     /// Create from a shared Arc (allows sharing the daemon with the PAM helper)
     pub fn from_arc(daemon: Arc<RwLock<FaceAuthDaemon>>, storage_path: String) -> Self {
-        let signal_emitter = Arc::new(StreamingSignalEmitter::new());
         Self {
             daemon,
-            signal_emitter: Some(signal_emitter),
             version: env!("CARGO_PKG_VERSION").to_string(),
             storage_path,
         }
@@ -268,10 +263,12 @@ impl FaceAuthInterface {
         ))
     }
 
-    /// Start a streaming capture session with signal emission
+    /// Start a streaming capture session for the live enrollment preview
     ///
-    /// Emits `CaptureProgress` D-Bus signals for each captured frame.
-    /// The GUI subscribes to these signals to display the live preview.
+    /// Blocks until the capture ends. Each frame is written as a JPEG for
+    /// the GUI preview (see `preview::export_preview_frame_rgb`), and the
+    /// detection outcome is published for `GetCaptureStatus`, which the GUI
+    /// polls meanwhile. No D-Bus signal is emitted.
     ///
     /// # Arguments
     /// * `user_id` - UID of the user enrolling
@@ -279,10 +276,7 @@ impl FaceAuthInterface {
     /// * `timeout_ms` - Timeout in milliseconds (120000 by default = 2 minutes)
     ///
     /// # Returns
-    /// "OK" if the capture started successfully, or an error
-    ///
-    /// # D-Bus Signal Emitted
-    /// `CaptureProgress(event_json: &str)` - Emitted for each frame
+    /// "OK" once the capture finished, or an error
     pub async fn start_capture_stream(
         &self,
         user_id: u32,
@@ -303,10 +297,7 @@ impl FaceAuthInterface {
         let daemon = self.daemon.read().await;
         let camera_manager = daemon.camera_manager();
 
-        // Clone the signal emitter for use in the closure
-        let _signal_emitter = self.signal_emitter.clone();
-
-        // Capture the frames with a callback that emits the signals
+        // Capture the frames, exporting each one for the GUI preview
         let result = camera_manager
             .start_capture_stream(num_frames, timeout_ms, move |event| {
                 info!(
@@ -333,28 +324,11 @@ impl FaceAuthInterface {
 
         match result {
             Ok(_) => {
-                info!("start_capture_stream succeeded");
-
-                // Emit the completion signal
-                if let Some(emitter) = &self.signal_emitter {
-                    if let Err(e) = emitter.emit_capture_completed(user_id).await {
-                        error!("CaptureCompleted emission error: {}", e);
-                    }
-                }
-
+                info!("start_capture_stream succeeded for user_id={}", user_id);
                 Ok("OK".to_string())
             }
             Err(e) => {
-                error!("start_capture_stream failed: {}", e);
-
-                // Emit the error signal
-                if let Some(emitter) = &self.signal_emitter {
-                    let error_msg = format!("{}", e);
-                    if let Err(e) = emitter.emit_capture_error(user_id, &error_msg).await {
-                        error!("CaptureError emission error: {}", e);
-                    }
-                }
-
+                error!("start_capture_stream failed for user_id={}: {}", user_id, e);
                 Err(zbus::fdo::Error::Failed(e.to_string()))
             }
         }
@@ -462,6 +436,45 @@ mod tests {
         } else {
             1
         }
+    }
+
+    /// The interface as `org.freedesktop.DBus.Introspectable` reports it,
+    /// wrapped in the `<node>` a client gets from the real object path.
+    fn introspection_xml(iface: &FaceAuthInterface) -> String {
+        let mut xml = String::from(
+            "<!DOCTYPE node PUBLIC \"-//freedesktop//DTD D-BUS Object Introspection 1.0//EN\"\n \
+             \"http://www.freedesktop.org/standards/dbus/1.0/introspect.dtd\">\n\
+             <node name=\"/com/linuxhello/FaceAuth\">\n",
+        );
+        zbus::object_server::Interface::introspect_to_writer(iface, &mut xml, 2);
+        xml.push_str("</node>\n");
+        xml
+    }
+
+    /// docs/dbus/com.linuxhello.FaceAuth.xml is the published spec (#236):
+    /// it must be regenerated whenever the interface changes. To do so:
+    /// `env LINUX_HELLO_UPDATE_DBUS_XML=1 cargo test -p hello_daemon dbus_introspection_xml`
+    #[tokio::test]
+    async fn test_dbus_introspection_xml_is_up_to_date() {
+        let (_temp, iface) = test_interface();
+        let xml = introspection_xml(&iface);
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../docs/dbus/com.linuxhello.FaceAuth.xml");
+
+        if std::env::var_os("LINUX_HELLO_UPDATE_DBUS_XML").is_some() {
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, &xml).unwrap();
+            return;
+        }
+
+        let published = std::fs::read_to_string(&path).unwrap_or_default();
+        assert!(
+            published == xml,
+            "{} is out of date with the com.linuxhello.FaceAuth interface; regenerate it with \
+             `env LINUX_HELLO_UPDATE_DBUS_XML=1 cargo test -p hello_daemon dbus_introspection_xml` \
+             and review the diff",
+            path.display()
+        );
     }
 
     #[tokio::test]

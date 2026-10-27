@@ -1,0 +1,177 @@
+<!DOCTYPE node PUBLIC "-//freedesktop//DTD D-BUS Object Introspection 1.0//EN"
+ "http://www.freedesktop.org/standards/dbus/1.0/introspect.dtd">
+<node name="/com/linuxhello/FaceAuth">
+  <interface name="com.linuxhello.FaceAuth">
+    <!--
+     Runs register_face/delete_face's permission + interactive-
+     authorization gate on its own, with no camera capture attached.
+
+     Meant to be called by the GUI right when the user clicks "Démarrer"
+     on the enrollment screen — *before* `StartCaptureStream` — so the
+     polkit password/confirmation prompt appears immediately, with no
+     live preview capture in flight yet to race against. `RegisterFace`
+     still runs this same check itself right before capturing, so
+     skipping this call (or calling `RegisterFace` directly) is safe,
+     just loses the earlier prompt.
+
+     # Arguments
+     * `user_id` - UID of the user enrolling
+     -->
+    <method name="AuthorizeEnrollment">
+      <arg name="user_id" type="u" direction="in"/>
+    </method>
+    <!--
+     Register a new face for a user
+
+     # Arguments
+     * `request_json` - JSON string of RegisterFaceRequest
+
+     # Returns
+     JSON string of RegisterFaceResponse or error
+     -->
+    <method name="RegisterFace">
+      <arg name="request_json" type="s" direction="in"/>
+      <arg type="s" direction="out"/>
+    </method>
+    <!--
+     Delete one or all faces
+
+     # Arguments
+     * `request_json` - JSON string of DeleteFaceRequest
+     -->
+    <method name="DeleteFace">
+      <arg name="request_json" type="s" direction="in"/>
+    </method>
+    <!--
+     Verify a user's identity
+
+     # Arguments
+     * `request_json` - JSON string of VerifyRequest
+
+     # Returns
+     JSON string of VerifyResult
+     -->
+    <method name="Verify">
+      <arg name="request_json" type="s" direction="in"/>
+      <arg type="s" direction="out"/>
+    </method>
+    <!--
+     List the faces registered for a user
+
+     # Arguments
+     * `user_id` - User UID
+
+     # Returns
+     JSON array of FaceRecord
+     -->
+    <method name="ListFaces">
+      <arg name="user_id" type="u" direction="in"/>
+      <arg type="s" direction="out"/>
+    </method>
+    <!--
+     Connection test
+     -->
+    <method name="Ping">
+      <arg type="s" direction="out"/>
+    </method>
+    <!--
+     Whether the active camera has an infrared channel.
+
+     Without one, `matcher::match_with_liveness` falls back to a weaker,
+     RGB-only liveness heuristic instead of the well-validated IR gate
+     (see its doc comment and `hello_face_core::liveness::rgb_liveness_score`).
+     The GUI uses this to warn users on a camera without IR that their
+     setup is more susceptible to a photo/video spoof than the common
+     case — that's still true with the RGB fallback in place, just less
+     starkly than with no check at all.
+
+     # Returns
+     JSON `{"has_ir": bool}`
+     -->
+    <method name="CameraInfo">
+      <arg type="s" direction="out"/>
+    </method>
+    <!--
+     Whether face embeddings are currently being encrypted at rest — a TPM
+     (and, for this non-root daemon, a reachable `tpm2-abrmd`) must be
+     available (see `embedding_cipher`'s module docs and
+     https://github.com/Aarklendoia/linux-hello/issues/152). Same
+     "disclose a hardware/environment limitation where the user makes the
+     relevant choice" convention as `camera_info`'s IR warning — the GUI
+     uses this to warn on the enrollment screen when it's `false`.
+
+     Real TPM I/O (`spawn_blocking`, no daemon lock held for it — this
+     doesn't depend on any daemon state).
+
+     # Returns
+     JSON `{"encrypted": bool}`
+     -->
+    <method name="EmbeddingEncryptionInfo">
+      <arg type="s" direction="out"/>
+    </method>
+    <!--
+     Best-effort, in-memory snapshot of the most recent preview frame's
+     face-detection outcome — cheap enough to poll frequently (no camera
+     I/O, just reading `CameraManager::live_status()`'s mutex). Only
+     meaningful while a `StartCaptureStream` call is in flight; the GUI
+     polls this during the enrollment preview to show real-time
+     "recherche du visage…" / "visage détecté" feedback instead of
+     nothing at all until registration succeeds or fails at the very end.
+
+     # Returns
+     JSON `{"face_detected": bool, "quality_score": f32}`
+     -->
+    <method name="GetCaptureStatus">
+      <arg type="s" direction="out"/>
+    </method>
+    <!--
+     Start a streaming capture session for the live enrollment preview
+
+     Blocks until the capture ends. Each frame is written as a JPEG for
+     the GUI preview (see `preview::export_preview_frame_rgb`), and the
+     detection outcome is published for `GetCaptureStatus`, which the GUI
+     polls meanwhile. No D-Bus signal is emitted.
+
+     # Arguments
+     * `user_id` - UID of the user enrolling
+     * `num_frames` - Number of frames to capture (30 by default)
+     * `timeout_ms` - Timeout in milliseconds (120000 by default = 2 minutes)
+
+     # Returns
+     "OK" once the capture finished, or an error
+     -->
+    <method name="StartCaptureStream">
+      <arg name="user_id" type="u" direction="in"/>
+      <arg name="num_frames" type="u" direction="in"/>
+      <arg name="timeout_ms" type="t" direction="in"/>
+      <arg type="s" direction="out"/>
+    </method>
+    <!--
+     Stops an in-flight `start_capture_stream` call and blocks until the
+     camera is actually free again.
+
+     Needed because `register_face`'s interactive authorization step (and
+     then its own capture) can trigger a real face-verification capture
+     on the same V4L2 device the GUI's live enrollment preview is still
+     streaming from — without a way to actually stop the preview first
+     (and confirm it's gone), the two silently collided and enrollment
+     failed with "No face detected". The GUI now calls this and waits
+     for it to return before calling `RegisterFace`.
+     -->
+    <method name="StopCaptureStream">
+    </method>
+    <!--
+     Check whether a camera is available
+     -->
+    <property name="CameraAvailable" type="b" access="read"/>
+    <!--
+     Root or user mode
+     -->
+    <property name="RootMode" type="b" access="read"/>
+    <!--
+     Storage path
+     -->
+    <property name="StoragePath" type="s" access="read"/>
+    <property name="Version" type="s" access="read"/>
+  </interface>
+</node>
