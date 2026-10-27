@@ -49,7 +49,7 @@ fn main() {
 
     let (rgb, width, height, source) = frame();
     println!("frame: {source}, {width}x{height}\n");
-    let gray: Vec<u8> = rgb.chunks_exact(3).map(|p| p[1]).collect();
+    let gray: Vec<u8> = rgb.as_chunks::<3>().0.iter().map(|p| p[1]).collect();
 
     let detected = detector
         .detect(&rgb, width, height, 3)
